@@ -55,7 +55,24 @@ export default defineConfig({
   },
   renderer: {
     build: {
-      outDir: 'out/renderer'
+      outDir: 'out/renderer',
+      rollupOptions: {
+        output: {
+          // React + scheduler load as a stable vendor chunk; browsers cache
+          // it across app updates and the app entry stays small.
+          manualChunks(id: string) {
+            if (
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/react/') ||
+              id.includes('node_modules/scheduler') ||
+              id.includes('node_modules/react/jsx-runtime')
+            ) {
+              return 'vendor-react'
+            }
+            return undefined
+          }
+        }
+      }
     },
     plugins: [react(), tailwindcss(), cspPlugin()]
   }

@@ -184,9 +184,12 @@ function applyToolResult(state: ChatViewState, message: AgentMessage): void {
     args: {},
     status: 'done' as const
   }
-  run.status = message.isError ? 'error' : 'done'
-  run.result = { content: message.content, details: message.details }
-  state.toolRuns[message.toolCallId] = run
+  // Replace rather than mutate: memoized tool cards skip identical runs.
+  state.toolRuns[message.toolCallId] = {
+    ...run,
+    status: message.isError ? 'error' : 'done',
+    result: { content: message.content, details: message.details }
+  }
 }
 
 /** Rebuild view state from a persisted `get_messages` list. */
@@ -228,18 +231,16 @@ function streamingAssistant(state: ChatViewState): Extract<DisplayMessage, { kin
   return fresh
 }
 
-function ensureBlock(
-  message: Extract<DisplayMessage, { kind: 'assistant' }>,
-  contentIndex: number,
-  make: () => DisplayBlock
-): DisplayBlock {
-  const existing = message.blocks[contentIndex]
-  if (existing) {
-    return existing
+/**
+ * Swap `prev` for `next` in the message list. Streaming updates replace the
+ * message object instead of mutating it so React.memo rows can skip
+ * unchanged messages by reference.
+ */
+function replaceMessage(state: ChatViewState, prev: DisplayMessage, next: DisplayMessage): void {
+  const index = state.messages.lastIndexOf(prev)
+  if (index >= 0) {
+    state.messages[index] = next
   }
-  const block = make()
-  message.blocks[contentIndex] = block
-  return block
 }
 
 function applyAssistantDelta(
@@ -248,72 +249,70 @@ function applyAssistantDelta(
 ): void {
   const message = streamingAssistant(state)
   const idx = event.contentIndex
+  const existing = message.blocks[idx]
+  const replaceBlock = (block: DisplayBlock): void => {
+    if (block === existing) {
+      return
+    }
+    const blocks = message.blocks.slice()
+    blocks[idx] = block
+    replaceMessage(state, message, { ...message, blocks })
+  }
   switch (event.type) {
     case 'text_start':
-      ensureBlock(message, idx, () => ({ type: 'text', text: '' }))
-      break
-    case 'text_delta': {
-      const block = ensureBlock(message, idx, () => ({ type: 'text', text: '' }))
-      if (block.type === 'text') {
-        block.text += event.delta
+      if (!existing) {
+        replaceBlock({ type: 'text', text: '' })
       }
       break
-    }
-    case 'text_end': {
-      const block = ensureBlock(message, idx, () => ({ type: 'text', text: '' }))
-      if (block.type === 'text') {
-        block.text = event.content
-      }
+    case 'text_delta':
+      replaceBlock({
+        type: 'text',
+        text: (existing?.type === 'text' ? existing.text : '') + event.delta
+      })
       break
-    }
+    case 'text_end':
+      replaceBlock({ type: 'text', text: event.content })
+      break
     case 'thinking_start':
-      ensureBlock(message, idx, () => ({ type: 'thinking', thinking: '' }))
-      break
-    case 'thinking_delta': {
-      const block = ensureBlock(message, idx, () => ({ type: 'thinking', thinking: '' }))
-      if (block.type === 'thinking') {
-        block.thinking += event.delta
+      if (!existing) {
+        replaceBlock({ type: 'thinking', thinking: '' })
       }
       break
-    }
-    case 'thinking_end': {
-      const block = ensureBlock(message, idx, () => ({ type: 'thinking', thinking: '' }))
-      if (block.type === 'thinking') {
-        block.thinking = event.content
-      }
+    case 'thinking_delta':
+      replaceBlock({
+        type: 'thinking',
+        thinking: (existing?.type === 'thinking' ? existing.thinking : '') + event.delta
+      })
       break
-    }
+    case 'thinking_end':
+      replaceBlock({ type: 'thinking', thinking: event.content })
+      break
     case 'toolcall_start':
-      ensureBlock(message, idx, () => ({
+      replaceBlock({
         type: 'toolCall',
         id: event.id,
         name: event.toolName,
         argsText: '',
         arguments: {}
-      }))
+      })
       break
-    case 'toolcall_delta': {
-      const block = ensureBlock(message, idx, () => ({
+    case 'toolcall_delta':
+      replaceBlock({
         type: 'toolCall',
-        id: `call_${idx}`,
-        name: '',
-        argsText: '',
-        arguments: {}
-      }))
-      if (block.type === 'toolCall') {
-        block.argsText = (block.argsText ?? '') + event.delta
-      }
+        id: existing?.type === 'toolCall' ? existing.id : `call_${idx}`,
+        name: existing?.type === 'toolCall' ? existing.name : '',
+        argsText: (existing?.type === 'toolCall' ? (existing.argsText ?? '') : '') + event.delta,
+        arguments: existing?.type === 'toolCall' ? existing.arguments : {}
+      })
       break
-    }
-    case 'toolcall_end': {
-      message.blocks[idx] = {
+    case 'toolcall_end':
+      replaceBlock({
         type: 'toolCall',
         id: event.toolCall.id,
         name: event.toolCall.name,
         arguments: event.toolCall.arguments
-      }
+      })
       break
-    }
   }
 }
 
@@ -406,14 +405,16 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         .map((b) => b.text)
         .join('')
       if (run) {
-        run.partialText = partialText ?? run.partialText
+        if (partialText !== undefined) {
+          state.toolRuns[event.toolCallId] = { ...run, partialText }
+        }
       } else {
         state.toolRuns[event.toolCallId] = {
           toolCallId: event.toolCallId,
           name: event.toolName,
           args: event.args,
           status: 'running',
-          partialText
+          ...(partialText !== undefined ? { partialText } : {})
         }
       }
       return false
@@ -426,10 +427,9 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         args: {},
         status: 'done' as const
       }
-      run.status = event.isError ? 'error' : 'done'
-      run.result = event.result
-      run.partialText = undefined
-      state.toolRuns[event.toolCallId] = run
+      const next: ToolRun = { ...run, status: event.isError ? 'error' : 'done', result: event.result }
+      delete next.partialText
+      state.toolRuns[event.toolCallId] = next
       return false
     }
 

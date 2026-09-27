@@ -167,8 +167,10 @@ export function initChatBridge(): void {
   }
   bridgeInitialized = true
 
-  window.piDesktop.chat.onEvent(({ chatId, event }) => {
-    enqueueEvent(chatId, event)
+  window.piDesktop.chat.onEvent(({ chatId, events }) => {
+    for (const event of events) {
+      enqueueEvent(chatId, event)
+    }
   })
 
   // Live catalog/state the moment the chat's pi process answers — replaces
@@ -190,11 +192,7 @@ export function initChatBridge(): void {
     if (draft.status === 'starting') {
       draft.status = ready.state.isStreaming ? 'streaming' : 'idle'
     }
-    for (const message of draft.messages) {
-      if (message.kind === 'user') {
-        message.queued = false
-      }
-    }
+    clearQueuedFlags(draft)
     publish(ready.chatId)
   })
 
@@ -259,12 +257,21 @@ function applyOpenResult(
       draft.title = firstUser.text.slice(0, 80)
     }
   }
-  for (const message of draft.messages) {
-    if (message.kind === 'user') {
-      message.queued = false
+  clearQueuedFlags(draft)
+  publish(chatId)
+}
+
+/**
+ * Drop the "queued — waiting for pi" marker once the process answered.
+ * Replaces message objects so memoized rows re-render.
+ */
+function clearQueuedFlags(draft: ChatState): void {
+  for (let i = 0; i < draft.messages.length; i++) {
+    const message = draft.messages[i]!
+    if (message.kind === 'user' && message.queued) {
+      draft.messages[i] = { ...message, queued: false }
     }
   }
-  publish(chatId)
 }
 
 let optimisticCounter = 0

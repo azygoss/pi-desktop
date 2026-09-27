@@ -214,14 +214,16 @@ export function DiffPanel({ active }: { active: boolean }) {
     if (!active || !chatId) {
       return
     }
-    return window.piDesktop.chat.onEvent(({ chatId: cid, event }) => {
+    return window.piDesktop.chat.onEvent(({ chatId: cid, events }) => {
       if (cid !== chatId) {
         return
       }
-      if (event.type === 'agent_end') {
-        debouncedRefresh()
-      } else if (event.type === 'tool_execution_end' && WRITE_TOOLS.test(event.toolName)) {
-        debouncedRefresh()
+      for (const event of events) {
+        if (event.type === 'agent_end') {
+          debouncedRefresh()
+        } else if (event.type === 'tool_execution_end' && WRITE_TOOLS.test(event.toolName)) {
+          debouncedRefresh()
+        }
       }
     })
   }, [active, chatId, debouncedRefresh])

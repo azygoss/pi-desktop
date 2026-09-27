@@ -1,9 +1,10 @@
 import { createReadStream, existsSync, watch, type FSWatcher } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { collapseWhitespace, truncateText } from '../../shared/text'
 import type { ProjectSummary, SessionSummary } from '../../shared/session-types'
 import { createJsonlReader } from '../pi/jsonl'
+import { appUserDataDir } from '../config/app-paths'
 import { getSessionsDir } from './paths'
 
 export type { ProjectSummary, SessionSummary } from '../../shared/session-types'
@@ -20,9 +21,101 @@ interface CacheEntry {
 
 const summaryCache = new Map<string, CacheEntry>()
 
-/** Test hook: drop all cached summaries. */
+const PERSIST_DEBOUNCE_MS = 800
+const PERSIST_MAX_ENTRIES = 5000
+
+let persistedLoaded = false
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistPath(): string {
+  return join(appUserDataDir(), 'session-index-cache.json')
+}
+
+function isPersistedSummary(value: unknown): value is SessionSummary {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+  const s = value as Record<string, unknown>
+  return (
+    typeof s['id'] === 'string' &&
+    typeof s['path'] === 'string' &&
+    typeof s['cwd'] === 'string' &&
+    typeof s['title'] === 'string' &&
+    typeof s['created'] === 'string' &&
+    typeof s['modified'] === 'string' &&
+    typeof s['messageCount'] === 'number'
+  )
+}
+
+/**
+ * Seed the in-memory cache from userData so a cold app start only has to
+ * stat session files and reparse the ones whose mtime/size changed. Loaded
+ * once per app run; a corrupt file simply means a cold start.
+ */
+async function loadPersistedCache(): Promise<void> {
+  if (persistedLoaded) {
+    return
+  }
+  persistedLoaded = true
+  try {
+    const raw: unknown = JSON.parse(await readFile(persistPath(), 'utf8'))
+    const entries = (raw as { entries?: unknown[] } | null)?.entries
+    if (!Array.isArray(entries)) {
+      return
+    }
+    for (const entry of entries) {
+      if (entry === null || typeof entry !== 'object') {
+        continue
+      }
+      const e = entry as Record<string, unknown>
+      if (
+        typeof e['path'] === 'string' &&
+        typeof e['mtimeMs'] === 'number' &&
+        typeof e['size'] === 'number' &&
+        isPersistedSummary(e['summary'])
+      ) {
+        summaryCache.set(e['path'], {
+          mtimeMs: e['mtimeMs'],
+          size: e['size'],
+          summary: e['summary']
+        })
+      }
+    }
+  } catch {
+    // No cache yet or corrupt — fine.
+  }
+}
+
+function schedulePersist(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+  }
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    const entries = [...summaryCache.entries()]
+      .map(([path, e]) => ({ path, mtimeMs: e.mtimeMs, size: e.size, summary: e.summary }))
+      .slice(-PERSIST_MAX_ENTRIES)
+    void (async () => {
+      try {
+        const file = persistPath()
+        await mkdir(dirname(file), { recursive: true })
+        await writeFile(file, JSON.stringify({ entries }))
+      } catch {
+        // userData unavailable (tests) or unwritable — non-fatal
+      }
+    })()
+  }, PERSIST_DEBOUNCE_MS)
+  persistTimer.unref?.()
+}
+
+/** Test hook: drop all cached summaries and forget the disk seed ran. */
 export function clearSessionIndexCache(): void {
   summaryCache.clear()
+  persistedLoaded = false
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
 }
 
 interface ParsedSession {
@@ -157,6 +250,7 @@ async function summarizeFile(filePath: string): Promise<SessionSummary | null> {
       : {})
   }
   summaryCache.set(filePath, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, summary })
+  schedulePersist()
   return summary
 }
 
@@ -165,6 +259,7 @@ export async function listSessions(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<SessionSummary[]> {
   const perfStart = process.env['PI_DESKTOP_PERF'] ? performance.now() : 0
+  await loadPersistedCache()
   const sessionsDir = getSessionsDir(env)
   let projectDirs: string[]
   try {

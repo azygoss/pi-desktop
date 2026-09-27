@@ -1059,6 +1059,16 @@ body {
   color: var(--muted);
 }
 
+/* Long chats: skip layout/paint for off-screen rows; the intrinsic size
+   estimate keeps the scrollbar stable while they are skipped. */
+.msg-user-row,
+.msg-assistant,
+.msg-notice,
+.tool-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
 .msg-user-row {
   display: flex;
   justify-content: flex-end;

@@ -11,7 +11,7 @@ import {
   Wrench,
   X
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
@@ -251,7 +251,7 @@ function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   )
 }
 
-export function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
+export const ToolCard = memo(function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -273,4 +273,4 @@ export function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
       {open && <ToolDetail run={run} cwd={cwd} />}
     </div>
   )
-}
+})

@@ -1,11 +1,15 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { CodeBlock } from './CodeBlock'
 
-/** Render assistant markdown; fenced code blocks get shiki highlighting. */
-export function Markdown({ text }: { text: string }) {
+/**
+ * Render assistant markdown; fenced code blocks get shiki highlighting.
+ * Memoized on `text`: during a stream only the in-flight block re-parses —
+ * finalized blocks keep the same string and skip ReactMarkdown entirely.
+ */
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const components = useMemo(
     () => ({
       code(props: { className?: string; children?: React.ReactNode }) {
@@ -35,4 +39,4 @@ export function Markdown({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   )
-}
+})

@@ -30,6 +30,14 @@ export interface AppSettings {
   /** Right panel open state and pixel width, persisted across restarts. */
   panelOpen: boolean
   panelWidth: number
+  /** Last window geometry; restored on launch when present. */
+  windowBounds?: {
+    width: number
+    height: number
+    x?: number
+    y?: number
+    maximized?: boolean
+  }
 }
 
 export const PANEL_MIN_WIDTH = 320
@@ -86,6 +94,34 @@ function normalizeCwdList(value: unknown): string[] | undefined {
   return value.filter((p): p is string => typeof p === 'string' && p.startsWith('/'))
 }
 
+function normalizeWindowBounds(
+  value: unknown
+): AppSettings['windowBounds'] | undefined {
+  if (value === null || typeof value !== 'object') {
+    return undefined
+  }
+  const b = value as Record<string, unknown>
+  const width = Number(b['width'])
+  const height = Number(b['height'])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 200 || height < 200) {
+    return undefined
+  }
+  const bounds: NonNullable<AppSettings['windowBounds']> = {
+    width: Math.min(Math.floor(width), 10000),
+    height: Math.min(Math.floor(height), 10000)
+  }
+  const x = Number(b['x'])
+  const y = Number(b['y'])
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    bounds.x = Math.floor(x)
+    bounds.y = Math.floor(y)
+  }
+  if (typeof b['maximized'] === 'boolean') {
+    bounds.maximized = b['maximized']
+  }
+  return bounds
+}
+
 export function normalizeAppSettings(raw: unknown): AppSettings {
   const settings: AppSettings = {
     ...DEFAULT_APP_SETTINGS,
@@ -138,6 +174,10 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   const panelWidth = Number(input['panelWidth'])
   if (Number.isFinite(panelWidth)) {
     settings.panelWidth = Math.max(PANEL_MIN_WIDTH, Math.min(1200, Math.floor(panelWidth)))
+  }
+  const bounds = normalizeWindowBounds(input['windowBounds'])
+  if (bounds) {
+    settings.windowBounds = bounds
   }
   return settings
 }
@@ -203,6 +243,10 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
     const panelWidth = Number(input['panelWidth'])
     if (Number.isFinite(panelWidth)) {
       merged.panelWidth = Math.max(PANEL_MIN_WIDTH, Math.min(1200, Math.floor(panelWidth)))
+    }
+    const bounds = normalizeWindowBounds(input['windowBounds'])
+    if (bounds) {
+      merged.windowBounds = bounds
     }
   }
   cached = merged

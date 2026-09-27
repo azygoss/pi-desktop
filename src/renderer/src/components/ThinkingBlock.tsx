@@ -1,8 +1,8 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import clsx from 'clsx'
 
-export function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
+export const ThinkingBlock = memo(function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="thinking-block">
@@ -17,4 +17,4 @@ export function ThinkingBlock({ text, streaming }: { text: string; streaming?: b
       {open && <div className="thinking-body">{text}</div>}
     </div>
   )
-}
+})

@@ -1,14 +1,25 @@
 import { ArrowDown, GitFork, RotateCcw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
 import type { ImageContent } from '../../../shared/pi-types'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
-import { Markdown } from './Markdown'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCard } from './ToolCard'
+
+// react-markdown + micromark are ~600KB — split out of the main chunk; the
+// fallback renders the raw text pre-wrap so content is readable instantly.
+const LazyMarkdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })))
+
+function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <Suspense fallback={<div className="markdown markdown-fallback">{text}</div>}>
+      <LazyMarkdown text={text} />
+    </Suspense>
+  )
+}
 
 function AssistantBlock({
   block,
@@ -22,7 +33,7 @@ function AssistantBlock({
   streaming?: boolean
 }) {
   if (block.type === 'text') {
-    return <Markdown text={block.text} />
+    return <MarkdownBlock text={block.text} />
   }
   if (block.type === 'thinking') {
     return <ThinkingBlock text={block.thinking} streaming={streaming} />
@@ -56,14 +67,22 @@ function StartingPiNotice({ startedAt }: { startedAt?: number }) {
   return <span>{seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}</span>
 }
 
+/**
+ * Memoized per finalized block: during a stream only the block receiving
+ * deltas gets a new object identity, so earlier blocks skip re-parsing.
+ */
+const MemoAssistantBlock = memo(AssistantBlock)
+
 function MessageRow({
   message,
-  chat,
+  toolRuns,
+  cwd,
   userIndex,
   onFork
 }: {
   message: DisplayMessage
-  chat: ChatState
+  toolRuns: Record<string, ToolRun>
+  cwd: string
   /** Position among user messages; defined for user rows only. */
   userIndex?: number
   onFork?: (userIndex: number) => void
@@ -100,11 +119,11 @@ function MessageRow({
     return (
       <div className="msg-assistant">
         {message.blocks.map((block, i) => (
-          <AssistantBlock
+          <MemoAssistantBlock
             key={i}
             block={block}
-            run={block.type === 'toolCall' ? chat.toolRuns[block.id] : undefined}
-            cwd={chat.cwd}
+            run={block.type === 'toolCall' ? toolRuns[block.id] : undefined}
+            cwd={cwd}
             streaming={message.streaming}
           />
         ))}
@@ -120,7 +139,7 @@ function MessageRow({
       status: message.cancelled || (message.exitCode ?? 0) !== 0 ? 'error' : 'done',
       result: { content: [{ type: 'text', text: message.output }] }
     }
-    return <ToolCard run={run} cwd={chat.cwd} />
+    return <ToolCard run={run} cwd={cwd} />
   }
   return (
     <div className={`msg-notice msg-notice-${message.tone}`}>
@@ -128,6 +147,37 @@ function MessageRow({
     </div>
   )
 }
+
+/**
+ * Rows re-render only when their own message object or a tool run they
+ * display changes — during streaming, deltas replace just the streaming
+ * message so every other row keeps its reference and skips render.
+ */
+const MemoMessageRow = memo(
+  MessageRow,
+  (prev, next) => {
+    if (
+      prev.message !== next.message ||
+      prev.userIndex !== next.userIndex ||
+      prev.onFork !== next.onFork ||
+      prev.cwd !== next.cwd
+    ) {
+      return false
+    }
+    if (prev.toolRuns === next.toolRuns) {
+      return true
+    }
+    const m = prev.message
+    if (m.kind === 'assistant') {
+      for (const block of m.blocks) {
+        if (block.type === 'toolCall' && prev.toolRuns[block.id] !== next.toolRuns[block.id]) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+)
 
 function UiRequestDialog({ chat }: { chat: ChatState }) {
   const request = chat.uiRequest
@@ -302,14 +352,31 @@ export function ChatView({ chatId }: { chatId: string }) {
     void window.piDesktop.chat.focus({ chatId }).catch(() => {})
   }, [chatId])
 
+  // Stable identity: an inline closure would defeat row memoization.
+  const onForkMessage = useCallback(
+    (userIdx: number) => {
+      void useChatStore
+        .getState()
+        .forkFromUserMessage(chatId, userIdx)
+        .catch(() => {})
+    },
+    [chatId]
+  )
+
   const messageCount = chat?.messages.length ?? 0
   const streaming = chat?.status === 'streaming'
+  // One rAF per publish instead of a sync scroll during render — avoids
+  // forcing layout while React is still mutating the list.
   useEffect(() => {
     const el = scrollRef.current
-    if (el && stickRef.current) {
-      el.scrollTop = el.scrollHeight
+    if (!el || !stickRef.current) {
+      return
     }
-  }, [messageCount, streaming, chat])
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [chat, messageCount, streaming])
 
   if (!chat) {
     return (
@@ -326,13 +393,6 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   const footer = statsFooter(chat)
   let userIndex = -1
-
-  function onForkMessage(userIdx: number): void {
-    void useChatStore
-      .getState()
-      .forkFromUserMessage(chatId, userIdx)
-      .catch(() => {})
-  }
 
   function restart(): void {
     const newId = crypto.randomUUID()
@@ -369,10 +429,11 @@ export function ChatView({ chatId }: { chatId: string }) {
           {chat.messages.map((m) => {
             const idx = m.kind === 'user' ? ++userIndex : undefined
             return (
-              <MessageRow
+              <MemoMessageRow
                 key={m.key}
                 message={m}
-                chat={chat}
+                toolRuns={chat.toolRuns}
+                cwd={chat.cwd}
                 userIndex={idx}
                 onFork={
                   chat.sessionPath && chat.status !== 'streaming' ? onForkMessage : undefined

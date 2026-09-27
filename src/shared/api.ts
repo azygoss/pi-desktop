@@ -75,7 +75,12 @@ export interface ChatSendInput {
 
 export interface ChatEventPayload {
   chatId: string
-  event: PiEvent
+  /**
+   * Ordered event batch — main coalesces message_update deltas into one IPC
+   * payload per ~16ms; non-delta events flush immediately, so sequence is
+   * always preserved.
+   */
+  events: PiEvent[]
 }
 
 export interface ChatUiRequestPayload {

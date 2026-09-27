@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { PiProcessPool } from '../pi/pool'
 import type { LocatorDeps } from '../pi/locator'
-import { ChatService } from './chat-service'
+import { ChatService, type EvictionOptions } from './chat-service'
 import {
   validateChatId,
   validateCwd,
@@ -28,12 +28,17 @@ function fakeDeps(): Partial<LocatorDeps> {
   }
 }
 
-function makeService() {
+function makeService(eviction: EvictionOptions = {}) {
   const broadcasts: { channel: string; payload: unknown }[] = []
   const pool = new PiProcessPool({ preferBundled: true, deps: fakeDeps() })
-  const service = new ChatService(pool, (channel, payload) => {
-    broadcasts.push({ channel, payload })
-  })
+  const service = new ChatService(
+    pool,
+    (channel, payload) => {
+      broadcasts.push({ channel, payload })
+    },
+    undefined,
+    { sweepIntervalMs: 3_600_000, ...eviction }
+  )
   return { service, broadcasts, pool }
 }
 
@@ -179,7 +184,9 @@ describe('ChatService', () => {
             broadcasts.some(
               (b) =>
                 b.channel === 'pi-desktop:chat:event' &&
-                (b.payload as { event?: { type?: string } }).event?.type === 'agent_start'
+                (b.payload as { events?: { type?: string }[] }).events?.some(
+                  (e) => e.type === 'agent_start'
+                )
             ),
           { timeout: 5000 }
         )
@@ -217,6 +224,48 @@ describe('ChatService', () => {
       await expect
         .poll(() => pool.get('__spare__') !== undefined, { timeout: 5000 })
         .toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('evicts idle chats beyond the cap, keeps the focused one, revives on send', async () => {
+    const { service, pool } = makeService({ maxIdleProcesses: 1 })
+    try {
+      await service.open({ chatId: 'e1', cwd: tmpdir() })
+      await new Promise((r) => setTimeout(r, 10))
+      await service.open({ chatId: 'e2', cwd: tmpdir() })
+      await new Promise((r) => setTimeout(r, 10))
+      await service.open({ chatId: 'e3', cwd: tmpdir() })
+      service.markFocused('e3')
+      await service.sweepEvictions()
+      // Cap is 1 for idle processes; e3 is focused (doesn't count). e1 is
+      // the oldest idle chat → evicted; e2 survives.
+      expect(service.isEvicted('e1')).toBe(true)
+      expect(service.hasProcess('e1')).toBe(false)
+      expect(service.hasProcess('e2')).toBe(true)
+      expect(service.hasProcess('e3')).toBe(true)
+      // A send to the evicted chat transparently respawns its process.
+      await service.send({ chatId: 'e1', message: 'back again', mode: 'prompt' })
+      expect(service.hasProcess('e1')).toBe(true)
+      expect(service.isEvicted('e1')).toBe(false)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('evicts chats not viewed within the idle window', async () => {
+    const { service, pool } = makeService({ idleEvictMs: 0 })
+    try {
+      await service.open({ chatId: 'stale', cwd: tmpdir() })
+      service.markFocused('stale')
+      // Focus moves elsewhere: 'stale' is now idle AND unviewed (0ms window).
+      await service.open({ chatId: 'other', cwd: tmpdir() })
+      service.markFocused('other')
+      await new Promise((r) => setTimeout(r, 5)) // cross the 0ms window
+      await service.sweepEvictions()
+      expect(service.isEvicted('stale')).toBe(true)
+      expect(service.hasProcess('other')).toBe(true)
     } finally {
       await pool.closeAll()
     }

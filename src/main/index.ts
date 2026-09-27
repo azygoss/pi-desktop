@@ -9,7 +9,7 @@ import {
   startSessionWatcher,
   wireAppLifecycle
 } from './ipc'
-import { loadAppSettings } from './config/app-settings'
+import { loadAppSettings, updateAppSettings, type AppSettings } from './config/app-settings'
 import { ensureWorkspaceDir } from './config/app-paths'
 import { BridgeServer } from './bridge/bridge-server'
 import { BrowserToolBridge } from './bridge/browser-tools'
@@ -69,10 +69,46 @@ function piExtensionPath(): string {
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
 
+/**
+ * Persist window geometry (debounced; getNormalBounds reports the restored
+ * frame even while maximized).
+ */
+function trackWindowBounds(win: BrowserWindow): void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const persist = () => {
+    const bounds = win.getNormalBounds()
+    void updateAppSettings({
+      windowBounds: {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y,
+        maximized: win.isMaximized()
+      }
+    }).catch(() => {})
+  }
+  const schedule = () => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+    timer = setTimeout(persist, 400)
+    timer.unref?.()
+  }
+  win.on('resize', schedule)
+  win.on('move', schedule)
+  win.on('maximize', schedule)
+  win.on('unmaximize', schedule)
+  win.on('close', persist)
+}
+
 function createWindow(): BrowserWindow {
+  const savedBounds = lastSettings?.windowBounds
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: savedBounds?.width ?? 1280,
+    height: savedBounds?.height ?? 800,
+    ...(savedBounds?.x !== undefined && savedBounds.y !== undefined
+      ? { x: savedBounds.x, y: savedBounds.y }
+      : {}),
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -89,8 +125,13 @@ function createWindow(): BrowserWindow {
   })
 
   win.once('ready-to-show', () => {
+    if (savedBounds?.maximized) {
+      win.maximize()
+    }
     win.show()
   })
+
+  trackWindowBounds(win)
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
 
@@ -122,27 +163,37 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+let lastSettings: AppSettings | null = null
+
 app.whenReady().then(async () => {
-  await ensureWorkspaceDir().catch(() => {})
-  const appSettings = await loadAppSettings().catch(() => null)
-  if (appSettings) {
-    pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))
-  }
-  await bridge.start().catch(() => {})
-  if (bridge.running) {
-    bridge.setHandler((call) => browserTools.call(call.chatId, call.tool, call.params))
-  }
+  // Settings are a tiny file read needed for window bounds — keep this
+  // before createWindow; every heavier subsystem is deferred past paint.
+  lastSettings = await loadAppSettings().catch(() => null)
+
   registerIpcHandlers({ pool, chat, pty, browser, bridge })
-  startSessionWatcher()
   wireAppLifecycle({ pool, chat, pty, browser, bridge })
   installAppMenu(isDev)
   const win = createWindow()
 
-  // Warm spare pi for the next project-less chat: spawned after first paint
-  // so startup never delays the shell. Pi's own startup (eager extensions,
-  // MCP servers) can take seconds; the spare absorbs it.
+  // Deferred startup: runtime resolution, bridge server, session watcher
+  // and the warm spare all wait until the renderer has painted, so launch
+  // never blocks on pi discovery or socket setup.
   win.webContents.once('did-finish-load', () => {
-    setTimeout(() => void chat.warmSpare(), 2000).unref?.()
+    void (async () => {
+      await ensureWorkspaceDir().catch(() => {})
+      if (lastSettings) {
+        pool.setRuntimeOptions(runtimeOptionsFromSettings(lastSettings))
+      }
+      await bridge.start().catch(() => {})
+      if (bridge.running) {
+        bridge.setHandler((call) => browserTools.call(call.chatId, call.tool, call.params))
+      }
+      startSessionWatcher()
+      // Warm spare pi for the next project-less chat — spawned a couple of
+      // seconds later; pi's own startup (eager extensions, MCP servers) can
+      // take seconds and the spare absorbs it for the first draft.
+      setTimeout(() => void chat.warmSpare(), 2000).unref?.()
+    })()
   })
 
   app.on('activate', () => {

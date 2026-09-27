@@ -21,6 +21,7 @@ import type {
 } from '../../shared/pi-types'
 import type { PiRpcClient } from '../pi/rpc-client'
 import { PiProcessPool, type OpenChatOptions } from '../pi/pool'
+import { EventCoalescer } from './event-coalescer'
 import { ensureWorkspaceDir, workspaceDir } from '../config/app-paths'
 import { updateCatalogCache } from '../config/catalog-cache'
 import {
@@ -87,14 +88,33 @@ interface ChatRecord {
   spawnedAt: number
   /** Resolves once the process answered its first catalog requests. */
   gate: Gate<void>
+  /** Coalesces message_update deltas into batched IPC payloads. */
+  coalescer: EventCoalescer
   /** Last time this chat's view was shown (idle eviction bookkeeping). */
   lastViewedAt: number
+  /** True while this chat's view is the visible one (exempt from eviction). */
+  focused: boolean
+  /** A pending extension UI request keeps the process alive. */
+  pendingUi: boolean
 }
 
 /** Chat id used for the warm spare process until a draft adopts it. */
 const SPARE_CHAT_ID = '__spare__'
 
 const EXIT_STDERR_LINES = 20
+
+/** Idle pi processes (not streaming, not visible, no pending UI) to keep. */
+const MAX_IDLE_PROCESSES = 4
+/** Idle chats not viewed for this long are stopped (revived on demand). */
+const IDLE_EVICT_MS = 10 * 60 * 1000
+const EVICT_SWEEP_MS = 60 * 1000
+
+/** Eviction policy overrides (tests). */
+export interface EvictionOptions {
+  maxIdleProcesses?: number
+  idleEvictMs?: number
+  sweepIntervalMs?: number
+}
 
 /** Read just the session header line (first line) of a session file. */
 async function readSessionCwd(filePath: string): Promise<string | null> {
@@ -153,12 +173,31 @@ export class ChatService {
    * shortly after launch and adopted by the next project-less draft.
    */
   private spare: { id: string; client: PiRpcClient; warm: Promise<void> } | null = null
+  /**
+   * Chats whose idle process was evicted: enough context to respawn on the
+   * same cwd/session the next time the renderer talks to them.
+   */
+  private readonly evicted = new Map<string, { cwd: string; sessionPath?: string }>()
+  private sweepTimer: ReturnType<typeof setInterval> | null = null
+  private readonly eviction: Required<EvictionOptions>
 
   constructor(
     private readonly pool: PiProcessPool,
     private readonly broadcast: ChatBroadcast,
-    private readonly bridge?: ChatBridgeDeps
-  ) {}
+    private readonly bridge?: ChatBridgeDeps,
+    eviction: EvictionOptions = {}
+  ) {
+    this.eviction = {
+      maxIdleProcesses: eviction.maxIdleProcesses ?? MAX_IDLE_PROCESSES,
+      idleEvictMs: eviction.idleEvictMs ?? IDLE_EVICT_MS,
+      sweepIntervalMs: eviction.sweepIntervalMs ?? EVICT_SWEEP_MS
+    }
+    this.sweepTimer = setInterval(
+      () => void this.sweepEvictions(),
+      this.eviction.sweepIntervalMs
+    )
+    this.sweepTimer.unref?.()
+  }
 
   /** Extra spawn args/env for the browser-tools extension + bridge token. */
   private bridgeExtras(chatId: string): Pick<OpenChatOptions, 'extraArgs' | 'extraEnv'> {
@@ -275,7 +314,12 @@ export class ChatService {
           streaming: false,
           spawnedAt: Date.now(),
           gate: createGate<void>(),
-          lastViewedAt: Date.now()
+          coalescer: new EventCoalescer((events) =>
+            this.broadcast(CHAT_CHANNELS.event, { chatId, events })
+          ),
+          lastViewedAt: Date.now(),
+          focused: false,
+          pendingUi: false
         }
         this.chats.set(chatId, record)
         this.attachClient(record)
@@ -287,6 +331,11 @@ export class ChatService {
       }
       const result = await this.fetchCatalog(record.client, chatId, cwd, sessionPath)
       const startupMs = Date.now() - record.spawnedAt
+      if (result.sessionPath) {
+        // pi allocates the session file lazily; remember it so an evicted
+        // chat can be revived onto the same session later.
+        record.sessionPath = result.sessionPath
+      }
       record.gate.resolve()
       updateCatalogCache({
         models: result.models,
@@ -607,6 +656,7 @@ export class ChatService {
   async respondUi(input: { chatId: string } & Record<string, unknown>): Promise<void> {
     const record = await this.requireReady(validateChatId(input.chatId))
     const id = requireString(input.id, 'ui request id', 128)
+    record.pendingUi = false
     record.client.respondUi({
       id,
       ...(typeof input.value === 'string' ? { value: input.value } : {}),
@@ -627,14 +677,20 @@ export class ChatService {
   }
 
   async closeAll(): Promise<void> {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer)
+      this.sweepTimer = null
+    }
     for (const record of this.chats.values()) {
       record.gate.reject(new Error('Chat closed'))
+      record.coalescer.dispose()
     }
     for (const gate of this.pendingOpens.values()) {
       gate.reject(new Error('Chat closed'))
     }
     this.chats.clear()
     this.pendingOpens.clear()
+    this.evicted.clear()
     this.spare = null
     await this.pool.closeAll()
   }
@@ -654,6 +710,16 @@ export class ChatService {
       }
     }
     if (!record) {
+      const evicted = this.evicted.get(chatId)
+      if (evicted) {
+        // Transparent revive: respawn pi on the same cwd/session; the send
+        // that triggered this resumes through the normal queued path.
+        this.evicted.delete(chatId)
+        await this.open({ chatId, cwd: evicted.cwd, sessionPath: evicted.sessionPath })
+        record = this.chats.get(chatId)
+      }
+    }
+    if (!record) {
       throw new Error(`No running pi process for chat ${chatId}`)
     }
     await record.gate.promise
@@ -665,10 +731,68 @@ export class ChatService {
 
   /** Note that a chat's view is currently shown (idle eviction bookkeeping). */
   markFocused(chatId: string): void {
+    for (const record of this.chats.values()) {
+      record.focused = record.chatId === chatId
+    }
     const record = this.chats.get(chatId)
     if (record) {
       record.lastViewedAt = Date.now()
     }
+  }
+
+  /**
+   * Stop pi processes that have been idle too long, and cap the number of
+   * idle processes. A chat counts as live-idle only when it is not
+   * streaming, not the visible chat and has no pending UI request. The
+   * transcript stays in the renderer; the next send revives it via the
+   * evicted map. The warm spare is tracked separately and never counted.
+   */
+  async sweepEvictions(): Promise<void> {
+    const now = Date.now()
+    const idle = [...this.chats.values()].filter(
+      (record) => !record.streaming && !record.focused && !record.pendingUi
+    )
+    const expired = idle.filter(
+      (record) => now - record.lastViewedAt > this.eviction.idleEvictMs
+    )
+    const alive = idle.filter((record) => !expired.includes(record))
+    alive.sort((a, b) => b.lastViewedAt - a.lastViewedAt)
+    const overCap = alive.slice(this.eviction.maxIdleProcesses)
+    for (const record of [...expired, ...overCap]) {
+      await this.evict(record)
+    }
+  }
+
+  /** Stop an idle chat's process but keep enough context to revive it. */
+  private async evict(record: ChatRecord): Promise<void> {
+    this.chats.delete(record.chatId)
+    record.coalescer.dispose()
+    // Grab the session file pi allocated since open() (undefined until the
+    // first prompt) so revival resumes the same session.
+    let sessionPath = record.sessionPath
+    if (!sessionPath && record.client.isRunning) {
+      const state = await record.client
+        .request<{ sessionFile?: string }>({ type: 'get_state' }, { timeoutMs: 2000 })
+        .catch(() => undefined)
+      sessionPath = state?.sessionFile
+    }
+    this.evicted.set(record.chatId, {
+      cwd: record.cwd,
+      ...(sessionPath ? { sessionPath } : {})
+    })
+    record.gate.reject(new Error('Chat evicted'))
+    this.bridge?.revoke(record.chatId)
+    await this.pool.close(record.chatId)
+  }
+
+  /** Test/observability hook: is a live process attached to this chat? */
+  hasProcess(chatId: string): boolean {
+    return this.chats.has(chatId)
+  }
+
+  /** Test/observability hook: was this chat's process evicted? */
+  isEvicted(chatId: string): boolean {
+    return this.evicted.has(chatId)
   }
 
   private attachClient(record: ChatRecord): void {
@@ -679,17 +803,25 @@ export class ChatService {
       } else if (event.type === 'agent_settled') {
         record.streaming = false
       }
-      this.broadcast(CHAT_CHANNELS.event, { chatId, event })
+      record.coalescer.push(event)
     })
     client.on('ui-request', (request) => {
+      record.pendingUi = true
       this.broadcast(CHAT_CHANNELS.uiRequest, { chatId, request })
     })
     client.on('exit', ({ code, signal }) => {
+      const current = this.chats.get(chatId)
       this.chats.delete(chatId)
+      record.coalescer.dispose()
       record.gate.reject(
         new Error(`pi process exited (code ${code ?? 'null'}, signal ${signal ?? 'null'})`)
       )
       this.bridge?.revoke(chatId)
+      if (current !== record) {
+        // Silent teardown: evicted or explicitly closed chats keep their
+        // transcript in the renderer; nothing to notify.
+        return
+      }
       const payload: ChatExitPayload = {
         chatId,
         code,

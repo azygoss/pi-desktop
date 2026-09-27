@@ -1,16 +1,25 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { ChatView } from './components/ChatView'
-import { CommandModals } from './components/CommandModals'
 import { HomeView } from './components/HomeView'
-import { RightPanel } from './components/RightPanel'
-import { SettingsModal } from './components/SettingsModal'
 import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
 import { useAppStore } from './state/app-store'
 import { initChatBridge, useChatStore } from './state/chat-store'
 import { initPanelBridge, usePanelStore } from './state/panel-store'
+
+// Heavy surfaces (xterm, diff parser, settings, command modals) load on
+// demand so the main renderer chunk stays small.
+const RightPanel = lazy(() =>
+  import('./components/RightPanel').then((m) => ({ default: m.RightPanel }))
+)
+const SettingsModal = lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+)
+const CommandModals = lazy(() =>
+  import('./components/CommandModals').then((m) => ({ default: m.CommandModals }))
+)
 
 export function App() {
   const view = useAppStore((s) => s.view)
@@ -121,9 +130,19 @@ export function App() {
         <MainTopBar />
         {ready && (view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />)}
       </main>
-      <RightPanel />
-      {settingsOpen && <SettingsModal />}
-      <CommandModals />
+      {panelOpen && (
+        <Suspense fallback={null}>
+          <RightPanel />
+        </Suspense>
+      )}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal />
+        </Suspense>
+      )}
+      <Suspense fallback={null}>
+        <CommandModals />
+      </Suspense>
       <Toasts />
     </div>
   )
