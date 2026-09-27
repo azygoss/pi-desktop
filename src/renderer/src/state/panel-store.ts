@@ -176,9 +176,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   focusAgentTab(id, chatId) {
     set((s) => {
-      const existing = s.tabs.find((t) => t.id === id)
+      // One agent tab per chat. Reuse it when it exists — even after the
+      // panel was closed and reopened — and never adopt a user-opened tab
+      // (those have no agentChatId and UUID ids that can't collide with
+      // the 'agent-<chatId>' namespace).
+      const existing = s.tabs.find((t) => t.kind === 'browser' && t.agentChatId === chatId)
       if (existing) {
-        return { open: true, activeTabId: id }
+        return { open: true, activeTabId: existing.id }
       }
       return {
         open: true,

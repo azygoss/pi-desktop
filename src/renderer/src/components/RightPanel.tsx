@@ -1,5 +1,5 @@
 import { Bot, FileDiff, Globe, Plus, TerminalSquare, X } from 'lucide-react'
-import { useCallback, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import clsx from 'clsx'
 
 import { useAppStore } from '../state/app-store'
@@ -12,10 +12,15 @@ import { TerminalView } from './TerminalView'
 function tabIcon(tab: PanelTab): ReactNode {
   switch (tab.kind) {
     case 'browser':
+      // Agent-owned tabs always carry the bot badge, never the favicon —
+      // a page favicon would make them indistinguishable from user tabs.
+      if (tab.agentChatId) {
+        return <Bot size={13} className="panel-tab-bot" />
+      }
       if (tab.favicon) {
         return <img className="panel-tab-favicon" src={tab.favicon} alt="" />
       }
-      return tab.agentChatId ? <Bot size={13} /> : <Globe size={13} />
+      return <Globe size={13} />
     case 'terminal':
       return <TerminalSquare size={13} />
     case 'diff':
@@ -26,6 +31,12 @@ function tabIcon(tab: PanelTab): ReactNode {
 }
 
 function tabTitle(tab: PanelTab): string {
+  if (tab.kind === 'browser' && tab.agentChatId) {
+    // Before the first navigation the stored title is just 'Pi'.
+    return tab.title && tab.title !== 'Pi' && tab.title !== 'New Tab'
+      ? `Pi · ${tab.title}`
+      : 'Pi'
+  }
   switch (tab.kind) {
     case 'diff':
       return 'Diff'
@@ -34,6 +45,69 @@ function tabTitle(tab: PanelTab): string {
     default:
       return tab.title
   }
+}
+
+/** Tooltip text: full URL for browser tabs, title for the rest. */
+function tabTooltip(tab: PanelTab): string {
+  return tab.kind === 'browser' && tab.url ? tab.url : tabTitle(tab)
+}
+
+function isAgentTab(tab: PanelTab): boolean {
+  return tab.kind === 'browser' && tab.agentChatId !== undefined
+}
+
+/**
+ * Track horizontal overflow on the tab strip: sets data attributes used for
+ * the edge fades, and keeps the active tab scrolled into view.
+ */
+function useTabStripScroll(activeTabId: string | null, tabCount: number) {
+  const stripRef = useRef<HTMLDivElement | null>(null)
+
+  const updateFades = useCallback(() => {
+    const el = stripRef.current
+    if (!el) {
+      return
+    }
+    el.dataset['fadeLeft'] = el.scrollLeft > 1 ? 'on' : 'off'
+    el.dataset['fadeRight'] =
+      el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? 'on' : 'off'
+  }, [])
+
+  // Vertical wheel scrolls the strip horizontally.
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    const el = stripRef.current
+    if (!el || el.scrollWidth <= el.clientWidth) {
+      return
+    }
+    const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    el.scrollLeft += delta
+    e.preventDefault()
+  }, [])
+
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) {
+      return
+    }
+    updateFades()
+    const observer = new ResizeObserver(updateFades)
+    observer.observe(el)
+    el.addEventListener('scroll', updateFades, { passive: true })
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', updateFades)
+    }
+  }, [updateFades, tabCount])
+
+  // Keep the active tab visible when it changes or the tab list shifts.
+  useEffect(() => {
+    const el = stripRef.current
+    const active = el?.querySelector('.panel-tab.is-active')
+    active?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    updateFades()
+  }, [activeTabId, tabCount, updateFades])
+
+  return { stripRef, onWheel }
 }
 
 /**
@@ -70,6 +144,8 @@ export function RightPanel() {
     dragState.current = null
   }, [])
 
+  const { stripRef, onWheel } = useTabStripScroll(activeTabId, tabs.length)
+
   if (!open) {
     return null
   }
@@ -85,31 +161,36 @@ export function RightPanel() {
         onPointerMove={onResizeMove}
         onPointerUp={onResizeEnd}
       />
-      <div className="panel-tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={clsx('panel-tab', { 'is-active': tab.id === activeTabId })}
-            onClick={() => store.activate(tab.id)}
-            title={tabTitle(tab)}
-          >
-            {tabIcon(tab)}
-            <span className="panel-tab-label">{tabTitle(tab)}</span>
-            {tab.kind === 'browser' && tab.loading && <span className="browser-loading" />}
-            <span
-              role="button"
-              className="panel-tab-close"
-              title="Close"
-              onClick={(e) => {
-                e.stopPropagation()
-                store.closeTab(tab.id)
-              }}
+      <div className="panel-tabs-wrap">
+        <div className="panel-tabs" ref={stripRef} onWheel={onWheel}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={clsx('panel-tab', {
+                'is-active': tab.id === activeTabId,
+                'panel-tab-agent': isAgentTab(tab)
+              })}
+              onClick={() => store.activate(tab.id)}
+              title={tabTooltip(tab)}
             >
-              <X size={11} />
-            </span>
-          </button>
-        ))}
+              {tabIcon(tab)}
+              <span className="panel-tab-label">{tabTitle(tab)}</span>
+              {tab.kind === 'browser' && tab.loading && <span className="browser-loading" />}
+              <span
+                role="button"
+                className="panel-tab-close"
+                title="Close"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  store.closeTab(tab.id)
+                }}
+              >
+                <X size={11} />
+              </span>
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           className="icon-btn panel-tab-add"

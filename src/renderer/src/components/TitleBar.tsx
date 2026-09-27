@@ -177,7 +177,11 @@ export function MainTopBar() {
               spellCheck={false}
             />
           ) : (
-            <span className="chat-title">{chat.title}</span>
+            // A fresh draft has nothing to name yet — show no title rather
+            // than the "New chat" placeholder.
+            chat.messages.length > 0 || chat.title !== 'New chat' ? (
+              <span className="chat-title">{chat.title}</span>
+            ) : null
           )}
           {cwdBase && <span className="chat-cwd">{cwdBase}</span>}
           <button

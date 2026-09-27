@@ -1742,13 +1742,50 @@ body {
   border-left: 1px solid var(--border);
   background: var(--bg);
 }
+.panel-tabs-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+.panel-tabs-wrap::before,
+.panel-tabs-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.panel-tabs-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg), transparent);
+}
+.panel-tabs-wrap::after {
+  right: 30px;
+  background: linear-gradient(to left, var(--bg), transparent);
+}
+.panel-tabs-wrap:has(.panel-tabs[data-fade-left='on'])::before {
+  opacity: 1;
+}
+.panel-tabs-wrap:has(.panel-tabs[data-fade-right='on'])::after {
+  opacity: 1;
+}
 .panel-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.panel-tabs::-webkit-scrollbar {
+  display: none;
 }
 .panel-tab {
   display: flex;
@@ -1769,6 +1806,15 @@ body {
   background: var(--surface);
   color: var(--text);
 }
+/* Agent-owned tabs get a subtle accent underline + bot badge so they can
+   never be mistaken for a user tab with the same page title. */
+.panel-tab-agent {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.panel-tab-bot {
+  color: var(--accent);
+  flex-shrink: 0;
+}
 .panel-tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1788,7 +1834,9 @@ body {
   background: var(--surface-hover);
 }
 .panel-tab-add {
-  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0 4px;
 }
 .panel-body {
   flex: 1;
