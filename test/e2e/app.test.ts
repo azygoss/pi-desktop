@@ -299,9 +299,10 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.tool-card', 30_000)
     // The bridge opened the panel and focused the chat's agent tab; the page
     // title proves the WebContentsView actually loaded the local test page.
+    // Agent tab labels carry the "Pi · " prefix.
     await visible(
       page,
-      '.right-panel .panel-tab-label:text-is("E2E Test Page")',
+      '.right-panel .panel-tab-label:text-is("Pi · E2E Test Page")',
       20_000
     )
     // Screenshot tool returned a real JPEG; expanding the card shows it.

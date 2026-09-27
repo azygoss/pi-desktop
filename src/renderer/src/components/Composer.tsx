@@ -485,7 +485,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         </div>
 
         <div className="composer-right">
-          {chat && chat.models.length === 0 && (
+          {(!chat || chat.models.length === 0) && (
             <div className="model-picker-skeleton" aria-hidden="true" />
           )}
           {chat && chat.models.length > 0 && (

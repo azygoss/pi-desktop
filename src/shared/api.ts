@@ -238,6 +238,8 @@ export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat'
 export interface AppInfo {
   /** App version from the package manifest. */
   version: string
+  /** process.platform — used for macOS-only styling (vibrancy, traffic lights). */
+  platform: string
   /** Absolute path to the pi agent dir (~/.pi/agent or override). */
   agentDir: string
   /** agentDir with the home directory collapsed to '~' for display. */

@@ -318,6 +318,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const home = homedir()
     return {
       version: app.getVersion(),
+      platform: process.platform,
       agentDir,
       agentDirDisplay:
         home !== '/' && agentDir.startsWith(home)

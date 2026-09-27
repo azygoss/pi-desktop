@@ -251,11 +251,19 @@ function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   )
 }
 
-export const ToolCard = memo(function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
+export const ToolCard = memo(function ToolCard({
+  run,
+  cwd,
+  className
+}: {
+  run: ToolRun
+  cwd: string
+  className?: string
+}) {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className={clsx('tool-card', `tool-${run.status}`)}>
+    <div className={clsx('tool-card', `tool-${run.status}`, className)}>
       <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
         <span className="tool-chevron">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

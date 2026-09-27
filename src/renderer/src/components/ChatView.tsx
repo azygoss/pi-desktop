@@ -89,7 +89,7 @@ function MessageRow({
 }) {
   if (message.kind === 'user') {
     return (
-      <div className="msg-user-row">
+      <div className="msg-user-row fade-in">
         {onFork !== undefined && userIndex !== undefined && (
           <button
             type="button"
@@ -117,7 +117,7 @@ function MessageRow({
   }
   if (message.kind === 'assistant') {
     return (
-      <div className="msg-assistant">
+      <div className="msg-assistant fade-in">
         {message.blocks.map((block, i) => (
           <MemoAssistantBlock
             key={i}
@@ -139,10 +139,10 @@ function MessageRow({
       status: message.cancelled || (message.exitCode ?? 0) !== 0 ? 'error' : 'done',
       result: { content: [{ type: 'text', text: message.output }] }
     }
-    return <ToolCard run={run} cwd={cwd} />
+    return <ToolCard run={run} cwd={cwd} className="fade-in" />
   }
   return (
-    <div className={`msg-notice msg-notice-${message.tone}`}>
+    <div className={`msg-notice msg-notice-${message.tone} fade-in`}>
       <span>{message.text}</span>
     </div>
   )
@@ -348,8 +348,10 @@ export function ChatView({ chatId }: { chatId: string }) {
   }, [])
 
   // Bookkeeping for idle eviction in main: this chat is the visible one.
+  // Also clears the unread marker a finished background run left behind.
   useEffect(() => {
     void window.piDesktop.chat.focus({ chatId }).catch(() => {})
+    useChatStore.getState().markRead(chatId)
   }, [chatId])
 
   // Stable identity: an inline closure would defeat row memoization.
@@ -366,14 +368,23 @@ export function ChatView({ chatId }: { chatId: string }) {
   const messageCount = chat?.messages.length ?? 0
   const streaming = chat?.status === 'streaming'
   // One rAF per publish instead of a sync scroll during render — avoids
-  // forcing layout while React is still mutating the list.
+  // forcing layout while React is still mutating the list. Short hops
+  // animate smoothly; long jumps (initial load) snap.
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !stickRef.current) {
       return
     }
     const raf = requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior:
+          !reduceMotion && !streaming && distance < el.clientHeight * 2
+            ? 'smooth'
+            : 'auto'
+      })
     })
     return () => cancelAnimationFrame(raf)
   }, [chat, messageCount, streaming])
@@ -393,6 +404,16 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   const footer = statsFooter(chat)
   let userIndex = -1
+
+  // Before the first token lands there is no assistant block to render yet —
+  // show a shimmer placeholder so the stream doesn't look stalled.
+  const lastMessage = chat.messages.at(-1)
+  const awaitingFirstToken =
+    chat.status === 'streaming' &&
+    (!lastMessage ||
+      (lastMessage.kind === 'assistant' && lastMessage.blocks.length === 0) ||
+      lastMessage.kind === 'user' ||
+      lastMessage.kind === 'notice')
 
   function restart(): void {
     const newId = crypto.randomUUID()
@@ -441,6 +462,11 @@ export function ChatView({ chatId }: { chatId: string }) {
               />
             )
           })}
+          {awaitingFirstToken && (
+            <div className="msg-pending" aria-live="polite">
+              <span className="shimmer-text">Thinking…</span>
+            </div>
+          )}
           {chat.error && (
             <div className="msg-notice msg-notice-error">
               <span>{chat.error}</span>
@@ -470,22 +496,27 @@ export function ChatView({ chatId }: { chatId: string }) {
         </div>
       </div>
 
-      {showJump && (
-        <button
-          type="button"
-          className="jump-pill"
-          onClick={() => {
-            const el = scrollRef.current
-            if (el) {
-              el.scrollTop = el.scrollHeight
-              stickRef.current = true
-              setShowJump(false)
-            }
-          }}
-        >
-          <ArrowDown size={12} /> Jump to bottom
-        </button>
-      )}
+      <button
+        type="button"
+        className={showJump ? 'jump-pill is-visible' : 'jump-pill'}
+        aria-hidden={!showJump}
+        tabIndex={showJump ? 0 : -1}
+        onClick={() => {
+          const el = scrollRef.current
+          if (el) {
+            const reduceMotion = window.matchMedia(
+              '(prefers-reduced-motion: reduce)'
+            ).matches
+            el.scrollTo({
+              top: el.scrollHeight,
+              behavior: reduceMotion ? 'auto' : 'smooth'
+            })
+            stickRef.current = true
+          }
+        }}
+      >
+        <ArrowDown size={12} /> Jump to bottom
+      </button>
 
       <UiRequestDialog chat={chat} />
 

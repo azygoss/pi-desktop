@@ -112,10 +112,16 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#1a1a19',
     ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } }
-      : {}),
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          // Traffic lights vertically centered on the 44px top strips.
+          trafficLightPosition: { x: 14, y: 16 },
+          // Sidebar material shows through where the renderer is transparent;
+          // an opaque backgroundColor would cover it, so it stays unset.
+          vibrancy: 'sidebar' as const
+        }
+      : { backgroundColor: '#1a1a19' }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

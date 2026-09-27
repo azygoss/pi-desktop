@@ -127,7 +127,20 @@ async function deleteSession(session: SessionSummary): Promise<void> {
   void useAppStore.getState().refreshSessions()
 }
 
-function SessionRow({ session, nested }: { session: SessionSummary; nested?: boolean }) {
+interface LiveStatus {
+  streaming: boolean
+  unread: boolean
+}
+
+function SessionRow({
+  session,
+  nested,
+  live
+}: {
+  session: SessionSummary
+  nested?: boolean
+  live?: LiveStatus
+}) {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const active = isSessionActive(session)
@@ -214,6 +227,10 @@ function SessionRow({ session, nested }: { session: SessionSummary; nested?: boo
       ) : (
         <span className="sidebar-item-label">{session.title}</span>
       )}
+      {live?.streaming && <span className="live-dot" title="Working…" />}
+      {!live?.streaming && live?.unread && (
+        <span className="unread-dot" title="New reply" />
+      )}
       <button
         type="button"
         className="icon-btn sidebar-item-more"
@@ -230,7 +247,15 @@ function SessionRow({ session, nested }: { session: SessionSummary; nested?: boo
   )
 }
 
-function ProjectRow({ cwd, name }: { cwd: string; name: string }) {
+function ProjectRow({
+  cwd,
+  name,
+  liveByPath
+}: {
+  cwd: string
+  name: string
+  liveByPath: Map<string, LiveStatus>
+}) {
   const sessions = useAppStore((s) => s.sessions)
   const collapsed = useAppStore((s) => s.appSettings.collapsedProjects.includes(cwd))
   const toggleCollapsed = useAppStore((s) => s.toggleProjectCollapsed)
@@ -308,7 +333,12 @@ function ProjectRow({ cwd, name }: { cwd: string; name: string }) {
       {!collapsed && (
         <div className="sidebar-project-chats">
           {visible.map((session) => (
-            <SessionRow key={session.path} session={session} nested />
+            <SessionRow
+              key={session.path}
+              session={session}
+              nested
+              live={liveByPath.get(session.path)}
+            />
           ))}
           {projectSessions.length === 0 && (
             <div className="sidebar-empty sidebar-empty-nested">No chats</div>
@@ -339,6 +369,25 @@ export function Sidebar() {
   const navigate = useAppStore((s) => s.navigate)
   const runtimeInfo = useAppStore((s) => s.runtimeInfo)
   const userName = useAppStore((s) => s.userName)
+  const sessionsLoaded = useAppStore((s) => s.sessionsLoaded)
+  const chats = useChatStore((s) => s.chats)
+
+  // sessionPath → live status of the open chat running that session, so the
+  // sidebar can show a pulsing dot while it streams and an unread dot once a
+  // background run settles.
+  const liveByPath = useMemo(() => {
+    const map = new Map<string, LiveStatus>()
+    for (const chat of Object.values(chats)) {
+      if (!chat.sessionPath) {
+        continue
+      }
+      const entry = map.get(chat.sessionPath) ?? { streaming: false, unread: false }
+      entry.streaming ||= chat.status === 'streaming'
+      entry.unread ||= chat.unread === true
+      map.set(chat.sessionPath, entry)
+    }
+    return map
+  }, [chats])
 
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
 
@@ -446,7 +495,12 @@ export function Sidebar() {
             </div>
             {!projectsCollapsed &&
               projects.map((project) => (
-                <ProjectRow key={project.cwd} cwd={project.cwd} name={project.name} />
+                <ProjectRow
+                  key={project.cwd}
+                  cwd={project.cwd}
+                  name={project.name}
+                  liveByPath={liveByPath}
+                />
               ))}
             {!projectsCollapsed && projects.length === 0 && (
               <div className="sidebar-empty">No projects yet</div>
@@ -460,15 +514,22 @@ export function Sidebar() {
           </>
         )}
 
-        {chatGroups.map(({ group, items }) => (
-          <div key={group}>
-            <div className="sidebar-date-group">{group}</div>
-            {items.map((session) => (
-              <SessionRow key={session.path} session={session} />
-            ))}
-          </div>
-        ))}
-        {chatGroups.length === 0 && (
+        {!sessionsLoaded &&
+          [0, 1, 2].map((i) => <div key={i} className="sidebar-skeleton" />)}
+        {sessionsLoaded &&
+          chatGroups.map(({ group, items }) => (
+            <div key={group}>
+              <div className="sidebar-date-group">{group}</div>
+              {items.map((session) => (
+                <SessionRow
+                  key={session.path}
+                  session={session}
+                  live={liveByPath.get(session.path)}
+                />
+              ))}
+            </div>
+          ))}
+        {sessionsLoaded && chatGroups.length === 0 && (
           <div className="sidebar-empty">
             {filtering ? 'No matching chats' : 'No chats yet'}
           </div>

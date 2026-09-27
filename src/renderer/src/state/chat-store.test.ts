@@ -25,8 +25,18 @@ let setModelResult: {
   thinkingLevels: string[]
 } | null = null
 
+let eventHandler: ((payload: { chatId: string; events: unknown[] }) => void) | null =
+  null
+
 const fakeApi = {
   chat: {
+    onEvent: (cb: (payload: { chatId: string; events: unknown[] }) => void) => {
+      eventHandler = cb
+      return () => {}
+    },
+    onReady: () => () => {},
+    onUiRequest: () => () => {},
+    onExit: () => () => {},
     open: async (input: { chatId: string }) => ({
       chatId: input.chatId,
       cwd: '/tmp/synthetic',
@@ -116,5 +126,50 @@ describe('chat-store model switching', () => {
     const chat = useChatStore.getState().chats[chatId]!
     expect(chat.thinkingLevel).toBe('high')
     expect(chat.availableThinkingLevels).toEqual(['off'])
+  })
+})
+
+describe('unread marker', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let useAppStore: typeof import('./app-store').useAppStore
+  let seq = 0
+
+  beforeEach(async () => {
+    const chatMod = await import('./chat-store')
+    useChatStore = chatMod.useChatStore
+    chatMod.initChatBridge()
+    useAppStore = (await import('./app-store')).useAppStore
+    useAppStore.setState({ view: { kind: 'home' } })
+  })
+
+  it('marks a background chat unread when its run settles, clears on markRead', async () => {
+    const chatId = `u${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    eventHandler!( {
+      chatId,
+      events: [{ type: 'agent_start' }, { type: 'agent_settled' }]
+    })
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.unread).toBe(true)
+
+    useChatStore.getState().markRead(chatId)
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.unread).toBe(false)
+  })
+
+  it('does not mark the visible chat unread', async () => {
+    const chatId = `u${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    useAppStore.setState({ view: { kind: 'chat', chatId } })
+
+    eventHandler!({
+      chatId,
+      events: [{ type: 'agent_start' }, { type: 'agent_settled' }]
+    })
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.unread ?? false).toBe(false)
   })
 })

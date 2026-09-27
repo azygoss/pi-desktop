@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useAppStore } from './app-store'
 import type {
   ChatOpenResult,
   ChatSendMode,
@@ -45,6 +46,8 @@ export interface ChatState extends ChatViewState {
   transcriptLimit?: number
   /** True once the file-derived transcript was applied for this chat. */
   transcriptApplied?: boolean
+  /** A run finished while the chat was not visible; cleared when opened. */
+  unread?: boolean
 }
 
 interface ChatStoreState {
@@ -73,6 +76,8 @@ interface ChatStoreState {
   reloadChat(chatId: string): Promise<void>
   /** Clone the current session branch; the chat continues on the new session. */
   cloneChat(chatId: string): Promise<void>
+  /** Clear the unread marker when the chat becomes visible. */
+  markRead(chatId: string): void
   setChatTitle(chatId: string, title: string): void
   respondUi(chatId: string, response: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }): void
 }
@@ -97,6 +102,11 @@ function publish(chatId: string): void {
   }))
 }
 
+function isVisibleChat(chatId: string): boolean {
+  const view = useAppStore.getState().view
+  return view.kind === 'chat' && view.chatId === chatId
+}
+
 function flushPending(): void {
   flushScheduled = false
   let statsDirty = false
@@ -109,6 +119,17 @@ function flushPending(): void {
       if (reducePiEvent(draft, event)) {
         statsDirty = true
       }
+    }
+    // A run that settles while the chat isn't on screen leaves an unread
+    // marker in the sidebar; opening the chat clears it via markRead().
+    // (start+settle can land in the same batch, so key off the event, not
+    // the status snapshot before this flush.)
+    if (
+      draft.status === 'idle' &&
+      !isVisibleChat(chatId) &&
+      events.some((e) => e.type === 'agent_settled')
+    ) {
+      draft.unread = true
     }
     publish(chatId)
   }
@@ -614,6 +635,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return
     }
     await get().refresh(chatId)
+  },
+
+  markRead(chatId) {
+    const draft = drafts.get(chatId)
+    if (draft?.unread) {
+      draft.unread = false
+      publish(chatId)
+    }
   },
 
   setChatTitle(chatId, title) {

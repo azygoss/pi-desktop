@@ -1136,7 +1136,7 @@ body {
   position: absolute;
   bottom: 120px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(6px);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1150,6 +1150,19 @@ body {
   cursor: pointer;
   box-shadow: var(--shadow);
   z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+.jump-pill.is-visible {
+  opacity: 1;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.jump-pill:hover {
+  color: var(--text);
 }
 
 .chat-composer-dock {
@@ -1178,7 +1191,9 @@ body {
 .markdown h1,
 .markdown h2,
 .markdown h3,
-.markdown h4 {
+.markdown h4,
+.markdown h5,
+.markdown h6 {
   margin: 16px 0 8px;
   font-weight: 600;
   line-height: 1.3;
@@ -1192,6 +1207,16 @@ body {
 .markdown h3 {
   font-size: 15px;
 }
+.markdown h4 {
+  font-size: 14px;
+}
+.markdown h5 {
+  font-size: 13.5px;
+}
+.markdown h6 {
+  font-size: 13px;
+  color: var(--text-2);
+}
 .markdown p {
   margin: 8px 0;
 }
@@ -1203,9 +1228,22 @@ body {
 .markdown li {
   margin: 2px 0;
 }
+.markdown li > ul,
+.markdown li > ol {
+  margin: 4px 0;
+}
+.markdown li > p {
+  margin: 4px 0;
+}
+/* Wide tables scroll horizontally inside the wrapper instead of
+   overflowing the chat column. */
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 10px 0;
+}
 .markdown table {
   border-collapse: collapse;
-  margin: 10px 0;
   font-size: 13px;
 }
 .markdown th,
@@ -1216,20 +1254,38 @@ body {
 }
 .markdown th {
   background: var(--surface);
+  font-weight: 600;
+}
+.markdown tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 .markdown a {
   color: var(--accent);
+  text-decoration: none;
+}
+.markdown a:hover {
+  text-decoration: underline;
+}
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
 }
 .markdown blockquote {
   margin: 8px 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
+  padding: 2px 12px;
+  border-left: 3px solid var(--accent);
   color: var(--text-2);
 }
 .markdown hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 14px 0;
+}
+/* Shown while the lazily-loaded markdown chunk arrives. */
+.markdown-fallback {
+  white-space: pre-wrap;
+  color: var(--text-2);
 }
 
 .inline-code {
@@ -2345,4 +2401,151 @@ body {
   height: 13px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+
+/* ---------- Streaming, unread & loading indicators ---------- */
+
+/* Placeholder row while a stream waits for its first token. */
+.msg-pending {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Gradient sweep across the label — reads as motion without layout cost. */
+.shimmer-text {
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--muted) 20%,
+    var(--text-2) 50%,
+    var(--muted) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer-slide 1.5s linear infinite;
+}
+@keyframes shimmer-slide {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Sidebar: pulsing dot while a chat streams, solid dot for a finished
+   background run that hasn't been opened yet. */
+.live-dot,
+.unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.live-dot {
+  animation: composer-status-pulse 1.2s ease-in-out infinite;
+}
+
+/* Skeleton rows while the session index hasn't answered yet. */
+.sidebar-skeleton {
+  height: 14px;
+  border-radius: 7px;
+  background: var(--surface-hover);
+  margin: 8px;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ---------- Focus & motion ---------- */
+
+/* One consistent focus ring: the accent at 40% opacity. */
+:is(
+    button,
+    [role='button'],
+    a,
+    input,
+    textarea,
+    select,
+    [tabindex]
+  ):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 1px;
+}
+/* Inputs that already show focus through a border/accent outline. */
+.sidebar-rename-input:focus-visible,
+.chat-title-input:focus-visible,
+.ui-dialog-input:focus-visible,
+.settings-input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* Modals and popovers settle in with a small scale-in. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.settings-modal,
+.cmd-modal,
+.slash-popover,
+.model-popover,
+.folder-popover,
+.ui-dialog,
+.toast {
+  animation: pop-in 120ms ease-out;
+}
+.settings-overlay {
+  animation: fade-in 120ms ease-out;
+}
+
+/* Hover-revealed controls wait a beat so they don't flicker while the
+   pointer crosses a row. */
+.sidebar-item-more,
+.msg-fork-btn,
+.panel-tab-close {
+  transition: opacity 140ms ease 50ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    color: var(--muted);
+    background: none;
+  }
+  .live-dot,
+  .sidebar-skeleton {
+    animation: none;
+  }
+  .settings-modal,
+  .cmd-modal,
+  .slash-popover,
+  .model-popover,
+  .folder-popover,
+  .ui-dialog,
+  .toast,
+  .settings-overlay {
+    animation: none;
+  }
+  .jump-pill {
+    transition: none;
+  }
+}
+
+/* ---------- macOS vibrancy ---------- */
+
+/* With `vibrancy: 'sidebar'` the window material shows through wherever the
+   page is transparent: the body and the sidebar itself (kept slightly
+   tinted so text stays readable). Everything else paints `--bg`. */
+:root[data-platform='darwin'] body {
+  background: transparent;
+}
+:root[data-platform='darwin'] .sidebar {
+  background: color-mix(in srgb, var(--sidebar) 45%, transparent);
 }

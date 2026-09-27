@@ -29,6 +29,8 @@ interface AppState {
   appInfo: AppInfo | null
   userName: string
   sessions: SessionSummary[]
+  /** False until the first session index answer arrives (skeleton rows). */
+  sessionsLoaded: boolean
   projects: ProjectSummary[]
   sidebarCollapsed: boolean
   chatFilter: string
@@ -69,6 +71,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   userName: 'there',
   sessions: [],
+  sessionsLoaded: false,
   projects: [],
   sidebarCollapsed: false,
   chatFilter: '',
@@ -101,11 +104,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         userName: appSettings.displayName?.trim() || userName,
         sidebarCollapsed: appSettings.sidebarCollapsed,
         sessions,
+        sessionsLoaded: true,
         projects
       })
       applyTheme(appSettings.theme)
+      applyPlatform(appInfo?.platform)
     } catch {
       set({ ready: true, piAvailable: false })
+      applyPlatform()
     }
   },
 
@@ -115,7 +121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.piDesktop.sessions.list(),
         window.piDesktop.projects.list()
       ])
-      set({ sessions, projects })
+      set({ sessions, projects, sessionsLoaded: true })
     } catch {
       // keep stale data
     }
@@ -252,4 +258,21 @@ function applyTheme(theme: AppSettings['theme']): void {
   } else {
     document.documentElement.dataset['theme'] = theme
   }
+}
+
+/**
+ * Tag the root element with the platform so macOS-only styling (vibrancy
+ * transparency) can apply. Falls back to `navigator.platform` when the
+ * app-info call failed.
+ */
+function applyPlatform(platform?: string): void {
+  if (typeof document === 'undefined') {
+    return
+  }
+  const value =
+    platform ??
+    (typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac')
+      ? 'darwin'
+      : 'other')
+  document.documentElement.dataset['platform'] = value
 }
