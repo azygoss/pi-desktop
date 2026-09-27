@@ -38,7 +38,11 @@ export interface LocatorDeps {
   shell: string | undefined
   isExecutable(filePath: string): Promise<boolean>
   /** Run `<command> --version` and return raw stdout, or null on any failure. */
-  readVersion(command: string, args: string[]): Promise<string | null>
+  readVersion(
+    command: string,
+    args: string[],
+    env?: Record<string, string>
+  ): Promise<string | null>
   /** Run the login shell and return the PATH it prints, or null on failure. */
   readLoginShellPath(): Promise<string | null>
   /** Resolve the bundled CLI entry (`dist/bundle/cli.js`), or null if absent. */
@@ -57,15 +61,25 @@ const COMMON_BIN_DIRS = [
 const VERSION_TIMEOUT_MS = 5000
 const SHELL_PATH_TIMEOUT_MS = 5000
 
-function execText(file: string, args: string[], timeoutMs: number): Promise<string> {
+function execText(
+  file: string,
+  args: string[],
+  timeoutMs: number,
+  env?: Record<string, string>
+): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-      if (error) {
-        reject(error)
-      } else {
-        resolvePromise(stdout)
+    execFile(
+      file,
+      args,
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024, env: env ?? process.env },
+      (error, stdout) => {
+        if (error) {
+          reject(error)
+        } else {
+          resolvePromise(stdout)
+        }
       }
-    })
+    )
   })
 }
 
@@ -108,9 +122,12 @@ function defaultDeps(appPath: string): LocatorDeps {
       }
     },
 
-    async readVersion(command, args) {
+    async readVersion(command, args, env) {
       try {
-        return await execText(command, [...args, '--version'], VERSION_TIMEOUT_MS)
+        return await execText(command, [...args, '--version'], VERSION_TIMEOUT_MS, {
+          ...process.env,
+          ...env
+        } as Record<string, string>)
       } catch {
         return null
       }
@@ -244,14 +261,19 @@ async function buildRuntime(
   deps: LocatorDeps,
   mergedPath: string
 ): Promise<PiRuntime | null> {
-  const versionOutput = await deps.readVersion(command, args)
-  const version = versionOutput === null ? null : parsePiVersion(versionOutput)
-  if (version === null) {
-    return null
-  }
   const env: Record<string, string> = { PATH: mergedPath }
   if (kind === 'bundled') {
     env['ELECTRON_RUN_AS_NODE'] = '1'
+  }
+  // The version probe must run with the same env the child will get: the
+  // merged PATH makes `#!/usr/bin/env node` shebangs work in clean GUI
+  // environments, and ELECTRON_RUN_AS_NODE=1 turns the Electron binary into
+  // plain Node for the bundled CLI — without it the probe spawns a whole
+  // second app instance.
+  const versionOutput = await deps.readVersion(command, args, env)
+  const version = versionOutput === null ? null : parsePiVersion(versionOutput)
+  if (version === null) {
+    return null
   }
   return { kind, command, args, env, version }
 }

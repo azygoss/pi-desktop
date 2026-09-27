@@ -1,0 +1,35 @@
+appId: io.github.azygoss.pidesktop
+productName: Pi Desktop
+copyright: Copyright © 2026 Pi Desktop contributors
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+
+# The bundled pi CLI spawns child processes and lazily requires native/wasm
+# assets, so all production node_modules must live outside the asar.
+asarUnpack:
+  - node_modules/**
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  identity: null
+  hardenedRuntime: false
+
+dmg:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

@@ -77,11 +77,22 @@ describe('Pi Desktop e2e', () => {
   let app: ElectronApplication
   let page: Page
   let agentDir: string
+  let userDataDir: string
 
   beforeAll(async () => {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-'))
     await seedAgentDir(agentDir)
     await mkdir(SHOTS, { recursive: true })
+
+    // Synthetic app settings so screenshots show a fake display name and a
+    // synthetic working directory (never the real home dir basename).
+    userDataDir = await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-ud-'))
+    const defaultProject = join(userDataDir, 'demo-project')
+    await mkdir(defaultProject, { recursive: true })
+    await writeFile(
+      join(userDataDir, 'settings.json'),
+      JSON.stringify({ displayName: 'Alex', defaultCwd: defaultProject })
+    )
 
     // Strip ELECTRON_RUN_AS_NODE: if inherited it forces the Electron binary
     // into plain Node mode and the app never starts.
@@ -95,6 +106,7 @@ describe('Pi Desktop e2e', () => {
         PI_DESKTOP_PI_COMMAND: FAKE_PI,
         PI_CODING_AGENT_DIR: agentDir,
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, 'sessions'),
+        PI_DESKTOP_USER_DATA_DIR: userDataDir,
         NODE_ENV: 'production'
       }
     })
@@ -106,6 +118,9 @@ describe('Pi Desktop e2e', () => {
     await app?.close()
     if (agentDir) {
       await rm(agentDir, { recursive: true, force: true })
+    }
+    if (userDataDir) {
+      await rm(userDataDir, { recursive: true, force: true })
     }
   })
 
@@ -137,6 +152,24 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.model-row')
     await page.screenshot({ path: join(SHOTS, 'model-picker.png') })
     await page.keyboard.press('Escape')
+  })
+
+  it('opens the slash command palette', async () => {
+    await page.locator('.composer-input').fill('/')
+    await visible(page, '.slash-popover')
+    await visible(page, '.slash-row')
+    await page.screenshot({ path: join(SHOTS, 'slash-palette.png') })
+    await page.locator('.composer-input').fill('')
+    await page.keyboard.press('Escape')
+  })
+
+  it('opens the settings modal', async () => {
+    await page.locator('.sidebar-footer .icon-btn').last().click()
+    await visible(page, '.settings-modal')
+    await visible(page, '.settings-segmented')
+    await page.screenshot({ path: join(SHOTS, 'settings-modal.png') })
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
   })
 
   it('sends a prompt and renders a streamed reply with a tool card', async () => {

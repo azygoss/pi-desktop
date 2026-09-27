@@ -148,6 +148,47 @@ describe('resolvePiRuntime', () => {
     expect(runtime).toMatchObject({ kind: 'bundled', version: '0.85.1' })
   })
 
+  it('probes the bundled cli with ELECTRON_RUN_AS_NODE so it does not spawn an app', async () => {
+    const probedEnvs: (Record<string, string> | undefined)[] = []
+    const deps = makeDeps({
+      resolveBundledCli: async () => ({ cliPath: '/bundled/cli.js', version: '0.85.1' }),
+      readVersion: async (_command, _args, env) => {
+        probedEnvs.push(env)
+        return '0.85.1'
+      }
+    })
+    const runtime = await resolvePiRuntime({ deps })
+    expect(runtime.kind).toBe('bundled')
+    expect(probedEnvs).toHaveLength(1)
+    expect(probedEnvs[0]?.['ELECTRON_RUN_AS_NODE']).toBe('1')
+  })
+
+  it('probes installed pi with the merged PATH', async () => {
+    const probedEnvs: (Record<string, string> | undefined)[] = []
+    const deps = makeDeps({
+      isExecutable: async (p) => p === '/shell/bin/pi',
+      readVersion: async (_command, _args, env) => {
+        probedEnvs.push(env)
+        return '0.85.1'
+      }
+    })
+    const runtime = await resolvePiRuntime({ deps })
+    expect(runtime.kind).toBe('installed')
+    expect(probedEnvs[0]?.['PATH']).toContain('/shell/bin')
+  })
+
+  it('restricts resolution to the configured runtime mode', async () => {
+    const deps = makeDeps({
+      isExecutable: async (p) => p === '/shell/bin/pi',
+      resolveBundledCli: async () => ({ cliPath: '/bundled/cli.js', version: '0.85.1' }),
+      readVersion: async () => '0.85.1'
+    })
+    const installed = await resolvePiRuntime({ deps, mode: 'installed' })
+    expect(installed.kind).toBe('installed')
+    const bundled = await resolvePiRuntime({ deps, mode: 'bundled' })
+    expect(bundled.kind).toBe('bundled')
+  })
+
   it('throws when nothing resolves', async () => {
     await expect(resolvePiRuntime({ deps: makeDeps() })).rejects.toThrow('No pi runtime found')
   })
