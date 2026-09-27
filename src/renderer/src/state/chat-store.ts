@@ -35,6 +35,16 @@ export interface ChatState extends ChatViewState {
   uiRequest?: ExtensionUiRequest
   /** Text handed back by fork for the composer to preload (nonce bumps each time). */
   composerSeed?: { text: string; nonce: number }
+  /** pi answered its first requests; false while the process is starting. */
+  piReady?: boolean
+  /** When the pi spawn began — drives the "Starting pi… Ns" indicator. */
+  startedAt?: number
+  /** The file transcript has more message entries than are loaded. */
+  hasEarlier?: boolean
+  /** Message window currently loaded from the session file. */
+  transcriptLimit?: number
+  /** True once the file-derived transcript was applied for this chat. */
+  transcriptApplied?: boolean
 }
 
 interface ChatStoreState {
@@ -50,6 +60,8 @@ interface ChatStoreState {
   closeChat(chatId: string): Promise<void>
   /** Re-fetch state/messages after fork/clone changes the underlying session. */
   refresh(chatId: string): Promise<void>
+  /** Widen the file-transcript window ("Load earlier" for long sessions). */
+  loadEarlier(chatId: string): Promise<void>
   /**
    * Fork the session at the user message at `userIndex` (position among user
    * messages). Returns the message text pi hands back for editing.
@@ -159,6 +171,33 @@ export function initChatBridge(): void {
     enqueueEvent(chatId, event)
   })
 
+  // Live catalog/state the moment the chat's pi process answers — replaces
+  // whatever cached values were shown while it was starting.
+  window.piDesktop.chat.onReady((ready) => {
+    const draft = drafts.get(ready.chatId)
+    if (!draft) {
+      return
+    }
+    draft.piReady = true
+    draft.models = ready.models
+    draft.commands = ready.commands
+    draft.model = ready.state.model ?? draft.model
+    draft.thinkingLevel = ready.state.thinkingLevel ?? draft.thinkingLevel
+    draft.availableThinkingLevels = ready.thinkingLevels
+    if (ready.sessionPath && !draft.sessionPath) {
+      draft.sessionPath = ready.sessionPath
+    }
+    if (draft.status === 'starting') {
+      draft.status = ready.state.isStreaming ? 'streaming' : 'idle'
+    }
+    for (const message of draft.messages) {
+      if (message.kind === 'user') {
+        message.queued = false
+      }
+    }
+    publish(ready.chatId)
+  })
+
   window.piDesktop.chat.onUiRequest(({ chatId, request }) => {
     const draft = drafts.get(chatId)
     if (draft) {
@@ -184,6 +223,50 @@ export function initChatBridge(): void {
   })
 }
 
+/**
+ * Apply a resolved `chat.open` result to a draft. The file-derived
+ * transcript stays the display source when it loaded; the RPC message list
+ * only fills in when there was nothing to show.
+ */
+function applyOpenResult(
+  chatId: string,
+  draft: ChatState,
+  result: ChatOpenResult,
+  input: { cwd?: string; sessionPath?: string }
+): void {
+  const view = buildChatViewState(result.messages)
+  if (!draft.transcriptApplied || draft.messages.length === 0) {
+    draft.messages = view.messages
+    draft.toolRuns = view.toolRuns
+  }
+  draft.piReady = true
+  if (result.state.isStreaming) {
+    draft.status = 'streaming'
+  } else if (draft.status === 'starting') {
+    draft.status = 'idle'
+  }
+  draft.error = undefined
+  draft.model = result.state.model
+  draft.thinkingLevel = result.state.thinkingLevel
+  draft.availableThinkingLevels = result.thinkingLevels
+  draft.models = result.models
+  draft.commands = result.commands
+  draft.cwd = result.cwd || draft.cwd
+  draft.sessionPath = result.sessionPath ?? input.sessionPath ?? draft.sessionPath
+  if (!draft.transcriptApplied) {
+    const firstUser = view.messages.find((m) => m.kind === 'user')
+    if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
+      draft.title = firstUser.text.slice(0, 80)
+    }
+  }
+  for (const message of draft.messages) {
+    if (message.kind === 'user') {
+      message.queued = false
+    }
+  }
+  publish(chatId)
+}
+
 let optimisticCounter = 0
 let seedCounter = 0
 
@@ -206,7 +289,26 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   async ensureChat(chatId, input) {
     const existing = drafts.get(chatId)
-    if (existing && existing.status !== 'starting') {
+    if (existing && existing.status !== 'starting' && existing.status !== 'error') {
+      return
+    }
+    if (existing) {
+      // Retry after a failed start: keep transcript/title, restart status.
+      existing.status = 'starting'
+      existing.error = undefined
+      existing.piReady = false
+      existing.startedAt = Date.now()
+      publish(chatId)
+      const retry: ChatOpenResult | void = await window.piDesktop.chat
+        .open({ chatId, cwd: existing.cwd || input.cwd, sessionPath: existing.sessionPath ?? input.sessionPath })
+        .catch((error: unknown) => {
+          existing.status = 'error'
+          existing.error = error instanceof Error ? error.message : String(error)
+          publish(chatId)
+        })
+      if (retry) {
+        applyOpenResult(chatId, existing, retry, input)
+      }
       return
     }
     const draft: ChatState = {
@@ -216,6 +318,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       sessionPath: input.sessionPath,
       title: 'New chat',
       status: 'starting',
+      piReady: false,
+      startedAt: Date.now(),
       model: null,
       thinkingLevel: null,
       availableThinkingLevels: [],
@@ -225,34 +329,94 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     drafts.set(chatId, draft)
     publish(chatId)
 
-    const result: ChatOpenResult = await window.piDesktop.chat.open({
-      chatId,
-      cwd: input.cwd,
-      sessionPath: input.sessionPath
-    })
+    // Instant transcript: read the session file in main and render the
+    // active branch while pi is still starting in the background.
+    if (input.sessionPath) {
+      void window.piDesktop.chat
+        .readTranscript({ sessionPath: input.sessionPath })
+        .then((transcript) => {
+          const current = drafts.get(chatId)
+          if (!current) {
+            return
+          }
+          const view = buildChatViewState(transcript.messages)
+          current.messages = view.messages
+          current.toolRuns = view.toolRuns
+          current.hasEarlier = transcript.hasEarlier
+          current.transcriptLimit = transcript.messages.length || undefined
+          current.transcriptApplied = true
+          const firstUser = view.messages.find((m) => m.kind === 'user')
+          if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
+            current.title = firstUser.text.replace(/\s+/g, ' ').trim().slice(0, 80)
+          }
+          publish(chatId)
+        })
+        .catch(() => {})
+    }
 
-    const view = buildChatViewState(result.messages)
+    // Cached catalog: the composer and palette show last-known models and
+    // commands immediately; the ready broadcast replaces them with live data.
+    void window.piDesktop.catalog
+      .get()
+      .then((catalog) => {
+        const current = drafts.get(chatId)
+        if (!current || current.piReady) {
+          return
+        }
+        current.models = catalog.models
+        current.commands = catalog.commands
+        current.availableThinkingLevels = catalog.thinkingLevels
+        current.model = catalog.model ?? current.model
+        current.thinkingLevel = catalog.thinkingLevel ?? current.thinkingLevel
+        publish(chatId)
+      })
+      .catch(() => {})
+
+    let result: ChatOpenResult
+    try {
+      result = await window.piDesktop.chat.open({
+        chatId,
+        cwd: input.cwd,
+        sessionPath: input.sessionPath
+      })
+    } catch (error) {
+      const current = drafts.get(chatId)
+      if (current) {
+        current.status = 'error'
+        current.error = error instanceof Error ? error.message : String(error)
+        publish(chatId)
+      }
+      throw error
+    }
+
     const current = drafts.get(chatId)
     if (!current) {
       return // closed while opening
     }
-    current.status = view.messages.length > 0 || result.state.isStreaming ? view.status : 'idle'
-    if (result.state.isStreaming) {
-      current.status = 'streaming'
+    applyOpenResult(chatId, current, result, input)
+  },
+
+  async loadEarlier(chatId) {
+    const draft = drafts.get(chatId)
+    if (!draft?.sessionPath) {
+      return
     }
+    const limit = (draft.transcriptLimit ?? 0) + 2000
+    const transcript = await window.piDesktop.chat.readTranscript({
+      sessionPath: draft.sessionPath,
+      limit
+    })
+    const current = drafts.get(chatId)
+    if (!current) {
+      return
+    }
+    const view = buildChatViewState(transcript.messages)
+    // The wider window is a superset of the loaded tail; live tool runs
+    // that arrived after the transcript was read are merged back over it.
     current.messages = view.messages
-    current.toolRuns = view.toolRuns
-    current.model = result.state.model
-    current.thinkingLevel = result.state.thinkingLevel
-    current.availableThinkingLevels = result.thinkingLevels
-    current.models = result.models
-    current.commands = result.commands
-    current.cwd = result.cwd || current.cwd
-    current.sessionPath = result.sessionPath ?? input.sessionPath
-    const firstUser = view.messages.find((m) => m.kind === 'user')
-    if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
-      current.title = firstUser.text.slice(0, 80)
-    }
+    current.toolRuns = { ...view.toolRuns, ...current.toolRuns }
+    current.hasEarlier = transcript.hasEarlier
+    current.transcriptLimit = transcript.messages.length || undefined
     publish(chatId)
   },
 
@@ -266,13 +430,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       key: `local-${++optimisticCounter}`,
       text: message,
       images: images ?? [],
+      // Sent before pi answered — main queues it until the process is ready.
+      ...(draft.piReady === false ? { queued: true } : {}),
       timestamp: Date.now()
     }
     draft.messages.push(display)
     if (draft.title === 'New chat' && message.trim()) {
       draft.title = message.replace(/\s+/g, ' ').trim().slice(0, 80)
     }
-    draft.status = 'streaming'
+    // Still starting → keep the "Starting pi" status; the send is queued.
+    draft.status = draft.piReady === false ? 'starting' : 'streaming'
     publish(chatId)
     try {
       await window.piDesktop.chat.send({ chatId, message, images, mode })

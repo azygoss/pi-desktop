@@ -67,12 +67,29 @@ export class PiProcessPool {
       extraEnv: options.extraEnv
     })
     client.on('exit', () => {
-      if (this.clients.get(chatId) === client) {
-        this.clients.delete(chatId)
+      // Identity scan: a client may be re-keyed by adopt() (warm spare).
+      for (const [key, value] of this.clients) {
+        if (value === client) {
+          this.clients.delete(key)
+        }
       }
     })
     this.clients.set(chatId, client)
     client.start()
+    return client
+  }
+
+  /**
+   * Re-key a live client (warm spare adopted by a draft chat). Returns the
+   * client, or undefined when nothing is running under `fromChatId`.
+   */
+  adopt(fromChatId: string, toChatId: string): PiRpcClient | undefined {
+    const client = this.clients.get(fromChatId)
+    if (!client || !client.isRunning) {
+      return undefined
+    }
+    this.clients.delete(fromChatId)
+    this.clients.set(toChatId, client)
     return client
   }
 

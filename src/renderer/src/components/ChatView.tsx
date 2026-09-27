@@ -45,6 +45,17 @@ function AssistantBlock({
   return null
 }
 
+/** Elapsed-seconds label for the "Starting pi…" notice (ticks each second). */
+function StartingPiNotice({ startedAt }: { startedAt?: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const seconds = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0
+  return <span>{seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}</span>
+}
+
 function MessageRow({
   message,
   chat,
@@ -80,6 +91,7 @@ function MessageRow({
             />
           ))}
           {message.text}
+          {message.queued && <span className="msg-queued">queued — waiting for pi</span>}
         </div>
       </div>
     )
@@ -285,6 +297,11 @@ export function ChatView({ chatId }: { chatId: string }) {
     setShowJump(!nearBottom)
   }, [])
 
+  // Bookkeeping for idle eviction in main: this chat is the visible one.
+  useEffect(() => {
+    void window.piDesktop.chat.focus({ chatId }).catch(() => {})
+  }, [chatId])
+
   const messageCount = chat?.messages.length ?? 0
   const streaming = chat?.status === 'streaming'
   useEffect(() => {
@@ -331,9 +348,22 @@ export function ChatView({ chatId }: { chatId: string }) {
     <div className="chat-view">
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-column">
+          {chat.hasEarlier && (
+            <div className="msg-load-earlier-wrap">
+              <button
+                type="button"
+                className="ui-btn msg-load-earlier"
+                onClick={() =>
+                  void useChatStore.getState().loadEarlier(chatId).catch(() => {})
+                }
+              >
+                Load earlier messages
+              </button>
+            </div>
+          )}
           {chat.status === 'starting' && (
             <div className="msg-notice msg-notice-info">
-              <span>Starting pi…</span>
+              <StartingPiNotice startedAt={chat.startedAt} />
             </div>
           )}
           {chat.messages.map((m) => {
@@ -353,6 +383,20 @@ export function ChatView({ chatId }: { chatId: string }) {
           {chat.error && (
             <div className="msg-notice msg-notice-error">
               <span>{chat.error}</span>
+              {chat.status === 'error' && (
+                <button
+                  type="button"
+                  className="ui-btn"
+                  onClick={() =>
+                    void useChatStore
+                      .getState()
+                      .ensureChat(chatId, { cwd: chat.cwd, sessionPath: chat.sessionPath })
+                      .catch(() => {})
+                  }
+                >
+                  <RotateCcw size={12} /> Retry
+                </button>
+              )}
             </div>
           )}
           {chat.status === 'exited' && (

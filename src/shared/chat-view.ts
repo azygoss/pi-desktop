@@ -27,7 +27,15 @@ export type DisplayBlock =
   | { type: 'image'; data: string; mimeType: string }
 
 export type DisplayMessage =
-  | { kind: 'user'; key: string; text: string; images: ImageContent[]; timestamp?: number }
+  | {
+      kind: 'user'
+      key: string
+      text: string
+      images: ImageContent[]
+      /** Sent while pi was still starting; delivered once it is ready. */
+      queued?: boolean
+      timestamp?: number
+    }
   | {
       kind: 'assistant'
       key: string

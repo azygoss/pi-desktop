@@ -36,7 +36,18 @@ const fakeApi = {
       thinkingLevels: ['off', 'low', 'medium', 'high'],
       commands: []
     }),
-    setModel: async () => setModelResult
+    setModel: async () => setModelResult,
+    readTranscript: async () => ({ messages: [], hasEarlier: false, totalMessages: 0 }),
+    focus: async () => {}
+  },
+  catalog: {
+    get: async () => ({
+      models: [],
+      commands: [],
+      thinkingLevels: [],
+      model: null,
+      thinkingLevel: null
+    })
   }
 }
 

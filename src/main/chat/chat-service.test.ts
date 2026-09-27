@@ -161,6 +161,67 @@ describe('ChatService', () => {
     }
   })
 
+  it('queues a send issued while open() is still in flight', async () => {
+    const { service, broadcasts, pool } = makeService()
+    try {
+      const openPromise = service.open({ chatId: 'chat-q', cwd: tmpdir() })
+      // Sent before open() has even created the record — must wait for it.
+      const sendPromise = service.send({
+        chatId: 'chat-q',
+        message: 'queued hello',
+        mode: 'prompt'
+      })
+      await openPromise
+      await sendPromise
+      await expect
+        .poll(
+          () =>
+            broadcasts.some(
+              (b) =>
+                b.channel === 'pi-desktop:chat:event' &&
+                (b.payload as { event?: { type?: string } }).event?.type === 'agent_start'
+            ),
+          { timeout: 5000 }
+        )
+        .toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('broadcasts chat:ready with the live catalog', async () => {
+    const { service, broadcasts, pool } = makeService()
+    try {
+      await service.open({ chatId: 'chat-r', cwd: tmpdir() })
+      const ready = broadcasts.find((b) => b.channel === 'pi-desktop:chat:ready')
+      expect(ready).toBeTruthy()
+      const payload = ready!.payload as { chatId: string; models: unknown[]; startupMs: number }
+      expect(payload.chatId).toBe('chat-r')
+      expect(payload.models.length).toBeGreaterThan(0)
+      expect(payload.startupMs).toBeGreaterThanOrEqual(0)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('adopts the warm spare for a project-less chat and respawns it', async () => {
+    const { service, pool } = makeService()
+    try {
+      await service.warmSpare()
+      expect(pool.get('__spare__')?.isRunning).toBe(true)
+      const scratch = join(userDataRoot, 'workspace')
+      const result = await service.open({ chatId: 'chat-adopt', cwd: scratch })
+      expect(result.cwd).toBe(scratch)
+      expect(pool.get('chat-adopt')?.isRunning).toBe(true)
+      // The spare process itself now answers under the adopted chat id.
+      await expect
+        .poll(() => pool.get('__spare__') !== undefined, { timeout: 5000 })
+        .toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
   it('send fails for unknown chat', async () => {
     const { service, pool } = makeService()
     try {

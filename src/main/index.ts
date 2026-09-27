@@ -28,6 +28,7 @@ const chat = new ChatService(pool, broadcastAll, {
   url: () => bridge.url,
   issue: (chatId) => bridge.issue(chatId),
   revoke: (chatId) => bridge.revoke(chatId),
+  adopt: (fromChatId, toChatId) => bridge.adopt(fromChatId, toChatId),
   extensionPath: piExtensionPath
 })
 const pty = new PtyManager({
@@ -135,7 +136,14 @@ app.whenReady().then(async () => {
   startSessionWatcher()
   wireAppLifecycle({ pool, chat, pty, browser, bridge })
   installAppMenu(isDev)
-  createWindow()
+  const win = createWindow()
+
+  // Warm spare pi for the next project-less chat: spawned after first paint
+  // so startup never delays the shell. Pi's own startup (eager extensions,
+  // MCP servers) can take seconds; the spare absorbs it.
+  win.webContents.once('did-finish-load', () => {
+    setTimeout(() => void chat.warmSpare(), 2000).unref?.()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -45,6 +45,22 @@ function fileToImage(file: File): Promise<ImageContent | null> {
   })
 }
 
+/** Subtle "Starting pi… Ns" line while the chat's pi process warms up. */
+function StartingPiStatus({ startedAt }: { startedAt?: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const seconds = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0
+  return (
+    <div className="composer-status" role="status">
+      <span className="composer-status-dot" />
+      {seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}
+    </div>
+  )
+}
+
 export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: ComposerProps) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<ImageContent[]>([])
@@ -361,6 +377,8 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         spellCheck={false}
       />
 
+      {chat?.status === 'starting' && <StartingPiStatus startedAt={chat.startedAt} />}
+
       <div className="composer-bar">
         <div className="composer-left">
           <button
@@ -467,6 +485,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         </div>
 
         <div className="composer-right">
+          {chat && chat.models.length === 0 && (
+            <div className="model-picker-skeleton" aria-hidden="true" />
+          )}
           {chat && chat.models.length > 0 && (
             <ModelPicker
               models={chat.models}

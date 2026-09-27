@@ -20,8 +20,9 @@ import type {
   ThinkingLevel
 } from '../../shared/pi-types'
 import type { PiRpcClient } from '../pi/rpc-client'
-import { PiProcessPool } from '../pi/pool'
+import { PiProcessPool, type OpenChatOptions } from '../pi/pool'
 import { ensureWorkspaceDir, workspaceDir } from '../config/app-paths'
+import { updateCatalogCache } from '../config/catalog-cache'
 import {
   requireString,
   validateChatId,
@@ -45,6 +46,8 @@ export interface ChatBridgeDeps {
   url(): string
   issue(chatId: string): string
   revoke(chatId: string): void
+  /** Re-map a token (issued for the warm spare) onto an adopted chat id. */
+  adopt?(fromChatId: string, toChatId: string): void
   /** Absolute path to the browser-tools extension; '' when not shipped. */
   extensionPath(): string
 }
@@ -52,8 +55,28 @@ export interface ChatBridgeDeps {
 export const CHAT_CHANNELS = {
   event: 'pi-desktop:chat:event',
   uiRequest: 'pi-desktop:chat:ui-request',
-  exit: 'pi-desktop:chat:exit'
+  exit: 'pi-desktop:chat:exit',
+  ready: 'pi-desktop:chat:ready'
 } as const
+
+interface Gate<T> {
+  promise: Promise<T>
+  resolve(value: T): void
+  reject(error: Error): void
+}
+
+function createGate<T>(): Gate<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  // Nobody may be waiting on this (e.g. pi exits before the first send);
+  // swallow the rejection so it does not surface as unhandled.
+  promise.catch(() => {})
+  return { promise, resolve, reject }
+}
 
 interface ChatRecord {
   client: PiRpcClient
@@ -61,7 +84,15 @@ interface ChatRecord {
   cwd: string
   sessionPath?: string
   streaming: boolean
+  spawnedAt: number
+  /** Resolves once the process answered its first catalog requests. */
+  gate: Gate<void>
+  /** Last time this chat's view was shown (idle eviction bookkeeping). */
+  lastViewedAt: number
 }
+
+/** Chat id used for the warm spare process until a draft adopts it. */
+const SPARE_CHAT_ID = '__spare__'
 
 const EXIT_STDERR_LINES = 20
 
@@ -111,6 +142,17 @@ async function dirExists(path: string): Promise<boolean> {
  */
 export class ChatService {
   private readonly chats = new Map<string, ChatRecord>()
+  /**
+   * chatId → record gate for `open()` calls still spawning. Lets a send that
+   * arrives before the record exists queue transparently instead of failing.
+   */
+  private readonly pendingOpens = new Map<string, Gate<ChatRecord>>()
+  /**
+   * One pre-spawned pi for the "Without project" workspace. Pi's startup can
+   * take seconds (eager extensions/MCP servers), so the spare is spawned
+   * shortly after launch and adopted by the next project-less draft.
+   */
+  private spare: { id: string; client: PiRpcClient; warm: Promise<void> } | null = null
 
   constructor(
     private readonly pool: PiProcessPool,
@@ -118,27 +160,8 @@ export class ChatService {
     private readonly bridge?: ChatBridgeDeps
   ) {}
 
-  async open(input: ChatOpenInput): Promise<ChatOpenResult> {
-    const chatId = validateChatId(input.chatId)
-    const sessionPath =
-      input.sessionPath !== undefined ? validateSessionPath(input.sessionPath) : undefined
-
-    let cwd: string
-    if (sessionPath !== undefined) {
-      // Reopening a past session: prefer its recorded cwd when it still exists.
-      const sessionCwd = await readSessionCwd(sessionPath)
-      cwd = sessionCwd !== null && (await dirExists(sessionCwd)) ? sessionCwd : homedir()
-    } else {
-      // The scratch dir for project-less chats is created on demand.
-      if (input.cwd === workspaceDir()) {
-        await ensureWorkspaceDir()
-      }
-      cwd = await validateCwd(input.cwd)
-    }
-
-    const existing = this.chats.get(chatId)
-    // The browser-tools extension talks back over the loopback bridge; its
-    // path and per-chat token only exist when the bridge is running.
+  /** Extra spawn args/env for the browser-tools extension + bridge token. */
+  private bridgeExtras(chatId: string): Pick<OpenChatOptions, 'extraArgs' | 'extraEnv'> {
     const extraArgs: string[] = []
     const extraEnv: Record<string, string> = {}
     if (this.bridge && this.bridge.url()) {
@@ -149,24 +172,157 @@ export class ChatService {
       extraEnv['PI_DESKTOP_BRIDGE_URL'] = this.bridge.url()
       extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = this.bridge.issue(chatId)
     }
-    const client = await this.pool.open(chatId, {
-      cwd,
-      sessionPath,
+    return {
       extraArgs: extraArgs.length ? extraArgs : undefined,
       extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined
-    })
-    if (!existing || existing.client !== client) {
-      const record: ChatRecord = { client, chatId, cwd, sessionPath, streaming: false }
-      this.chats.set(chatId, record)
-      this.attachClient(record)
     }
+  }
 
-    return this.fetchCatalog(client, chatId, cwd, sessionPath)
+  /**
+   * Keep one pi process warming for the next project-less chat. Called a few
+   * seconds after launch and again each time the spare is adopted.
+   */
+  async warmSpare(): Promise<void> {
+    if (this.spare) {
+      return
+    }
+    try {
+      await ensureWorkspaceDir()
+      const client = await this.pool.open(SPARE_CHAT_ID, {
+        cwd: workspaceDir(),
+        ...this.bridgeExtras(SPARE_CHAT_ID)
+      })
+      // Warming: pi only becomes responsive once startup work (eager MCP
+      // servers, extension init) is done; the first request absorbs that.
+      const warm = client
+        .request({ type: 'get_state' })
+        .then(() => {})
+        .catch(() => {})
+      this.spare = { id: SPARE_CHAT_ID, client, warm }
+      client.on('exit', () => {
+        if (this.spare?.client === client) {
+          this.spare = null
+        }
+        this.bridge?.revoke(SPARE_CHAT_ID)
+      })
+    } catch {
+      this.spare = null // no runtime yet — drafts will spawn normally
+    }
+  }
+
+  async open(input: ChatOpenInput): Promise<ChatOpenResult> {
+    const chatId = validateChatId(input.chatId)
+    const sessionPath =
+      input.sessionPath !== undefined ? validateSessionPath(input.sessionPath) : undefined
+
+    const existing = this.chats.get(chatId)
+    // Concurrent open() for the same chat (e.g. an ensureChat retry while
+    // the first open is in flight) piggybacks on it instead of spawning a
+    // second pi process.
+    const pending = this.pendingOpens.get(chatId)
+    if (pending) {
+      const record = await pending.promise
+      return this.fetchCatalog(record.client, chatId, record.cwd, record.sessionPath)
+    }
+    // A send arriving before the record exists should queue, not fail —
+    // register the gate before any async work so send() can see it.
+    const openGate = createGate<ChatRecord>()
+    this.pendingOpens.set(chatId, openGate)
+    try {
+      let cwd: string
+      if (sessionPath !== undefined) {
+        // Reopening a past session: prefer its recorded cwd when it still exists.
+        const sessionCwd = await readSessionCwd(sessionPath)
+        cwd = sessionCwd !== null && (await dirExists(sessionCwd)) ? sessionCwd : homedir()
+      } else {
+        // The scratch dir for project-less chats is created on demand.
+        if (input.cwd === workspaceDir()) {
+          await ensureWorkspaceDir()
+        }
+        cwd = await validateCwd(input.cwd)
+      }
+
+      let client: PiRpcClient | undefined
+      let spareWarm: Promise<void> | undefined
+      // Project-less drafts adopt the warm spare when one is waiting.
+      if (!existing && sessionPath === undefined && cwd === workspaceDir() && this.spare) {
+        const adopted = this.pool.adopt(this.spare.id, chatId)
+        if (adopted) {
+          this.bridge?.adopt?.(this.spare.id, chatId)
+          spareWarm = this.spare.warm
+          client = adopted
+          this.spare = null
+          void this.warmSpare() // spawn the replacement in the background
+        }
+      }
+      if (!client) {
+        client = await this.pool.open(chatId, { cwd, sessionPath, ...this.bridgeExtras(chatId) })
+        if (this.pendingOpens.get(chatId) !== openGate) {
+          // close() ran (or a newer open superseded us) while pi was
+          // spawning — drop the process instead of resurrecting the chat.
+          void client.stop()
+          throw new Error('Chat closed')
+        }
+      }
+
+      let record = this.chats.get(chatId)
+      if (!record || record.client !== client) {
+        record = {
+          client,
+          chatId,
+          cwd,
+          sessionPath,
+          streaming: false,
+          spawnedAt: Date.now(),
+          gate: createGate<void>(),
+          lastViewedAt: Date.now()
+        }
+        this.chats.set(chatId, record)
+        this.attachClient(record)
+      }
+      openGate.resolve(record)
+
+      if (spareWarm) {
+        await spareWarm
+      }
+      const result = await this.fetchCatalog(record.client, chatId, cwd, sessionPath)
+      const startupMs = Date.now() - record.spawnedAt
+      record.gate.resolve()
+      updateCatalogCache({
+        models: result.models,
+        commands: result.commands,
+        thinkingLevels: result.thinkingLevels,
+        model: result.state.model ?? null,
+        thinkingLevel: result.state.thinkingLevel ?? null,
+        lastStartupMs: startupMs
+      })
+      this.broadcast(CHAT_CHANNELS.ready, {
+        chatId,
+        state: result.state,
+        models: result.models,
+        thinkingLevels: result.thinkingLevels,
+        commands: result.commands,
+        sessionPath: result.sessionPath,
+        startupMs
+      })
+      return result
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error(String(error))
+      openGate.reject(cause)
+      this.chats.get(chatId)?.gate.reject(cause)
+      throw error
+    } finally {
+      // A newer open() may have replaced the gate (ensureChat retry) — only
+      // remove the entry that is still ours.
+      if (this.pendingOpens.get(chatId) === openGate) {
+        this.pendingOpens.delete(chatId)
+      }
+    }
   }
 
   /** Re-fetch state/messages/models for an already-open chat. */
   async refresh(input: { chatId: string }): Promise<ChatOpenResult> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     return this.fetchCatalog(record.client, record.chatId, record.cwd, record.sessionPath)
   }
 
@@ -200,7 +356,9 @@ export class ChatService {
     const chatId = validateChatId(input.chatId)
     const message = validateMessage(input.message)
     const images = validateImages(input.images)
-    const record = this.requireChat(chatId)
+    // Queued send: while pi is still starting the request waits here; the
+    // renderer already shows the user message with a queued indicator.
+    const record = await this.requireReady(chatId)
 
     const mode = input.mode
     if (mode === 'steer') {
@@ -220,7 +378,7 @@ export class ChatService {
   }
 
   async abort(input: { chatId: string }): Promise<void> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     await record.client.request({ type: 'abort' }, { timeoutMs: 15000 })
   }
 
@@ -229,7 +387,7 @@ export class ChatService {
     provider: string
     modelId: string
   }): Promise<SetModelResult> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const provider = requireString(input.provider, 'provider', 128)
     const modelId = requireString(input.modelId, 'modelId', 256)
     await record.client.request({ type: 'set_model', provider, modelId })
@@ -249,18 +407,18 @@ export class ChatService {
   }
 
   async setThinkingLevel(input: { chatId: string; level: ThinkingLevel }): Promise<void> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const level = requireString(input.level, 'level', 32) as ThinkingLevel
     await record.client.request({ type: 'set_thinking_level', level })
   }
 
   async getStats(input: { chatId: string }): Promise<ChatSessionStats | undefined> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     return record.client.request<ChatSessionStats>({ type: 'get_session_stats' })
   }
 
   async compact(input: { chatId: string; customInstructions?: string }): Promise<void> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const customInstructions =
       input.customInstructions === undefined
         ? undefined
@@ -272,13 +430,13 @@ export class ChatService {
   }
 
   async setSessionName(input: { chatId: string; name: string }): Promise<void> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const name = requireString(input.name, 'name', 200)
     await record.client.request({ type: 'set_session_name', name })
   }
 
   async exportHtml(input: { chatId: string; outputPath: string }): Promise<{ path?: string }> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const outputPath = validateOutputPath(input.outputPath)
     const result = await record.client.request<{ path?: string }>({
       type: 'export_html',
@@ -302,7 +460,7 @@ export class ChatService {
    * skills, prompt templates and keybindings (/reload).
    */
   async reload(input: { chatId: string }): Promise<ChatOpenResult> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const { chatId, cwd, sessionPath } = record
     await this.close({ chatId })
     return this.open({ chatId, cwd, sessionPath })
@@ -310,7 +468,7 @@ export class ChatService {
 
   /** Session entry tree for the /tree modal. */
   async getTree(input: { chatId: string }): Promise<PiTreeResult> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     return (
       (await record.client.request<PiTreeResult>({ type: 'get_tree' })) ?? {
         tree: [],
@@ -321,7 +479,7 @@ export class ChatService {
 
   /** Last assistant text for /copy. */
   async getLastAssistantText(input: { chatId: string }): Promise<{ text: string | null }> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const result = await record.client.request<{ text?: string | null }>({
       type: 'get_last_assistant_text'
     })
@@ -331,7 +489,7 @@ export class ChatService {
   async getForkMessages(input: {
     chatId: string
   }): Promise<{ messages: { entryId: string; text: string }[] }> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const result = await record.client.request<{
       messages?: { entryId: string; text: string }[]
     }>({ type: 'get_fork_messages' })
@@ -342,7 +500,7 @@ export class ChatService {
     chatId: string
     entryId: string
   }): Promise<{ text?: string; cancelled?: boolean }> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const entryId = requireString(input.entryId, 'entryId', 256)
     return (
       (await record.client.request<{ text?: string; cancelled?: boolean }>({
@@ -353,7 +511,7 @@ export class ChatService {
   }
 
   async clone(input: { chatId: string }): Promise<{ cancelled?: boolean }> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     return (
       (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}
     )
@@ -447,7 +605,7 @@ export class ChatService {
   }
 
   async respondUi(input: { chatId: string } & Record<string, unknown>): Promise<void> {
-    const record = this.requireChat(validateChatId(input.chatId))
+    const record = await this.requireReady(validateChatId(input.chatId))
     const id = requireString(input.id, 'ui request id', 128)
     record.client.respondUi({
       id,
@@ -459,22 +617,58 @@ export class ChatService {
 
   async close(input: { chatId: string }): Promise<void> {
     const chatId = validateChatId(input.chatId)
+    const record = this.chats.get(chatId)
     this.chats.delete(chatId)
+    record?.gate.reject(new Error('Chat closed'))
+    this.pendingOpens.get(chatId)?.reject(new Error('Chat closed'))
+    this.pendingOpens.delete(chatId)
     this.bridge?.revoke(chatId)
     await this.pool.close(chatId)
   }
 
   async closeAll(): Promise<void> {
+    for (const record of this.chats.values()) {
+      record.gate.reject(new Error('Chat closed'))
+    }
+    for (const gate of this.pendingOpens.values()) {
+      gate.reject(new Error('Chat closed'))
+    }
     this.chats.clear()
+    this.pendingOpens.clear()
+    this.spare = null
     await this.pool.closeAll()
   }
 
-  private requireChat(chatId: string): ChatRecord {
-    const record = this.chats.get(chatId)
-    if (!record || !record.client.isRunning) {
+  /**
+   * Record lookup that tolerates the window between `open()` starting and
+   * the record existing, then waits until pi is answering. This is what
+   * makes sends and model changes issued during startup queue
+   * transparently instead of failing.
+   */
+  private async requireReady(chatId: string): Promise<ChatRecord> {
+    let record = this.chats.get(chatId)
+    if (!record) {
+      const gate = this.pendingOpens.get(chatId)
+      if (gate) {
+        record = await gate.promise
+      }
+    }
+    if (!record) {
+      throw new Error(`No running pi process for chat ${chatId}`)
+    }
+    await record.gate.promise
+    if (!record.client.isRunning) {
       throw new Error(`No running pi process for chat ${chatId}`)
     }
     return record
+  }
+
+  /** Note that a chat's view is currently shown (idle eviction bookkeeping). */
+  markFocused(chatId: string): void {
+    const record = this.chats.get(chatId)
+    if (record) {
+      record.lastViewedAt = Date.now()
+    }
   }
 
   private attachClient(record: ChatRecord): void {
@@ -492,6 +686,9 @@ export class ChatService {
     })
     client.on('exit', ({ code, signal }) => {
       this.chats.delete(chatId)
+      record.gate.reject(
+        new Error(`pi process exited (code ${code ?? 'null'}, signal ${signal ?? 'null'})`)
+      )
       this.bridge?.revoke(chatId)
       const payload: ChatExitPayload = {
         chatId,

@@ -30,6 +30,40 @@ export interface ChatOpenResult {
   sessionPath?: string
 }
 
+/** File-derived transcript of a past session (instant, before pi is up). */
+export interface ChatTranscriptResult {
+  messages: AgentMessage[]
+  /** True when the active branch has more messages than were returned. */
+  hasEarlier: boolean
+  totalMessages: number
+}
+
+/**
+ * Broadcast when a chat's pi process answered its first requests — the
+ * live catalog replacing whatever cached values were shown during startup.
+ */
+export interface ChatReadyPayload {
+  chatId: string
+  state: PiSessionState
+  models: Model[]
+  thinkingLevels: ThinkingLevel[]
+  commands: PiCommandInfo[]
+  sessionPath?: string
+  /** Spawn → first answered request, in ms. */
+  startupMs: number
+}
+
+/** Last-known pi catalog persisted in userData (see catalog-cache.ts). */
+export interface CatalogSnapshot {
+  models: Model[]
+  commands: PiCommandInfo[]
+  thinkingLevels: ThinkingLevel[]
+  model: Model | null
+  thinkingLevel: ThinkingLevel | null
+  /** Last measured spawn→ready time, in ms. */
+  lastStartupMs?: number
+}
+
 export type ChatSendMode = 'prompt' | 'steer' | 'followUp'
 
 export interface ChatSendInput {
@@ -342,8 +376,21 @@ export interface PiDesktopApi {
     showMenu(input: { chatId: string }): Promise<ChatMenuAction | null>
     respondUi(input: ChatUiResponseInput): Promise<void>
     close(input: { chatId: string }): Promise<void>
+    /** Mark a chat as currently visible (idle eviction bookkeeping). */
+    focus(input: { chatId: string }): Promise<void>
+    /** File-derived transcript of a session (renders before pi is ready). */
+    readTranscript(input: {
+      sessionPath: string
+      limit?: number
+    }): Promise<ChatTranscriptResult>
     onEvent(callback: (payload: ChatEventPayload) => void): () => void
+    /** Live catalog/state once a chat's pi process answered. */
+    onReady(callback: (payload: ChatReadyPayload) => void): () => void
     onUiRequest(callback: (payload: ChatUiRequestPayload) => void): () => void
     onExit(callback: (payload: ChatExitPayload) => void): () => void
+  }
+  /** Last-known pi catalog for instant composer/palette rendering. */
+  catalog: {
+    get(): Promise<CatalogSnapshot>
   }
 }

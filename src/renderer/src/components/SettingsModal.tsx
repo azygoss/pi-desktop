@@ -44,6 +44,7 @@ export function SettingsModal() {
 
   const [section, setSection] = useState<Section>('general')
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [startupMs, setStartupMs] = useState<number | undefined>(undefined)
   const [displayName, setDisplayName] = useState(appSettings.displayName ?? '')
   const [refreshing, setRefreshing] = useState(false)
 
@@ -51,6 +52,10 @@ export function SettingsModal() {
     void window.piDesktop.app
       .getAppInfo()
       .then(setAppInfo)
+      .catch(() => {})
+    void window.piDesktop.catalog
+      .get()
+      .then((c) => setStartupMs(c.lastStartupMs))
       .catch(() => {})
   }, [])
 
@@ -242,6 +247,22 @@ export function SettingsModal() {
                   <RefreshCw size={12} /> Re-detect
                 </button>
               </div>
+              {startupMs !== undefined && (
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-label">pi startup time</div>
+                    <div className="settings-hint">
+                      {(startupMs / 1000).toFixed(1)}s (last measured)
+                    </div>
+                  </div>
+                </div>
+              )}
+              {startupMs !== undefined && startupMs > 3000 && (
+                <div className="settings-note">
+                  Extensions that start with pi (for example MCP servers set to eager)
+                  delay every new chat. Consider making them lazy in your pi config.
+                </div>
+              )}
               <div className="settings-note">Runtime changes apply to newly opened chats.</div>
             </div>
           )}

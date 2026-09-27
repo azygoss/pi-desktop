@@ -76,6 +76,20 @@ export class BridgeServer {
     }
   }
 
+  /**
+   * Re-map a token onto a different chat id — used when a draft chat adopts
+   * the warm spare process, which was spawned with a spare-id token in env.
+   */
+  adopt(fromChatId: string, toChatId: string): void {
+    const token = this.tokensByChat.get(fromChatId)
+    if (!token) {
+      return
+    }
+    this.tokensByChat.delete(fromChatId)
+    this.tokensByChat.set(toChatId, token)
+    this.tokens.set(token, toChatId)
+  }
+
   async stop(): Promise<void> {
     const server = this.server
     this.server = null

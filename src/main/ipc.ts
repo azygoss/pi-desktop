@@ -28,6 +28,8 @@ import { getRepoDiff } from './diff/git-diff'
 import { importSessionFile } from './sessions/import-session'
 import { getAgentDir } from './sessions/paths'
 import { listSessions, watchSessions } from './sessions/session-index'
+import { readSessionTranscript } from './sessions/transcript'
+import { getCatalogCache } from './config/catalog-cache'
 import { mergeProjects } from './sessions/projects'
 import { PtyManager } from './terminal/pty-manager'
 
@@ -73,6 +75,9 @@ export const IPC_CHANNELS = {
   chatMenu: 'pi-desktop:chat:menu',
   chatRespondUi: 'pi-desktop:chat:respond-ui',
   chatClose: 'pi-desktop:chat:close',
+  chatTranscript: 'pi-desktop:chat:transcript',
+  chatFocus: 'pi-desktop:chat:focus',
+  catalogGet: 'pi-desktop:catalog:get',
   chatReload: 'pi-desktop:chat:reload',
   chatGetTree: 'pi-desktop:chat:get-tree',
   chatLastAssistantText: 'pi-desktop:chat:last-assistant-text',
@@ -378,6 +383,34 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.chat.chatIdForSession(validateSessionPath(input.sessionPath))
   )
   ipcMain.handle(IPC_CHANNELS.chatClose, (_e, input: { chatId: string }) => deps.chat.close(input))
+
+  ipcMain.handle(
+    IPC_CHANNELS.chatTranscript,
+    (_e, input: { sessionPath: string; limit?: number }) => {
+      const sessionPath = validateSessionPath(input.sessionPath)
+      const limit =
+        typeof input?.limit === 'number' && Number.isFinite(input.limit)
+          ? Math.min(Math.max(Math.floor(input.limit), 1), 20_000)
+          : undefined
+      return readSessionTranscript(sessionPath, { ...(limit ? { limit } : {}) })
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.chatFocus, (_e, input: { chatId: string }) => {
+    deps.chat.markFocused(validateChatId(input.chatId))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.catalogGet, async () => {
+    return (
+      (await getCatalogCache()) ?? {
+        models: [],
+        commands: [],
+        thinkingLevels: [],
+        model: null,
+        thinkingLevel: null
+      }
+    )
+  })
 
   ipcMain.handle(
     IPC_CHANNELS.sessionsRename,
