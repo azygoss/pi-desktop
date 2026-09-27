@@ -5,17 +5,18 @@ import {
   FolderOpen,
   Plus,
   Search,
-  Settings
+  Settings,
+  X
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { SessionSummary } from '../../../shared/session-types'
-import { PiLogo } from './PiLogo'
 import { groupByDate } from '../lib/date-groups'
 import { capitalizeName } from '../lib/greeting'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
+import { NavButtons } from './TitleBar'
 
 const MAX_PROJECTS = 6
 
@@ -44,7 +45,6 @@ function relativeTime(iso: string): string {
 }
 
 export function Sidebar() {
-  const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const sessions = useAppStore((s) => s.sessions)
   const projects = useAppStore((s) => s.projects)
   const activeProjectCwd = useAppStore((s) => s.activeProjectCwd)
@@ -60,6 +60,8 @@ export function Sidebar() {
   const chats = useChatStore((s) => s.chats)
 
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   const filteredSessions = useMemo(() => {
     let list = sessions
@@ -104,49 +106,20 @@ export function Sidebar() {
     return chats[chatId]?.sessionPath === session.path
   }
 
-  const addProject = async (): Promise<void> => {
-    const folder = await window.piDesktop.app.pickFolder()
-    if (folder) {
-      setActiveProjectCwd(folder)
-      void useAppStore.getState().refreshSessions()
+  function toggleSearch(): void {
+    if (searchOpen) {
+      setChatFilter('')
+      setSearchOpen(false)
+    } else {
+      setSearchOpen(true)
+      requestAnimationFrame(() => searchRef.current?.focus())
     }
-  }
-
-  if (collapsed) {
-    return (
-      <aside className="sidebar sidebar-collapsed">
-        <button type="button" className="icon-btn" onClick={newChat} title="New chat (⌘N)">
-          <Plus size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => useAppStore.getState().toggleSidebar()}
-          title="Expand sidebar (⌘B)"
-        >
-          <Search size={15} />
-        </button>
-        <div style={{ flex: 1 }} />
-        <button type="button" className="icon-btn" title="Settings">
-          <Settings size={15} />
-        </button>
-      </aside>
-    )
   }
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <PiLogo size={18} />
-        <span className="sidebar-brand">Pi Desktop</span>
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => useAppStore.getState().toggleSidebar()}
-          title="Collapse sidebar (⌘B)"
-        >
-          <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
-        </button>
+      <div className="sidebar-topbar drag-region">
+        <NavButtons />
       </div>
 
       <div className="sidebar-scroll">
@@ -155,16 +128,6 @@ export function Sidebar() {
           <span>New chat</span>
           <kbd className="kbd">⌘N</kbd>
         </button>
-
-        <div className="sidebar-search">
-          <Search size={13} />
-          <input
-            value={chatFilter}
-            onChange={(e) => setChatFilter(e.target.value)}
-            placeholder="Search chats"
-            spellCheck={false}
-          />
-        </div>
 
         <div className="sidebar-section">
           <button
@@ -178,7 +141,13 @@ export function Sidebar() {
           <button
             type="button"
             className="icon-btn sidebar-section-add"
-            onClick={() => void addProject()}
+            onClick={() => {
+              void window.piDesktop.app.pickFolder().then((folder) => {
+                if (folder) {
+                  setActiveProjectCwd(folder)
+                }
+              })
+            }}
             title="Open folder"
           >
             <Plus size={13} />
@@ -203,7 +172,6 @@ export function Sidebar() {
               )}
               <span className="sidebar-item-label">{project.name}</span>
               <span className="sidebar-item-meta">{project.sessionCount}</span>
-              <ChevronRight size={12} className="sidebar-item-chevron" />
             </button>
           ))}
         {!projectsCollapsed && projects.length > MAX_PROJECTS && !showAllProjects && (
@@ -220,7 +188,33 @@ export function Sidebar() {
           <div className="sidebar-section-header" style={{ cursor: 'default' }}>
             <span>Chats</span>
           </div>
+          <button
+            type="button"
+            className="icon-btn sidebar-section-add"
+            onClick={toggleSearch}
+            title="Filter chats"
+          >
+            {searchOpen ? <X size={13} /> : <Search size={13} />}
+          </button>
         </div>
+
+        {searchOpen && (
+          <div className="sidebar-search">
+            <Search size={13} />
+            <input
+              ref={searchRef}
+              value={chatFilter}
+              onChange={(e) => setChatFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  toggleSearch()
+                }
+              }}
+              placeholder="Filter chats"
+              spellCheck={false}
+            />
+          </div>
+        )}
 
         {grouped.map(({ group, items }) => (
           <div key={group}>
@@ -244,16 +238,24 @@ export function Sidebar() {
         {filteredSessions.length === 0 && (
           <div className="sidebar-empty">No chats yet</div>
         )}
+        <div className="sidebar-spacer" />
       </div>
 
       <div className="sidebar-footer">
         <div className="avatar">{capitalizeName(userName).charAt(0)}</div>
         <span className="sidebar-footer-name">{capitalizeName(userName)}</span>
         {runtimeInfo && (
-          <span className="runtime-badge" title={runtimeInfo.command}>
-            <span className="runtime-dot" />
+          <span
+            className="runtime-badge"
+            title={`pi ${runtimeInfo.version ?? '?'} (${runtimeInfo.kind}: ${runtimeInfo.command})`}
+          >
+            <span
+              className={clsx('runtime-dot', {
+                bundled: runtimeInfo.kind === 'bundled',
+                offline: false
+              })}
+            />
             pi {runtimeInfo.version ?? '?'}
-            {runtimeInfo.kind === 'bundled' ? ' bundled' : ''}
           </span>
         )}
         {!runtimeInfo && (
@@ -262,7 +264,7 @@ export function Sidebar() {
             no pi
           </span>
         )}
-        <button type="button" className="icon-btn" title="Settings">
+        <button type="button" className="icon-btn" title="Settings (⌘,)">
           <Settings size={14} />
         </button>
       </div>

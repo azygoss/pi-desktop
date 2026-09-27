@@ -1,4 +1,5 @@
 import { basename } from 'node:path'
+import { execFile } from 'node:child_process'
 import { userInfo } from 'node:os'
 import { BrowserWindow, app, dialog, ipcMain } from 'electron'
 import type { ChatOpenInput, ChatSendInput } from '../shared/api'
@@ -33,6 +34,30 @@ export interface IpcDeps {
   chat: ChatService
 }
 
+function usernameFallback(): string {
+  try {
+    return userInfo().username || 'there'
+  } catch {
+    return 'there'
+  }
+}
+
+/**
+ * Best-effort first name for the greeting: on macOS `id -F` returns the
+ * account's full name; take its first word. Falls back to the username.
+ */
+function resolveUserFirstName(): Promise<string> {
+  if (process.platform !== 'darwin') {
+    return Promise.resolve(usernameFallback())
+  }
+  return new Promise((resolvePromise) => {
+    execFile('id', ['-F'], { timeout: 2000 }, (error, stdout) => {
+      const first = stdout.trim().split(/\s+/)[0]
+      resolvePromise(!error && first ? first : usernameFallback())
+    })
+  })
+}
+
 /** Register all IPC handlers for the typed `window.piDesktop` preload API. */
 export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IPC_CHANNELS.runtimeInfo, async (): Promise<PiRuntimeInfo> => {
@@ -46,14 +71,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => readSettings())
 
-  ipcMain.handle(IPC_CHANNELS.appUserFirstName, () => {
-    try {
-      const username = userInfo().username
-      return username || 'there'
-    } catch {
-      return 'there'
-    }
-  })
+  ipcMain.handle(IPC_CHANNELS.appUserFirstName, () => resolveUserFirstName())
 
   ipcMain.handle(IPC_CHANNELS.appPickFolder, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

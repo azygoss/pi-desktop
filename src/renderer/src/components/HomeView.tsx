@@ -44,7 +44,6 @@ export function HomeView() {
           <PiLogo size={28} />
           <h1>{greeting}</h1>
         </div>
-        <p className="home-subtitle">What would you like to work on?</p>
 
         {!piAvailable ? (
           <div className="install-card">

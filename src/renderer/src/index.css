@@ -199,15 +199,8 @@ body {
 
 .app-shell {
   display: flex;
-  flex-direction: column;
   height: 100%;
   overflow: hidden;
-}
-
-.app-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
 }
 
 .main-pane {
@@ -216,6 +209,27 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+}
+
+.main-topbar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-buttons {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 78px; /* macOS traffic lights */
+  padding-right: 4px;
+}
+
+.sidebar-topbar .nav-buttons {
+  padding-right: 0;
 }
 
 .icon-btn {
@@ -259,27 +273,13 @@ body {
   background: var(--sidebar);
   border-right: 1px solid var(--border);
   font-size: 13px;
-  transition: width 150ms;
 }
 
-.sidebar-collapsed {
-  width: 52px;
-  align-items: center;
-  padding: 8px 0;
-  gap: 6px;
-}
-
-.sidebar-header {
+.sidebar-topbar {
+  height: 44px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px 6px 12px;
-}
-.sidebar-brand {
-  flex: 1;
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
 }
 
 .sidebar-scroll {
@@ -289,6 +289,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.sidebar-spacer {
+  flex: 1;
 }
 
 .sidebar-item {
@@ -447,11 +451,10 @@ body {
   flex: 1;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
   font-size: 11px;
   color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
   white-space: nowrap;
 }
 .runtime-dot {
@@ -460,6 +463,9 @@ body {
   border-radius: 50%;
   background: #5da663;
   flex-shrink: 0;
+}
+.runtime-dot.bundled {
+  background: #d9a03f;
 }
 .runtime-dot.offline {
   background: var(--danger);
@@ -493,12 +499,6 @@ body {
   letter-spacing: -0.02em;
   color: var(--text);
 }
-.home-subtitle {
-  margin: -12px 0 0 40px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
 .install-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -838,12 +838,6 @@ body {
   flex-direction: column;
   min-height: 0;
   position: relative;
-}
-.chat-topbar {
-  height: 44px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
 }
 .chat-topbar-inner {
   display: flex;
@@ -1206,6 +1200,19 @@ body {
   flex-direction: column;
   gap: 8px;
 }
+.tool-command {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.tool-command-prompt {
+  color: var(--muted);
+}
+.tool-path {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
 .tool-args,
 .tool-output,
 .tool-diff pre {
@@ -1223,6 +1230,9 @@ body {
   max-height: 320px;
   overflow-y: auto;
   color: var(--text-2);
+}
+.tool-output.is-error {
+  color: var(--danger);
 }
 .diff-old {
   color: #d15c5c;

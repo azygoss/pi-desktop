@@ -117,6 +117,11 @@ function scheduleStatsRefresh(): void {
             const current = drafts.get(chatId)
             if (current && stats) {
               current.stats = stats
+              // pi allocates the session file on first prompt; pick it up so
+              // the sidebar can highlight the active session.
+              if (stats.sessionFile && !current.sessionPath) {
+                current.sessionPath = stats.sessionFile
+              }
               publish(chatId)
             }
           })
@@ -247,6 +252,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       timestamp: Date.now()
     }
     draft.messages.push(display)
+    if (draft.title === 'New chat' && message.trim()) {
+      draft.title = message.replace(/\s+/g, ' ').trim().slice(0, 80)
+    }
     draft.status = 'streaming'
     publish(chatId)
     try {

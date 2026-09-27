@@ -286,7 +286,6 @@ export function ChatView({ chatId }: { chatId: string }) {
     )
   }
 
-  const cwdBase = chat.cwd.split('/').filter(Boolean).pop() ?? chat.cwd
   const footer = statsFooter(chat)
 
   function restart(): void {
@@ -301,13 +300,6 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div className="chat-view">
-      <div className="chat-topbar drag-region">
-        <div className="chat-topbar-inner no-drag">
-          <span className="chat-title">{chat.title}</span>
-          {cwdBase && <span className="chat-cwd">{cwdBase}</span>}
-        </div>
-      </div>
-
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-column">
           {chat.status === 'starting' && (

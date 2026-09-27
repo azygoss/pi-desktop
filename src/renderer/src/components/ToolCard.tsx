@@ -16,22 +16,45 @@ import clsx from 'clsx'
 import type { ToolRun } from '../../../shared/chat-view'
 
 const OUTPUT_LIMIT = 4000
+const PREVIEW_LINES = 40
 
-function toolIcon(name: string) {
+type ToolKind = 'bash' | 'read' | 'edit' | 'write' | 'other'
+
+function toolKind(name: string): ToolKind {
   const n = name.toLowerCase()
   if (n.includes('bash') || n.includes('shell') || n.includes('terminal')) {
-    return <Terminal size={13} />
+    return 'bash'
   }
-  if (n.includes('read')) {
-    return <FileText size={13} />
+  if (n === 'read' || n.endsWith('_read') || n.includes('read')) {
+    return 'read'
   }
-  if (n.includes('edit') || n.includes('write')) {
-    return <FilePen size={13} />
+  if (n === 'edit' || n.includes('edit')) {
+    return 'edit'
   }
-  if (n.includes('grep') || n.includes('find') || n.includes('search')) {
-    return <Search size={13} />
+  if (n === 'write' || n.includes('write')) {
+    return 'write'
   }
-  return <Wrench size={13} />
+  return 'other'
+}
+
+function toolIcon(name: string) {
+  switch (toolKind(name)) {
+    case 'bash':
+      return <Terminal size={13} />
+    case 'read':
+      return <FileText size={13} />
+    case 'edit':
+    case 'write':
+      return <FilePen size={13} />
+    default:
+      return name.toLowerCase().includes('grep') ||
+        name.toLowerCase().includes('find') ||
+        name.toLowerCase().includes('search') ? (
+        <Search size={13} />
+      ) : (
+        <Wrench size={13} />
+      )
+  }
 }
 
 function relativePath(p: string, cwd: string): string {
@@ -42,21 +65,29 @@ function relativePath(p: string, cwd: string): string {
   return p
 }
 
+function argPath(args: Record<string, unknown>): string | undefined {
+  const p = args['path'] ?? args['file'] ?? args['filePath'] ?? args['file_path']
+  return typeof p === 'string' ? p : undefined
+}
+
 function summarize(name: string, args: Record<string, unknown>, cwd: string): string {
-  const n = name.toLowerCase()
-  const firstString = Object.values(args).find((v) => typeof v === 'string') as
-    | string
-    | undefined
-  if (n.includes('bash') || n.includes('shell')) {
-    return String(args.command ?? args.cmd ?? firstString ?? '')
+  if (toolKind(name) === 'bash') {
+    return typeof args['command'] === 'string' ? (args['command'] as string) : ''
   }
-  if (n.includes('read') || n.includes('edit') || n.includes('write')) {
-    const p = args.path ?? args.file ?? args.filePath ?? args.file_path
-    if (typeof p === 'string') {
-      return relativePath(p, cwd)
-    }
+  const p = argPath(args)
+  if (p) {
+    return relativePath(p, cwd)
   }
-  return firstString ? firstString.slice(0, 120) : ''
+  const firstString = Object.values(args).find((v) => typeof v === 'string')
+  return typeof firstString === 'string' ? firstString.slice(0, 120) : ''
+}
+
+function firstLines(text: string, maxLines: number): { text: string; truncated: boolean } {
+  const lines = text.split('\n')
+  if (lines.length <= maxLines) {
+    return { text, truncated: false }
+  }
+  return { text: lines.slice(0, maxLines).join('\n'), truncated: true }
 }
 
 function resultText(run: ToolRun): string {
@@ -73,16 +104,119 @@ function resultText(run: ToolRun): string {
     .join('')
 }
 
-export function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
-  const [open, setOpen] = useState(false)
+interface EditEntry {
+  oldText?: string
+  newText?: string
+}
+
+function editEntries(args: Record<string, unknown>): EditEntry[] {
+  if (Array.isArray(args['edits'])) {
+    return args['edits'] as EditEntry[]
+  }
+  if (typeof args['oldText'] === 'string' || typeof args['newText'] === 'string') {
+    return [args as EditEntry]
+  }
+  return []
+}
+
+function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  return (
+    <div className="tool-diff">
+      <pre className="diff-old">
+        {oldText.split('\n').map((line, i) => (
+          <div key={i}>- {line}</div>
+        ))}
+      </pre>
+      <pre className="diff-new">
+        {newText.split('\n').map((line, i) => (
+          <div key={i}>+ {line}</div>
+        ))}
+      </pre>
+    </div>
+  )
+}
+
+function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   const [showAll, setShowAll] = useState(false)
+  const [showArgs, setShowArgs] = useState(false)
+  const kind = toolKind(run.name)
 
   const output = useMemo(() => resultText(run), [run])
   const truncated = !showAll && output.length > OUTPUT_LIMIT
   const shownOutput = truncated ? `${output.slice(0, OUTPUT_LIMIT)}\n…` : output
-  const oldText = typeof run.args.oldText === 'string' ? run.args.oldText : undefined
-  const newText = typeof run.args.newText === 'string' ? run.args.newText : undefined
-  const hasDiff = oldText !== undefined || newText !== undefined
+  const isError = run.status === 'error'
+  const path = argPath(run.args)
+  const edits = editEntries(run.args)
+  const detailsDiff =
+    run.result?.details &&
+    typeof run.result.details === 'object' &&
+    typeof (run.result.details as { diff?: unknown }).diff === 'string'
+      ? ((run.result.details as { diff: string }).diff as string)
+      : null
+  const writeContent = typeof run.args['content'] === 'string' ? run.args['content'] : null
+  const command = typeof run.args['command'] === 'string' ? run.args['command'] : null
+
+  return (
+    <div className="tool-detail">
+      {kind === 'bash' && command !== null && (
+        <div className="tool-command">
+          <span className="tool-command-prompt">$</span> {command}
+        </div>
+      )}
+
+      {(kind === 'read' || kind === 'write' || kind === 'edit') && path && (
+        <div className="tool-path">{relativePath(path, cwd)}</div>
+      )}
+
+      {kind === 'edit' &&
+        edits.map((entry, i) => (
+          <DiffView
+            key={i}
+            oldText={entry.oldText ?? ''}
+            newText={entry.newText ?? ''}
+          />
+        ))}
+      {kind === 'edit' && edits.length === 0 && detailsDiff && (
+        <pre className="tool-output">{detailsDiff}</pre>
+      )}
+
+      {kind === 'write' && writeContent !== null && (
+        <pre className="tool-output">{firstLines(writeContent, PREVIEW_LINES).text}</pre>
+      )}
+
+      {kind === 'read' && output && (
+        <pre className={clsx('tool-output', { 'is-error': isError })}>
+          {firstLines(shownOutput, PREVIEW_LINES).text}
+        </pre>
+      )}
+      {kind !== 'read' && output && (
+        <pre className={clsx('tool-output', { 'is-error': isError })}>{shownOutput}</pre>
+      )}
+
+      {truncated && (
+        <button type="button" className="tool-show-all" onClick={() => setShowAll(true)}>
+          Show all ({output.length.toLocaleString()} chars)
+        </button>
+      )}
+
+      {kind === 'other' && Object.keys(run.args).length > 0 && (
+        <div>
+          <button
+            type="button"
+            className="tool-show-all"
+            onClick={() => setShowArgs(!showArgs)}
+          >
+            {showArgs ? 'Hide arguments' : 'Arguments'}
+          </button>
+          {showArgs && <pre className="tool-args">{JSON.stringify(run.args, null, 2)}</pre>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
+  const [open, setOpen] = useState(false)
 
   return (
     <div className={clsx('tool-card', `tool-${run.status}`)}>
@@ -100,43 +234,7 @@ export function ToolCard({ run, cwd }: { run: ToolRun; cwd: string }) {
         </span>
       </button>
 
-      {open && (
-        <div className="tool-detail">
-          {hasDiff && (
-            <div className="tool-diff">
-              {oldText !== undefined && (
-                <pre className="diff-old">
-                  {oldText.split('\n').map((line, i) => (
-                    <div key={i}>- {line}</div>
-                  ))}
-                </pre>
-              )}
-              {newText !== undefined && (
-                <pre className="diff-new">
-                  {newText.split('\n').map((line, i) => (
-                    <div key={i}>+ {line}</div>
-                  ))}
-                </pre>
-              )}
-            </div>
-          )}
-          {!hasDiff && Object.keys(run.args).length > 0 && (
-            <pre className="tool-args">{JSON.stringify(run.args, null, 2)}</pre>
-          )}
-          {shownOutput && (
-            <pre className="tool-output">{shownOutput}</pre>
-          )}
-          {truncated && (
-            <button
-              type="button"
-              className="tool-show-all"
-              onClick={() => setShowAll(true)}
-            >
-              Show all ({output.length.toLocaleString()} chars)
-            </button>
-          )}
-        </div>
-      )}
+      {open && <ToolDetail run={run} cwd={cwd} />}
     </div>
   )
 }

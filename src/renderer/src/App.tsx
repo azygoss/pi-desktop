@@ -3,13 +3,14 @@ import { useEffect } from 'react'
 import { ChatView } from './components/ChatView'
 import { HomeView } from './components/HomeView'
 import { Sidebar } from './components/Sidebar'
-import { TitleBar } from './components/TitleBar'
+import { MainTopBar } from './components/TitleBar'
 import { useAppStore } from './state/app-store'
 import { initChatBridge } from './state/chat-store'
 
 export function App() {
   const view = useAppStore((s) => s.view)
   const ready = useAppStore((s) => s.ready)
+  const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
 
   useEffect(() => {
     initChatBridge()
@@ -44,24 +45,13 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  if (!ready) {
-    return (
-      <div className="app-shell">
-        <TitleBar />
-        <div className="app-body" />
-      </div>
-    )
-  }
-
   return (
     <div className="app-shell">
-      <TitleBar />
-      <div className="app-body">
-        <Sidebar />
-        <main className="main-pane">
-          {view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />}
-        </main>
-      </div>
+      {ready && !sidebarCollapsed && <Sidebar />}
+      <main className="main-pane">
+        <MainTopBar />
+        {ready && (view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />)}
+      </main>
     </div>
   )
 }

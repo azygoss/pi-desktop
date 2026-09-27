@@ -155,7 +155,9 @@ describe('Pi Desktop e2e', () => {
 
   it('collapses the sidebar', async () => {
     await page.keyboard.press('Meta+b')
-    await visible(page, '.sidebar-collapsed', 5_000)
+    await page.waitForSelector('.sidebar', { state: 'hidden', timeout: 5_000 })
+    // nav buttons move into the main pane's top strip
+    await visible(page, '.main-topbar .nav-buttons', 5_000)
     await page.screenshot({ path: join(SHOTS, 'sidebar-collapsed.png') })
   })
 })
