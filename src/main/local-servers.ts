@@ -20,7 +20,15 @@ const CACHE_MS = 5000
 const EPHEMERAL_START = 49152
 
 /** Process names (lsof truncates to ~9 chars) that are never dev servers. */
-const EXCLUDED_COMMANDS = new Set(['electron', 'pi deskto', 'pi desktop', 'pi', 'pi helper'])
+const EXCLUDED_COMMANDS = new Set([
+  'electron',
+  'pi deskto',
+  'pi desktop',
+  'pi',
+  'pi helper',
+  // macOS Control Center (AirPlay receivers on 5000/7000) answers HTTP.
+  'controlce'
+])
 
 export interface LsofExclusions {
   ports?: ReadonlySet<number>

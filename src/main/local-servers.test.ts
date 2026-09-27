@@ -51,6 +51,15 @@ describe('parseLsofListeners', () => {
     expect(servers.map((s) => s.port)).toEqual([3000])
   })
 
+  it('drops macOS Control Center (AirPlay) listeners', () => {
+    const out = [
+      'node      1001  alex  3u  IPv4 0x1  0t0  TCP *:3000 (LISTEN)',
+      'ControlCe 1002  alex  3u  IPv4 0x2  0t0  TCP *:5000 (LISTEN)',
+      'ControlCe 1002  alex  4u  IPv4 0x3  0t0  TCP *:7000 (LISTEN)'
+    ].join('\n')
+    expect(parseLsofListeners(out).map((s) => s.port)).toEqual([3000])
+  })
+
   it('honors excluded ports', () => {
     const out = [
       'node  1001  alex  3u  IPv4 0x1  0t0  TCP *:3000 (LISTEN)',
