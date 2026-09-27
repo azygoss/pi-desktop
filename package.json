@@ -15,12 +15,18 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "electron-vite build && vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.47.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "shiki": "4.4.3",
     "zustand": "5.0.15"
   },
   "devDependencies": {
@@ -35,6 +41,7 @@
     "eslint": "10.11.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-react-hooks": "7.1.1",
+    "playwright-core": "1.63.0",
     "prettier": "3.9.8",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",

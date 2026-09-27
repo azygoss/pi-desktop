@@ -1,15 +1,67 @@
+import { useEffect } from 'react'
+
+import { ChatView } from './components/ChatView'
+import { HomeView } from './components/HomeView'
+import { Sidebar } from './components/Sidebar'
+import { TitleBar } from './components/TitleBar'
+import { useAppStore } from './state/app-store'
+import { initChatBridge } from './state/chat-store'
+
 export function App() {
+  const view = useAppStore((s) => s.view)
+  const ready = useAppStore((s) => s.ready)
+
+  useEffect(() => {
+    initChatBridge()
+    void useAppStore.getState().init()
+    const unsubscribe = window.piDesktop.sessions.onChanged(() => {
+      void useAppStore.getState().refreshSessions()
+    })
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) {
+        return
+      }
+      const store = useAppStore.getState()
+      if (e.key === '[') {
+        e.preventDefault()
+        store.goBack()
+      } else if (e.key === ']') {
+        e.preventDefault()
+        store.goForward()
+      } else if (e.key === 'b' || e.key === '\\') {
+        e.preventDefault()
+        store.toggleSidebar()
+      } else if (e.key === 'n') {
+        e.preventDefault()
+        store.navigate({ kind: 'home' })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  if (!ready) {
+    return (
+      <div className="app-shell">
+        <TitleBar />
+        <div className="app-body" />
+      </div>
+    )
+  }
+
   return (
-    <div className="flex h-screen flex-col bg-[#1a1a19] text-neutral-200">
-      <header className="drag-region flex h-12 shrink-0 items-center justify-center border-b border-neutral-800">
-        <span className="text-sm font-medium text-neutral-400">Pi Desktop</span>
-      </header>
-      <main className="flex flex-1 flex-col items-center justify-center gap-2 p-8">
-        <h1 className="text-2xl font-semibold">Pi Desktop</h1>
-        <p className="text-sm text-neutral-500">
-          A desktop shell for the pi coding agent harness.
-        </p>
-      </main>
+    <div className="app-shell">
+      <TitleBar />
+      <div className="app-body">
+        <Sidebar />
+        <main className="main-pane">
+          {view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />}
+        </main>
+      </div>
     </div>
   )
 }
