@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+
+.drag-region {
+  -webkit-app-region: drag;
+}

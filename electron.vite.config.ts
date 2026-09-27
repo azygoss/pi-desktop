@@ -1,0 +1,59 @@
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import { defineConfig } from 'electron-vite'
+import type { Plugin } from 'vite'
+
+// Strict CSP for the renderer. In dev mode the page is served by the Vite dev
+// server, which needs inline module scripts (react-refresh preamble) and
+// websocket HMR, so only the production policy is fully locked down.
+const CSP_PROD =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; " +
+  "base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+const CSP_DEV =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*; " +
+  "font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+
+function cspPlugin(): Plugin {
+  return {
+    name: 'pi-desktop-csp',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, ctx) {
+        return html.replace('%PI_DESKTOP_CSP%', ctx.server ? CSP_DEV : CSP_PROD)
+      }
+    }
+  }
+}
+
+export default defineConfig({
+  main: {
+    build: {
+      outDir: 'out/main',
+      rollupOptions: {
+        output: {
+          entryFileNames: '[name].js'
+        }
+      }
+    }
+  },
+  preload: {
+    build: {
+      outDir: 'out/preload',
+      rollupOptions: {
+        output: {
+          // Sandboxed preload scripts must be CommonJS.
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
+        }
+      }
+    }
+  },
+  renderer: {
+    build: {
+      outDir: 'out/renderer'
+    },
+    plugins: [react(), tailwindcss(), cspPlugin()]
+  }
+})
