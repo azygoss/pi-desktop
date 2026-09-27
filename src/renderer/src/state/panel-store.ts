@@ -56,6 +56,11 @@ interface PanelState {
   convertNewTab(id: string, url: string): void
   openTerminal(spec: TerminalTabSpec, title: string): string
   openBrowser(url: string, opts?: { title?: string; agentChatId?: string }): string
+  /**
+   * Register + focus a browser tab created in main by the agent bridge
+   * (the WebContentsView already exists; this only mirrors it in the panel).
+   */
+  focusAgentTab(id: string, chatId: string): void
   /** Focus the one diff tab, creating it if needed. */
   openDiff(): void
   /** Focus an existing terminal tab or create a fresh shell terminal. */
@@ -169,6 +174,23 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     return id
   },
 
+  focusAgentTab(id, chatId) {
+    set((s) => {
+      const existing = s.tabs.find((t) => t.id === id)
+      if (existing) {
+        return { open: true, activeTabId: id }
+      }
+      return {
+        open: true,
+        tabs: [
+          ...s.tabs,
+          { id, kind: 'browser' as const, title: 'Pi', url: '', agentChatId: chatId }
+        ],
+        activeTabId: id
+      }
+    })
+  },
+
   openDiff() {
     const existing = get().tabs.find((t) => t.id === DIFF_TAB_ID)
     if (existing) {
@@ -268,6 +290,15 @@ export function initPanelBridge(): void {
   })
   window.piDesktop.browser.onDownload(({ filename }) => {
     toast(`Downloaded ${filename}`)
+  })
+  window.piDesktop.browser.onAgentTab(({ id, chatId, action }) => {
+    const store = usePanelStore.getState()
+    if (action === 'close') {
+      // The view is already gone in main; remove the tab without a round-trip.
+      store.closeTab(id)
+    } else {
+      store.focusAgentTab(id, chatId)
+    }
   })
 }
 

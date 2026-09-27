@@ -56,7 +56,8 @@ const api: PiDesktopApi = {
     setOverlayOpen: (input) => ipcRenderer.invoke('pi-desktop:browser:set-overlay', input),
     onState: subscribe('pi-desktop:browser:state'),
     onOpenUrl: subscribe('pi-desktop:browser:open-url'),
-    onDownload: subscribe('pi-desktop:browser:downloaded')
+    onDownload: subscribe('pi-desktop:browser:downloaded'),
+    onAgentTab: subscribe('pi-desktop:browser:agent-tab')
   },
   diff: {
     status: (input) => ipcRenderer.invoke('pi-desktop:diff:status', input)

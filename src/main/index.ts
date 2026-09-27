@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { BrowserWindow, app, shell } from 'electron'
 import {
   IPC_CHANNELS,
@@ -10,6 +11,8 @@ import {
 } from './ipc'
 import { loadAppSettings } from './config/app-settings'
 import { ensureWorkspaceDir } from './config/app-paths'
+import { BridgeServer } from './bridge/bridge-server'
+import { BrowserToolBridge } from './bridge/browser-tools'
 import { BrowserManager } from './browser/browser-manager'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
@@ -20,7 +23,13 @@ const pool = new PiProcessPool({
   // Test/dev override: point at a custom pi executable (e.g. a fixture).
   customPath: process.env['PI_DESKTOP_PI_COMMAND'] || undefined
 })
-const chat = new ChatService(pool, broadcastAll)
+const bridge = new BridgeServer()
+const chat = new ChatService(pool, broadcastAll, {
+  url: () => bridge.url,
+  issue: (chatId) => bridge.issue(chatId),
+  revoke: (chatId) => bridge.revoke(chatId),
+  extensionPath: piExtensionPath
+})
 const pty = new PtyManager({
   onData: (id, data) => broadcastAll(IPC_CHANNELS.terminalData, { id, data }),
   onExit: (id, exitCode, signal) =>
@@ -31,6 +40,31 @@ const browser = new BrowserManager({
   onOpenUrl: (url) => broadcastAll(IPC_CHANNELS.browserOpenUrl, { url }),
   onDownload: (filename) => broadcastAll(IPC_CHANNELS.browserDownloaded, { filename })
 })
+const browserTools = new BrowserToolBridge(browser, (id, chatId, action) =>
+  broadcastAll(IPC_CHANNELS.browserAgentTab, { id, chatId, action })
+)
+
+/**
+ * The pi extension that registers the browser_* tools. Packaged builds carry
+ * it in extraResources (the installed pi runtime cannot read inside asar).
+ * In dev/unpackaged launches app.getAppPath() can point at out/main rather
+ * than the repo root, so both locations are probed.
+ */
+function piExtensionPath(): string {
+  const bases = app.isPackaged
+    ? [join(process.resourcesPath, 'pi-extension')]
+    : [
+        join(import.meta.dirname, '../../resources/pi-extension'),
+        join(app.getAppPath(), 'resources', 'pi-extension')
+      ]
+  for (const base of bases) {
+    const file = join(base, 'pi-desktop-browser', 'index.js')
+    if (existsSync(file)) {
+      return file
+    }
+  }
+  return ''
+}
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
 
@@ -93,9 +127,13 @@ app.whenReady().then(async () => {
   if (appSettings) {
     pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))
   }
-  registerIpcHandlers({ pool, chat, pty, browser })
+  await bridge.start().catch(() => {})
+  if (bridge.running) {
+    bridge.setHandler((call) => browserTools.call(call.chatId, call.tool, call.params))
+  }
+  registerIpcHandlers({ pool, chat, pty, browser, bridge })
   startSessionWatcher()
-  wireAppLifecycle({ pool, chat, pty, browser })
+  wireAppLifecycle({ pool, chat, pty, browser, bridge })
   installAppMenu(isDev)
   createWindow()
 

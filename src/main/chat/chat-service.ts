@@ -36,6 +36,19 @@ export interface ChatBroadcast {
   (channel: string, payload: unknown): void
 }
 
+/**
+ * Bridge wiring for the pi browser-tools extension: tokens are issued per
+ * chat and revoked when the chat's pi process exits or is closed.
+ */
+export interface ChatBridgeDeps {
+  /** Loopback bridge base URL; empty string disables browser tools. */
+  url(): string
+  issue(chatId: string): string
+  revoke(chatId: string): void
+  /** Absolute path to the browser-tools extension; '' when not shipped. */
+  extensionPath(): string
+}
+
 export const CHAT_CHANNELS = {
   event: 'pi-desktop:chat:event',
   uiRequest: 'pi-desktop:chat:ui-request',
@@ -101,7 +114,8 @@ export class ChatService {
 
   constructor(
     private readonly pool: PiProcessPool,
-    private readonly broadcast: ChatBroadcast
+    private readonly broadcast: ChatBroadcast,
+    private readonly bridge?: ChatBridgeDeps
   ) {}
 
   async open(input: ChatOpenInput): Promise<ChatOpenResult> {
@@ -123,7 +137,24 @@ export class ChatService {
     }
 
     const existing = this.chats.get(chatId)
-    const client = await this.pool.open(chatId, { cwd, sessionPath })
+    // The browser-tools extension talks back over the loopback bridge; its
+    // path and per-chat token only exist when the bridge is running.
+    const extraArgs: string[] = []
+    const extraEnv: Record<string, string> = {}
+    if (this.bridge && this.bridge.url()) {
+      const extensionPath = this.bridge.extensionPath()
+      if (extensionPath) {
+        extraArgs.push('--extension', extensionPath)
+      }
+      extraEnv['PI_DESKTOP_BRIDGE_URL'] = this.bridge.url()
+      extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = this.bridge.issue(chatId)
+    }
+    const client = await this.pool.open(chatId, {
+      cwd,
+      sessionPath,
+      extraArgs: extraArgs.length ? extraArgs : undefined,
+      extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined
+    })
     if (!existing || existing.client !== client) {
       const record: ChatRecord = { client, chatId, cwd, sessionPath, streaming: false }
       this.chats.set(chatId, record)
@@ -429,6 +460,7 @@ export class ChatService {
   async close(input: { chatId: string }): Promise<void> {
     const chatId = validateChatId(input.chatId)
     this.chats.delete(chatId)
+    this.bridge?.revoke(chatId)
     await this.pool.close(chatId)
   }
 
@@ -460,6 +492,7 @@ export class ChatService {
     })
     client.on('exit', ({ code, signal }) => {
       this.chats.delete(chatId)
+      this.bridge?.revoke(chatId)
       const payload: ChatExitPayload = {
         chatId,
         code,

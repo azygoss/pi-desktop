@@ -4,6 +4,7 @@ import {
   ChevronRight,
   FilePen,
   FileText,
+  Globe,
   Loader2,
   Search,
   Terminal,
@@ -18,10 +19,13 @@ import type { ToolRun } from '../../../shared/chat-view'
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
 
-type ToolKind = 'bash' | 'read' | 'edit' | 'write' | 'other'
+type ToolKind = 'bash' | 'read' | 'edit' | 'write' | 'browser' | 'other'
 
 function toolKind(name: string): ToolKind {
   const n = name.toLowerCase()
+  if (n.startsWith('browser_')) {
+    return 'browser'
+  }
   if (n.includes('bash') || n.includes('shell') || n.includes('terminal')) {
     return 'bash'
   }
@@ -41,6 +45,8 @@ function toolIcon(name: string) {
   switch (toolKind(name)) {
     case 'bash':
       return <Terminal size={13} />
+    case 'browser':
+      return <Globe size={13} />
     case 'read':
       return <FileText size={13} />
     case 'edit':
@@ -136,12 +142,30 @@ function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
   )
 }
 
+interface ImageBlock {
+  type: 'image'
+  data: string
+  mimeType: string
+}
+
+function resultImages(run: ToolRun): ImageBlock[] {
+  const content = run.result?.content
+  if (!Array.isArray(content)) {
+    return []
+  }
+  return content.filter(
+    (b): b is ImageBlock => b?.type === 'image' && typeof b.data === 'string'
+  )
+}
+
 function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   const [showAll, setShowAll] = useState(false)
   const [showArgs, setShowArgs] = useState(false)
+  const [expandedImage, setExpandedImage] = useState<number | null>(null)
   const kind = toolKind(run.name)
 
   const output = useMemo(() => resultText(run), [run])
+  const images = useMemo(() => resultImages(run), [run])
   const truncated = !showAll && output.length > OUTPUT_LIMIT
   const shownOutput = truncated ? `${output.slice(0, OUTPUT_LIMIT)}\n…` : output
   const isError = run.status === 'error'
@@ -192,6 +216,18 @@ function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
       {kind !== 'read' && output && (
         <pre className={clsx('tool-output', { 'is-error': isError })}>{shownOutput}</pre>
       )}
+
+      {images.map((image, i) => (
+        <button
+          key={i}
+          type="button"
+          className={clsx('tool-image', { 'is-expanded': expandedImage === i })}
+          title={expandedImage === i ? 'Shrink' : 'Expand'}
+          onClick={() => setExpandedImage(expandedImage === i ? null : i)}
+        >
+          <img src={`data:${image.mimeType};base64,${image.data}`} alt="Tool result" />
+        </button>
+      ))}
 
       {truncated && (
         <button type="button" className="tool-show-all" onClick={() => setShowAll(true)}>

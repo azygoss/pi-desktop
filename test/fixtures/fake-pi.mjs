@@ -7,6 +7,10 @@
 //   PI_FAKE_PI_DELAY_MS   delay between streamed chunks during a scripted
 //                         prompt reply (default 40)
 //   PI_FAKE_PI_MESSAGES   JSON array of canned messages for get_messages
+//   PI_DESKTOP_BRIDGE_URL / PI_DESKTOP_BRIDGE_TOKEN — set by the app; when a
+//                         prompt mentions "browser" the fixture performs real
+//                         bridge calls (like the pi extension would) so e2e
+//                         covers the whole browser-tools path.
 import { StringDecoder } from 'node:string_decoder'
 
 if (process.argv.includes('--version')) {
@@ -103,6 +107,168 @@ const USAGE = {
 }
 
 let streaming = false
+
+const BRIDGE_URL = process.env['PI_DESKTOP_BRIDGE_URL']
+const BRIDGE_TOKEN = process.env['PI_DESKTOP_BRIDGE_TOKEN']
+
+async function bridgeCall(tool, params) {
+  const res = await fetch(`${BRIDGE_URL}/call`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${BRIDGE_TOKEN}`
+    },
+    body: JSON.stringify({ tool, params: params ?? {} })
+  })
+  const body = await res.json().catch(() => null)
+  if (!res.ok || !body?.ok) {
+    throw new Error(body?.error ?? `bridge HTTP ${res.status}`)
+  }
+  return body.result
+}
+
+/** Emit tool_execution_start → bridge call → tool_execution_end + toolResult. */
+async function emitToolRun(callId, toolName, args, call) {
+  writeLine({
+    type: 'tool_execution_start',
+    toolCallId: callId,
+    toolName,
+    args
+  })
+  let content
+  let isError = false
+  let details
+  try {
+    const result = await call()
+    content = [
+      ...(result?.image
+        ? [{ type: 'image', data: result.image.data, mimeType: result.image.mimeType }]
+        : []),
+      { type: 'text', text: result?.text ?? 'Done' }
+    ]
+    details = result?.details
+  } catch (error) {
+    isError = true
+    content = [
+      { type: 'text', text: error instanceof Error ? error.message : String(error) }
+    ]
+  }
+  writeLine({
+    type: 'tool_execution_end',
+    toolCallId: callId,
+    toolName,
+    result: { content, details },
+    isError
+  })
+  const toolResult = {
+    role: 'toolResult',
+    toolCallId: callId,
+    toolName,
+    content,
+    isError,
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: toolResult })
+  writeLine({ type: 'message_end', message: toolResult })
+  return toolResult
+}
+
+/**
+ * Scripted reply that drives the app's real browser tools over the bridge —
+ * the same calls the bundled pi extension makes. Used when the prompt
+ * mentions "browser" and a URL.
+ */
+async function scriptedBrowserReply(id, promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({ type: 'turn_start' })
+
+  const url = promptMessage?.match(/https?:\/\/\S+/)?.[0] ?? 'http://127.0.0.1/'
+  const toolCalls = [
+    { type: 'toolCall', id: 'call_browser_1', name: 'browser_open', arguments: { url } },
+    { type: 'toolCall', id: 'call_browser_2', name: 'browser_screenshot', arguments: {} }
+  ]
+  writeLine({
+    type: 'message_start',
+    message: {
+      role: 'assistant',
+      content: [],
+      api: 'anthropic-messages',
+      provider: 'anthropic',
+      model: 'synthetic-sonnet',
+      usage: USAGE,
+      stopReason: 'pending',
+      timestamp: Date.now()
+    }
+  })
+  toolCalls.forEach((toolCall, index) => {
+    writeLine({
+      type: 'message_update',
+      usage: USAGE,
+      assistantMessageEvent: {
+        type: 'toolcall_start',
+        contentIndex: index,
+        id: toolCall.id,
+        toolName: toolCall.name
+      }
+    })
+    writeLine({
+      type: 'message_update',
+      usage: USAGE,
+      assistantMessageEvent: {
+        type: 'toolcall_end',
+        contentIndex: index,
+        toolCall
+      }
+    })
+  })
+  const callMessage = {
+    role: 'assistant',
+    content: toolCalls,
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_end', message: callMessage })
+
+  const toolResults = []
+  toolResults.push(
+    await emitToolRun('call_browser_1', 'browser_open', { url }, () =>
+      bridgeCall('browser_open', { url })
+    )
+  )
+  toolResults.push(
+    await emitToolRun('call_browser_2', 'browser_screenshot', {}, () =>
+      bridgeCall('browser_screenshot', {})
+    )
+  )
+  writeLine({ type: 'turn_end', message: callMessage, toolResults })
+
+  // final assistant text turn
+  writeLine({ type: 'turn_start' })
+  const done = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Browser tools ran — see the right panel.' }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...done, content: [] } })
+  writeLine({ type: 'message_end', message: done })
+  writeLine({ type: 'turn_end', message: done, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [done], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
 
 const SCRIPT_TEXT =
   'Here is a synthetic reply with a code block.\n\n' +
@@ -407,7 +573,11 @@ function handle(command) {
     case 'steer':
     case 'follow_up':
       writeLine({ id, type: 'response', command: command.type, success: true })
-      void scriptedReply(id, command.message)
+      if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
+        void scriptedBrowserReply(id, command.message)
+      } else {
+        void scriptedReply(id, command.message)
+      }
       break
     case 'abort':
       streaming = false

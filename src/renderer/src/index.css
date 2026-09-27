@@ -1389,6 +1389,27 @@ body {
   cursor: pointer;
   padding: 0;
 }
+.tool-image {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1);
+  cursor: zoom-in;
+  padding: 4px;
+}
+.tool-image img {
+  display: block;
+  max-width: 160px;
+  max-height: 110px;
+  object-fit: contain;
+}
+.tool-image.is-expanded {
+  cursor: zoom-out;
+}
+.tool-image.is-expanded img {
+  max-width: 100%;
+  max-height: none;
+}
 
 /* ---------- UI dialogs ---------- */
 

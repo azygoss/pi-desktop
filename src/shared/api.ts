@@ -175,6 +175,14 @@ export interface BrowserTabState {
   canGoForward: boolean
 }
 
+/** The agent bridge asks the renderer to show/close a chat's browser tab. */
+export interface BrowserAgentTabPayload {
+  /** Panel tab id (`agent-<chatId>`); the view exists in main already. */
+  id: string
+  chatId: string
+  action: 'open' | 'close'
+}
+
 /** Git working-tree diff for the diff panel. */
 export interface RepoDiffResult {
   isRepo: boolean
@@ -256,6 +264,8 @@ export interface PiDesktopApi {
     onOpenUrl(callback: (payload: { url: string }) => void): () => void
     /** A download completed → renderer shows a toast. */
     onDownload(callback: (payload: { filename: string }) => void): () => void
+    /** A chat's agent used its browser tools → show or close its tab. */
+    onAgentTab(callback: (payload: BrowserAgentTabPayload) => void): () => void
   }
   diff: {
     /** Git status + unified diff for a directory; isRepo=false when not git. */

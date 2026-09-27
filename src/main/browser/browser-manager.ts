@@ -194,6 +194,15 @@ export class BrowserManager {
     return this.tabs.has(id)
   }
 
+  /** All open browser tabs — used by the browser_tabs bridge tool. */
+  list(): { id: string; url: string; title: string }[] {
+    return [...this.tabs.entries()].map(([id, record]) => ({
+      id,
+      url: record.view.webContents.getURL() || record.url,
+      title: record.view.webContents.getTitle() || record.title
+    }))
+  }
+
   closeAll(): void {
     for (const id of [...this.tabs.keys()]) {
       this.close(id)

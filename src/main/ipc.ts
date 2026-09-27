@@ -96,6 +96,7 @@ export const IPC_CHANNELS = {
   browserState: 'pi-desktop:browser:state',
   browserOpenUrl: 'pi-desktop:browser:open-url',
   browserDownloaded: 'pi-desktop:browser:downloaded',
+  browserAgentTab: 'pi-desktop:browser:agent-tab',
   diffStatus: 'pi-desktop:diff:status',
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external'
@@ -106,6 +107,8 @@ export interface IpcDeps {
   chat: ChatService
   pty: PtyManager
   browser: BrowserManager
+  /** Loopback bridge server for pi browser tools; stopped on quit. */
+  bridge?: { stop(): Promise<void> }
 }
 
 /**
@@ -533,7 +536,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
 
   const browserId = (value: unknown): string => {
-    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value)) {
+    // Agent-owned tabs are 'agent-<chatId>', so allow a little headroom.
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(value)) {
       throw new Error('Invalid browser tab id')
     }
     return value
@@ -644,6 +648,7 @@ export function wireAppLifecycle(deps: IpcDeps): void {
     void deps.chat.closeAll()
     void deps.pty.killAll()
     deps.browser.closeAll()
+    void deps.bridge?.stop()
   })
 }
 

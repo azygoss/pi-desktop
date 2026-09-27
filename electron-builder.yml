@@ -16,6 +16,12 @@ files:
 asarUnpack:
   - node_modules/**
 
+# The browser-tools pi extension is loaded by pi itself; the installed
+# runtime (Homebrew node) cannot read inside app.asar, so ship it unpacked.
+extraResources:
+  - from: resources/pi-extension
+    to: pi-extension
+
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns

@@ -97,6 +97,26 @@ async function visible(page: Page, selector: string, timeout = 15_000): Promise<
   await page.waitForSelector(selector, { state: 'visible', timeout })
 }
 
+/**
+ * Poll the active terminal's rows for text matching `re`. String/regex
+ * selectors inside the CSP-protected renderer are unreliable here, so we
+ * read row text over the wire instead.
+ */
+async function waitForTerminalText(page: Page, re: RegExp, timeout = 20_000): Promise<void> {
+  const rows = page.locator('.panel-tab-content.is-active .xterm-rows')
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const texts = await rows.allTextContents()
+    if (texts.some((t) => re.test(t))) {
+      return
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`terminal did not show ${re} within ${timeout}ms`)
+    }
+    await page.waitForTimeout(250)
+  }
+}
+
 describe('Pi Desktop e2e', () => {
   let app: ElectronApplication
   let page: Page
@@ -257,6 +277,30 @@ describe('Pi Desktop e2e', () => {
     await page.screenshot({ path: join(SHOTS, 'chat-toolcard.png') })
   })
 
+  it('drives the in-app browser via the pi browser tools', async () => {
+    // Still on the chat view from the previous test. The fake pi sees the
+    // bridge env vars and issues real browser_open/browser_screenshot calls
+    // through the loopback bridge — the same path the shipped extension uses.
+    await page.locator('.composer-input').fill(`open ${pageUrl} in the browser`)
+    await page.keyboard.press('Enter')
+    await visible(page, '.tool-card', 30_000)
+    // The bridge opened the panel and focused the chat's agent tab; the page
+    // title proves the WebContentsView actually loaded the local test page.
+    await visible(
+      page,
+      '.right-panel .panel-tab-label:text-is("E2E Test Page")',
+      20_000
+    )
+    // Screenshot tool returned a real JPEG; expanding the card shows it.
+    const shotCard = page.locator('.tool-card', { hasText: 'browser_screenshot' })
+    await shotCard.locator('.tool-row').waitFor({ state: 'visible', timeout: 20_000 })
+    await shotCard.locator('.tool-row').click()
+    await visible(page, '.tool-card .tool-image img', 10_000)
+    const src = await page.locator('.tool-card .tool-image img').getAttribute('src')
+    expect(src).toMatch(/^data:image\/jpeg;base64,/)
+    await page.screenshot({ path: join(SHOTS, 'chat-browser-tools.png') })
+  })
+
   it('collapses the sidebar', async () => {
     await page.keyboard.press('Meta+b')
     await page.waitForSelector('.sidebar', { state: 'hidden', timeout: 5_000 })
@@ -266,19 +310,23 @@ describe('Pi Desktop e2e', () => {
   })
 
   it('opens the right panel and runs a terminal command', async () => {
-    await page.keyboard.press('Meta+Alt+b')
-    await visible(page, '.right-panel')
-    // No tabs yet → the new-tab page lists the Terminal tool.
-    await visible(page, '.newtab-page')
+    if (!(await page.locator('.right-panel').isVisible())) {
+      await page.keyboard.press('Meta+Alt+b')
+      await visible(page, '.right-panel')
+    }
+    // The browser-tools test may have left an agent tab open, so open a
+    // fresh new-tab page via "+" before picking the Terminal tool.
+    await page.locator('.panel-tab-add').click()
+    await visible(page, '.newtab-tools')
     await page.locator('.newtab-tools .folder-row', { hasText: 'Terminal' }).click()
-    await visible(page, '.terminal-view .xterm', 20_000)
-    // Wait for the login shell prompt (any output = shell is ready).
-    await page.waitForFunction(
-      "!!document.querySelector('.xterm-rows')?.textContent?.trim()",
-      undefined,
-      { timeout: 20_000 }
+    await visible(
+      page,
+      '.panel-tab-content.is-active .terminal-view .xterm',
+      20_000
     )
-    await page.locator('.terminal-view').click()
+    // Wait for the login shell prompt (any output = shell is ready).
+    await waitForTerminalText(page, /\S/)
+    await page.locator('.panel-tab-content.is-active .terminal-view').click()
     // Sanitize the prompt so screenshots never show the real user@host.
     await page.keyboard.type("PS1='> '")
     await page.keyboard.press('Enter')
@@ -286,26 +334,22 @@ describe('Pi Desktop e2e', () => {
     await page.keyboard.press('Enter')
     await page.keyboard.type('echo hello')
     await page.keyboard.press('Enter')
-    await page.waitForFunction(
-      "document.querySelector('.xterm-rows')?.textContent?.includes('hello')",
-      undefined,
-      { timeout: 20_000 }
-    )
+    await waitForTerminalText(page, /hello/)
     await page.screenshot({ path: join(SHOTS, 'panel-terminal.png') })
   })
 
   it('opens a browser tab on a local page', async () => {
     await page.locator('.panel-tab-add').click()
-    await visible(page, '.newtab-address input')
-    await page.locator('.newtab-address input').fill(pageUrl)
+    await visible(page, '.panel-tab-content.is-active .newtab-address input')
+    await page.locator('.panel-tab-content.is-active .newtab-address input').fill(pageUrl)
     await page.keyboard.press('Enter')
-    await visible(page, '.browser-toolbar')
+    await visible(page, '.panel-tab-content.is-active .browser-toolbar')
     // WebContentsView paints outside the DOM; the tab title proves the page
     // loaded and pushed state back over IPC.
-    await page.waitForFunction(
-      "[...document.querySelectorAll('.panel-tab-label')].some((el) => el.textContent === 'E2E Test Page')",
-      undefined,
-      { timeout: 15_000 }
+    await visible(
+      page,
+      '.right-panel .panel-tab-label:text-is("E2E Test Page")',
+      15_000
     )
     await page.waitForTimeout(400)
     await page.screenshot({ path: join(SHOTS, 'panel-browser.png') })
@@ -323,10 +367,12 @@ describe('Pi Desktop e2e', () => {
     await page.waitForSelector('.composer-input')
 
     await page.locator('.panel-tab-add').click()
-    await page.locator('.newtab-tools .folder-row', { hasText: 'Diff' }).click()
-    await visible(page, '.diff-panel')
-    await visible(page, '.diff-file', 10_000)
-    const paths = await page.locator('.diff-file-path').allTextContents()
+    await page
+      .locator('.panel-tab-content.is-active .newtab-tools .folder-row', { hasText: 'Diff' })
+      .click()
+    await visible(page, '.panel-tab-content.is-active .diff-panel')
+    await visible(page, '.panel-tab-content.is-active .diff-file', 10_000)
+    const paths = await page.locator('.panel-tab-content.is-active .diff-file-path').allTextContents()
     expect(paths).toContain('notes.txt')
     expect(paths).toContain('new-file.txt')
     await page.screenshot({ path: join(SHOTS, 'panel-diff.png') })
