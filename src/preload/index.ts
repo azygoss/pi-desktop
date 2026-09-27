@@ -1,10 +1,27 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import type { PiDesktopApi } from '../shared/api'
 
-// The typed API surface is added in src/preload alongside the IPC handlers in
-// src/main/ipc.ts. Until then, expose a minimal marker so the renderer can
-// detect that it runs inside Pi Desktop.
-const api = {
-  platform: process.platform
+const api: PiDesktopApi = {
+  runtime: {
+    info: () => ipcRenderer.invoke('pi-desktop:runtime:info')
+  },
+  sessions: {
+    list: () => ipcRenderer.invoke('pi-desktop:sessions:list'),
+    onChanged: (callback) => {
+      const listener = () => callback()
+      ipcRenderer.on('pi-desktop:sessions:changed', listener)
+      return () => ipcRenderer.off('pi-desktop:sessions:changed', listener)
+    }
+  },
+  projects: {
+    list: () => ipcRenderer.invoke('pi-desktop:projects:list')
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('pi-desktop:settings:get')
+  },
+  app: {
+    getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name')
+  }
 }
 
 contextBridge.exposeInMainWorld('piDesktop', api)

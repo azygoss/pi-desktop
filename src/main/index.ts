@@ -1,5 +1,9 @@
 import { join } from 'node:path'
 import { BrowserWindow, app, shell } from 'electron'
+import { registerIpcHandlers, startSessionWatcher, wireAppLifecycle } from './ipc'
+import { PiProcessPool } from './pi/pool'
+
+const pool = new PiProcessPool()
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
 
@@ -57,6 +61,9 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  registerIpcHandlers({ pool })
+  startSessionWatcher()
+  wireAppLifecycle({ pool })
   createWindow()
 
   app.on('activate', () => {
