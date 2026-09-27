@@ -2,6 +2,7 @@ import { createReadStream, existsSync, watch, type FSWatcher } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { collapseWhitespace, truncateText } from '../../shared/text'
+import { titleFromUserText } from '../../shared/skill-prefix'
 import type { ProjectSummary, SessionSummary } from '../../shared/session-types'
 import { createJsonlReader } from '../pi/jsonl'
 import { appUserDataDir } from '../config/app-paths'
@@ -23,6 +24,9 @@ const summaryCache = new Map<string, CacheEntry>()
 
 const PERSIST_DEBOUNCE_MS = 800
 const PERSIST_MAX_ENTRIES = 5000
+// Bump when the summary shape or title derivation changes so stale cached
+// titles get recomputed instead of served.
+const PERSIST_VERSION = 2
 
 let persistedLoaded = false
 let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -59,6 +63,9 @@ async function loadPersistedCache(): Promise<void> {
   persistedLoaded = true
   try {
     const raw: unknown = JSON.parse(await readFile(persistPath(), 'utf8'))
+    if ((raw as { version?: unknown } | null)?.version !== PERSIST_VERSION) {
+      return
+    }
     const entries = (raw as { entries?: unknown[] } | null)?.entries
     if (!Array.isArray(entries)) {
       return
@@ -99,7 +106,7 @@ function schedulePersist(): void {
       try {
         const file = persistPath()
         await mkdir(dirname(file), { recursive: true })
-        await writeFile(file, JSON.stringify({ entries }))
+        await writeFile(file, JSON.stringify({ version: PERSIST_VERSION, entries }))
       } catch {
         // userData unavailable (tests) or unwritable — non-fatal
       }
@@ -231,7 +238,9 @@ async function summarizeFile(filePath: string): Promise<SessionSummary | null> {
   }
 
   const parsed = await parseSessionFile(filePath)
-  const titleSource = parsed.name ?? parsed.firstUserText
+  // Skill invocations expand to <skill> XML in the first user message; use
+  // the typed remainder (or /skill:name) so titles never show raw markup.
+  const titleSource = parsed.name ?? titleFromUserText(parsed.firstUserText)
   const title = titleSource
     ? truncateText(collapseWhitespace(titleSource), TITLE_MAX_LENGTH)
     : 'Untitled'

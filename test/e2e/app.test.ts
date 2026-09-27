@@ -80,7 +80,15 @@ async function seedAgentDir(dir: string): Promise<void> {
     { cwd: PROJECT_A, id: 'a3', created: daysAgo(1), text: 'Refactor session parser' },
     { cwd: PROJECT_A, id: 'a4', created: daysAgo(9), text: 'Profile startup time' },
     { cwd: PROJECT_B, id: 'b1', created: daysAgo(0), text: 'Document release steps' },
-    { cwd: PROJECT_B, id: 'b2', created: daysAgo(40), text: 'Bump dependencies' }
+    { cwd: PROJECT_B, id: 'b2', created: daysAgo(40), text: 'Bump dependencies' },
+    {
+      cwd: PROJECT_B,
+      id: 'b3',
+      created: daysAgo(0),
+      // pi expands /skill:name into a <skill> XML prefix on the user
+      // message; titles and bubbles must show only the typed remainder.
+      text: '<skill name="synthetic-skill" location="/Users/example/.pi/skills/synthetic-skill/SKILL.md">Synthetic skill instructions.</skill> Explain the fixture'
+    }
   ]
   for (const s of sessions) {
     const dirName = sessionDirName(s.cwd)
@@ -227,19 +235,19 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.home-greeting h1')
     const greeting = await page.locator('.home-greeting h1').textContent()
     expect(greeting).toMatch(/Good|mind/)
-    // sidebar nests seeded chats under their projects (4 + 2), plus a
+    // sidebar nests seeded chats under their projects (4 + 3), plus a
     // synthetic user-added project with no chats at all. Expanded projects
-    // cap at 3 chats with a "Show N more" row, so alpha shows 3, beta 2.
+    // cap at 3 chats with a "Show N more" row, so alpha shows 3, beta 3.
     await visible(page, '.sidebar-project')
     expect(await page.locator('.sidebar-project').count()).toBe(4)
-    expect(await page.locator('.sidebar-session').count()).toBe(5)
+    expect(await page.locator('.sidebar-session').count()).toBe(6)
     expect(await page.locator('.sidebar-item-muted').first().textContent()).toBe('Show 1 more…')
     // Toggling a project collapses it and persists that choice.
     const alphaRow = page.locator('.sidebar-project', { hasText: 'synthetic-alpha' })
     await alphaRow.click()
-    expect(await page.locator('.sidebar-session').count()).toBe(2)
+    expect(await page.locator('.sidebar-session').count()).toBe(3)
     await alphaRow.click()
-    expect(await page.locator('.sidebar-session').count()).toBe(5)
+    expect(await page.locator('.sidebar-session').count()).toBe(6)
     expect(await page.locator('.sidebar-empty-nested').first().textContent()).toBe('No chats')
     await page.screenshot({ path: join(SHOTS, 'home-dark.png') })
   })
@@ -348,6 +356,24 @@ describe('Pi Desktop e2e', () => {
     await setTheme('light')
     await page.screenshot({ path: join(SHOTS, 'chat-markdown-light.png') })
     await setTheme('dark')
+  })
+
+  it('renders a skill invocation as a chip, not raw XML', async () => {
+    // Session b3's first user message starts with a <skill> block: the
+    // sidebar title and the bubble show only what the user typed.
+    const row = page.locator('.sidebar-session', { hasText: 'Explain the fixture' })
+    await row.waitFor({ state: 'visible', timeout: 10_000 })
+    await row.click()
+    await visible(page, '.skill-chip')
+    expect(await page.locator('.skill-chip').textContent()).toContain('synthetic-skill')
+    expect(await page.locator('.msg-user-text').first().textContent()).toBe(
+      'Explain the fixture'
+    )
+    expect(await page.locator('.skill-details').count()).toBe(1)
+    await page.screenshot({ path: join(SHOTS, 'skill-chip.png') })
+    // Back home so the next test starts a fresh chat.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-greeting')
   })
 
   it('drives the in-app browser via the pi browser tools', async () => {

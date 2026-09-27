@@ -327,6 +327,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         home !== '/' && agentDir.startsWith(home)
           ? `~${agentDir.slice(home.length)}`
           : agentDir,
+      homeDir: home,
       workspaceDir: workspaceDir()
     }
   })

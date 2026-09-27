@@ -1,8 +1,9 @@
-import { ArrowDown, GitFork, RotateCcw } from 'lucide-react'
+import { ArrowDown, GitFork, RotateCcw, Zap } from 'lucide-react'
 import { Suspense, lazy, memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
 import type { ImageContent } from '../../../shared/pi-types'
+import { parseSkillPrefix } from '../../../shared/skill-prefix'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -87,7 +88,13 @@ function MessageRow({
   userIndex?: number
   onFork?: (userIndex: number) => void
 }) {
+  const homeDir = useAppStore((s) => s.appInfo?.homeDir ?? '')
   if (message.kind === 'user') {
+    // `/skill:name` messages arrive as <skill> XML + typed text — show chips
+    // for the invocations and hide the injected instructions by default.
+    const { skills, rest } = parseSkillPrefix(message.text)
+    const tilde = (p: string) =>
+      homeDir && homeDir !== '/' && p.startsWith(homeDir) ? `~${p.slice(homeDir.length)}` : p
     return (
       <div className="msg-user-row fade-in">
         {onFork !== undefined && userIndex !== undefined && (
@@ -101,6 +108,16 @@ function MessageRow({
           </button>
         )}
         <div className="msg-user">
+          {skills.length > 0 && (
+            <div className="skill-chips">
+              {skills.map((skill, i) => (
+                <span key={i} className="skill-chip" title={tilde(skill.location)}>
+                  <Zap size={11} />
+                  {skill.name}
+                </span>
+              ))}
+            </div>
+          )}
           {message.images.map((img: ImageContent, i: number) => (
             <img
               key={i}
@@ -109,7 +126,19 @@ function MessageRow({
               alt=""
             />
           ))}
-          {message.text}
+          {rest && <span className="msg-user-text">{rest}</span>}
+          {skills.some((s) => s.body) && (
+            <details className="skill-details">
+              <summary>Show skill instructions</summary>
+              {skills
+                .filter((s) => s.body)
+                .map((s, i) => (
+                  <pre key={i} className="skill-body">
+                    {s.body}
+                  </pre>
+                ))}
+            </details>
+          )}
           {message.queued && <span className="msg-queued">queued — waiting for pi</span>}
         </div>
       </div>

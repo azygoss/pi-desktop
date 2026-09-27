@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useAppStore } from './app-store'
+import { titleFromUserText } from '../../../shared/skill-prefix'
 import type {
   ChatOpenResult,
   ChatSendMode,
@@ -275,7 +276,7 @@ function applyOpenResult(
   if (!draft.transcriptApplied) {
     const firstUser = view.messages.find((m) => m.kind === 'user')
     if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
-      draft.title = firstUser.text.slice(0, 80)
+      draft.title = (titleFromUserText(firstUser.text) ?? '').slice(0, 80)
     }
   }
   clearQueuedFlags(draft)
@@ -375,7 +376,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           current.transcriptApplied = true
           const firstUser = view.messages.find((m) => m.kind === 'user')
           if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
-            current.title = firstUser.text.replace(/\s+/g, ' ').trim().slice(0, 80)
+            current.title =
+              titleFromUserText(firstUser.text)
+                ?.replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 80) ?? current.title
           }
           publish(chatId)
         })
@@ -464,7 +469,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
     draft.messages.push(display)
     if (draft.title === 'New chat' && message.trim()) {
-      draft.title = message.replace(/\s+/g, ' ').trim().slice(0, 80)
+      draft.title = (titleFromUserText(message) ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80)
     }
     // Still starting → keep the "Starting pi" status; the send is queued.
     draft.status = draft.piReady === false ? 'starting' : 'streaming'

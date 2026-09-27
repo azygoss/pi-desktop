@@ -122,19 +122,27 @@ body {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-/* Slim scrollbars */
+/* Overlay-style scrollbars: thin, rounded, invisible until the scrollable
+   area is hovered (or the thumb itself is dragged). */
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 *::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover {
   background: var(--border);
-  border-radius: 4px;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
 }
 *::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -299,7 +307,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 28px;
   padding: 0 8px;
   border: none;
   border-radius: 8px;
@@ -1096,6 +1104,45 @@ body {
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.skill-details summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.skill-body {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.msg-user-text {
+  white-space: pre-wrap;
 }
 .msg-image {
   max-width: 220px;

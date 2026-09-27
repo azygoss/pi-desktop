@@ -105,6 +105,52 @@ describe('listSessions', () => {
     expect(sessions[0]!.title).toBe('array content title')
   })
 
+  it('strips <skill> prefixes from titles derived from user messages', async () => {
+    await writeSession('p', 's.jsonl', [
+      HEADER,
+      {
+        type: 'message',
+        id: 'a1',
+        parentId: null,
+        message: {
+          role: 'user',
+          content:
+            '<skill name="build-ios" location="/Users/example/.pi/skills/build-ios/SKILL.md">instructions</skill> ship the app'
+        }
+      },
+      {
+        type: 'message',
+        id: 'a2',
+        parentId: 'a1',
+        message: {
+          role: 'user',
+          content:
+            '<skill name="lone" location="/x">only an invocation</skill>'
+        }
+      }
+    ])
+    const sessions = await listSessions(env)
+    // First user message wins; its typed remainder is the title.
+    expect(sessions[0]!.title).toBe('ship the app')
+  })
+
+  it('titles skill-only first messages as /skill:name', async () => {
+    await writeSession('p', 's.jsonl', [
+      HEADER,
+      {
+        type: 'message',
+        id: 'a1',
+        parentId: null,
+        message: {
+          role: 'user',
+          content: '<skill name="lone" location="/x">only an invocation</skill>'
+        }
+      }
+    ])
+    const sessions = await listSessions(env)
+    expect(sessions[0]!.title).toBe('/skill:lone')
+  })
+
   it('truncates long titles at 80 chars', async () => {
     await writeSession('p', 's.jsonl', [
       HEADER,

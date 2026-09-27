@@ -253,6 +253,8 @@ export interface AppInfo {
   agentDir: string
   /** agentDir with the home directory collapsed to '~' for display. */
   agentDirDisplay: string
+  /** The user's home directory, for collapsing paths in tooltips. */
+  homeDir: string
   /** Scratch dir for project-less chats (sessions here belong to "Chats"). */
   workspaceDir: string
 }
