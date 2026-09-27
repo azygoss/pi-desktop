@@ -35,8 +35,10 @@ interface AppState {
   projects: ProjectSummary[]
   sidebarCollapsed: boolean
   chatFilter: string
-  /** Whether the sidebar search field is visible/focused (⌘K, /resume). */
+  /** Whether the sidebar search field is visible/focused (⌘⇧F, /resume). */
   sidebarSearchOpen: boolean
+  /** ⌘K command palette. */
+  paletteOpen: boolean
   view: ViewState
   backStack: ViewState[]
   forwardStack: ViewState[]
@@ -57,6 +59,7 @@ interface AppState {
   toggleSidebar(): void
   setChatFilter(filter: string): void
   setSidebarSearchOpen(open: boolean): void
+  setPaletteOpen(open: boolean): void
   renameSession(path: string, title: string): void
   openSettings(): void
   closeSettings(): void
@@ -77,6 +80,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarCollapsed: false,
   chatFilter: '',
   sidebarSearchOpen: false,
+  paletteOpen: false,
   view: { kind: 'home' },
   backStack: [],
   forwardStack: [],
@@ -226,6 +230,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSidebarSearchOpen(open) {
     set({ sidebarSearchOpen: open })
+  },
+
+  setPaletteOpen(open) {
+    set({ paletteOpen: open })
   },
 
   renameSession(path, title) {

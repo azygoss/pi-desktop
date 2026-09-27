@@ -1,10 +1,24 @@
-import { ArrowDown, GitFork, RotateCcw, Zap } from 'lucide-react'
+import {
+  ArrowDown,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  Copy,
+  Loader2,
+  Pencil,
+  RotateCcw,
+  X,
+  Zap
+} from 'lucide-react'
 import { Suspense, lazy, memo, useCallback, useEffect, useRef, useState } from 'react'
+import clsx from 'clsx'
 
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
 import type { ImageContent } from '../../../shared/pi-types'
 import { parseSkillPrefix } from '../../../shared/skill-prefix'
 import { Perf } from '../lib/perf'
+import { summarizeToolNames } from '../lib/tool-summary'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -38,7 +52,13 @@ function AssistantBlock({
     return <MarkdownBlock text={block.text} />
   }
   if (block.type === 'thinking') {
-    return <ThinkingBlock text={block.thinking} streaming={streaming} />
+    return (
+      <ThinkingBlock
+        text={block.thinking}
+        streaming={streaming}
+        durationMs={block.durationMs}
+      />
+    )
   }
   if (block.type === 'toolCall') {
     const toolRun: ToolRun =
@@ -75,6 +95,139 @@ function StartingPiNotice({ startedAt }: { startedAt?: number }) {
  */
 const MemoAssistantBlock = memo(AssistantBlock)
 
+type ToolCallBlock = Extract<DisplayBlock, { type: 'toolCall' }>
+type RenderItem = DisplayBlock | { type: 'toolGroup'; blocks: ToolCallBlock[] }
+
+/**
+ * Fold runs of consecutive tool calls into a single group row; a lone call
+ * stays a plain card.
+ */
+function groupToolCalls(blocks: DisplayBlock[]): RenderItem[] {
+  const items: RenderItem[] = []
+  for (const block of blocks) {
+    const last = items[items.length - 1]
+    if (block.type !== 'toolCall') {
+      items.push(block)
+    } else if (last?.type === 'toolGroup') {
+      items[items.length - 1] = { type: 'toolGroup', blocks: [...last.blocks, block] }
+    } else if (last?.type === 'toolCall') {
+      // Second consecutive call: promote the pair into a group.
+      items[items.length - 1] = { type: 'toolGroup', blocks: [last, block] }
+    } else {
+      items.push(block)
+    }
+  }
+  return items
+}
+
+/** Plain markdown text of an assistant message (text blocks only). */
+function assistantText(message: DisplayMessage): string {
+  if (message.kind !== 'assistant') {
+    return ''
+  }
+  return message.blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => (b.type === 'text' ? b.text : ''))
+    .join('\n\n')
+    .trim()
+}
+
+/** Hover action: copy to clipboard, flip to a check for 1.2s. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+    }
+  }, [])
+  return (
+    <button
+      type="button"
+      className="icon-btn msg-action"
+      title={copied ? 'Copied' : 'Copy'}
+      onClick={() => {
+        void navigator.clipboard.writeText(text)
+        setCopied(true)
+        if (timer.current) {
+          clearTimeout(timer.current)
+        }
+        timer.current = setTimeout(() => setCopied(false), 1200)
+      }}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  )
+}
+
+/**
+ * Collapsed summary for a run of consecutive tool calls: "Ran N tools ·
+ * read 2 files, …", live-updating while any of them streams. Expands to the
+ * individual cards.
+ */
+function ToolGroup({
+  calls,
+  toolRuns,
+  cwd
+}: {
+  calls: ToolCallBlock[]
+  toolRuns: Record<string, ToolRun>
+  cwd: string
+}) {
+  const [open, setOpen] = useState(false)
+  const runs = calls.map(
+    (b) =>
+      toolRuns[b.id] ?? {
+        toolCallId: b.id,
+        name: b.name,
+        args: b.arguments,
+        status: 'done' as const
+      }
+  )
+  const running = runs.some((r) => r.status === 'running')
+  const errors = runs.filter((r) => r.status === 'error').length
+  const summary = summarizeToolNames(runs.map((r) => r.name))
+  return (
+    <div className={clsx('tool-card', 'tool-group', { 'tool-error': errors > 0 && !running })}>
+      <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
+        <span className="tool-chevron">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+        <span className="tool-name">
+          {running
+            ? `Running ${runs.length} tools…`
+            : `Ran ${runs.length} tool${runs.length === 1 ? '' : 's'}`}
+        </span>
+        {summary && <span className="tool-summary">{summary}</span>}
+        {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
+        <span className="tool-status">
+          {running && <Loader2 size={13} className="spin" />}
+          {!running && errors === 0 && <Check size={13} />}
+          {!running && errors > 0 && <X size={13} />}
+        </span>
+      </button>
+      {open && (
+        <div className="tool-group-body">
+          {calls.map((call) => (
+            <ToolCard
+              key={call.id}
+              run={
+                toolRuns[call.id] ?? {
+                  toolCallId: call.id,
+                  name: call.name,
+                  args: call.arguments,
+                  status: 'done'
+                }
+              }
+              cwd={cwd}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageRow({
   message,
   toolRuns,
@@ -98,16 +251,6 @@ function MessageRow({
       homeDir && homeDir !== '/' && p.startsWith(homeDir) ? `~${p.slice(homeDir.length)}` : p
     return (
       <div className="msg-user-row fade-in">
-        {onFork !== undefined && userIndex !== undefined && (
-          <button
-            type="button"
-            className="icon-btn msg-fork-btn"
-            title="Fork chat from this message"
-            onClick={() => onFork(userIndex)}
-          >
-            <GitFork size={13} />
-          </button>
-        )}
         <div className="msg-user">
           {skills.length > 0 && (
             <div className="skill-chips">
@@ -142,22 +285,50 @@ function MessageRow({
           )}
           {message.queued && <span className="msg-queued">queued — waiting for pi</span>}
         </div>
+        <div className="msg-actions">
+          <CopyButton text={rest || message.text} />
+          {onFork !== undefined && userIndex !== undefined && (
+            <button
+              type="button"
+              className="icon-btn msg-action"
+              title="Edit & resend"
+              onClick={() => onFork(userIndex)}
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+        </div>
       </div>
     )
   }
   if (message.kind === 'assistant') {
+    const items = groupToolCalls(message.blocks)
     return (
       <div className="msg-assistant fade-in">
-        {message.blocks.map((block, i) => (
-          <MemoAssistantBlock
-            key={i}
-            block={block}
-            run={block.type === 'toolCall' ? toolRuns[block.id] : undefined}
-            cwd={cwd}
-            streaming={message.streaming}
-          />
-        ))}
+        {items.map((item, i) =>
+          item.type === 'toolGroup' ? (
+            <ToolGroup
+              key={`tg-${item.blocks[0]!.id}`}
+              calls={item.blocks}
+              toolRuns={toolRuns}
+              cwd={cwd}
+            />
+          ) : (
+            <MemoAssistantBlock
+              key={i}
+              block={item}
+              run={item.type === 'toolCall' ? toolRuns[item.id] : undefined}
+              cwd={cwd}
+              streaming={message.streaming}
+            />
+          )
+        )}
         {message.errorMessage && <div className="msg-error">{message.errorMessage}</div>}
+        {!message.streaming && assistantText(message) && (
+          <div className="msg-actions">
+            <CopyButton text={assistantText(message)} />
+          </div>
+        )}
       </div>
     )
   }
@@ -445,16 +616,6 @@ export function ChatView({ chatId }: { chatId: string }) {
       lastMessage.kind === 'user' ||
       lastMessage.kind === 'notice')
 
-  function restart(): void {
-    const newId = crypto.randomUUID()
-    void useChatStore.getState().closeChat(chatId)
-    void useChatStore
-      .getState()
-      .ensureChat(newId, { cwd: chat!.cwd, sessionPath: chat!.sessionPath })
-      .catch(() => {})
-    navigate({ kind: 'chat', chatId: newId })
-  }
-
   return (
     <div className="chat-view">
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
@@ -498,7 +659,7 @@ export function ChatView({ chatId }: { chatId: string }) {
               <span className="shimmer-text">Thinking…</span>
             </div>
           )}
-          {chat.error && (
+          {chat.error && chat.status !== 'exited' && (
             <div className="msg-notice msg-notice-error">
               <span>{chat.error}</span>
               {chat.status === 'error' && (
@@ -518,10 +679,36 @@ export function ChatView({ chatId }: { chatId: string }) {
             </div>
           )}
           {chat.status === 'exited' && (
-            <div className="msg-notice msg-notice-error">
-              <button type="button" className="ui-btn" onClick={restart}>
-                <RotateCcw size={12} /> Restart chat
-              </button>
+            <div className="exit-card">
+              <div className="exit-card-head">
+                <CircleAlert size={15} />
+                <div className="exit-card-text">
+                  <div className="exit-card-title">
+                    {chat.error ?? 'The pi process exited.'}
+                  </div>
+                  <div className="exit-card-sub">
+                    The transcript stays here — restart pi to keep chatting.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="ui-btn"
+                  onClick={() =>
+                    void useChatStore
+                      .getState()
+                      .ensureChat(chatId, { cwd: chat.cwd, sessionPath: chat.sessionPath })
+                      .catch(() => {})
+                  }
+                >
+                  <RotateCcw size={12} /> Restart pi
+                </button>
+              </div>
+              {chat.stderrTail && chat.stderrTail.length > 0 && (
+                <details className="exit-card-details">
+                  <summary>Show details</summary>
+                  <pre className="exit-card-stderr">{chat.stderrTail.join('\n')}</pre>
+                </details>
+              )}
             </div>
           )}
         </div>

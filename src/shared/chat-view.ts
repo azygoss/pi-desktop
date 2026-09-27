@@ -15,7 +15,14 @@ import type {
 
 export type DisplayBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | {
+      type: 'thinking'
+      thinking: string
+      /** Live streams: wall-clock when thinking_start arrived. */
+      startedAt?: number
+      /** thinking_end minus startedAt; persisted sessions leave it unset. */
+      durationMs?: number
+    }
   | {
       type: 'toolCall'
       id: string
@@ -275,17 +282,25 @@ function applyAssistantDelta(
       break
     case 'thinking_start':
       if (!existing) {
-        replaceBlock({ type: 'thinking', thinking: '' })
+        replaceBlock({ type: 'thinking', thinking: '', startedAt: Date.now() })
       }
       break
     case 'thinking_delta':
       replaceBlock({
         type: 'thinking',
-        thinking: (existing?.type === 'thinking' ? existing.thinking : '') + event.delta
+        thinking: (existing?.type === 'thinking' ? existing.thinking : '') + event.delta,
+        startedAt: existing?.type === 'thinking' ? existing.startedAt : undefined
       })
       break
     case 'thinking_end':
-      replaceBlock({ type: 'thinking', thinking: event.content })
+      replaceBlock({
+        type: 'thinking',
+        thinking: event.content,
+        durationMs:
+          existing?.type === 'thinking' && existing.startedAt !== undefined
+            ? Date.now() - existing.startedAt
+            : undefined
+      })
       break
     case 'toolcall_start':
       replaceBlock({

@@ -20,6 +20,9 @@ const SettingsModal = lazy(() =>
 const CommandModals = lazy(() =>
   import('./components/CommandModals').then((m) => ({ default: m.CommandModals }))
 )
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette }))
+)
 
 export function App() {
   const view = useAppStore((s) => s.view)
@@ -27,6 +30,7 @@ export function App() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
   const chatModal = useAppStore((s) => s.chatModal)
+  const paletteOpen = useAppStore((s) => s.paletteOpen)
   const panelOpen = usePanelStore((s) => s.open)
   const browserActive = usePanelStore(
     (s) => s.open && s.tabs.find((t) => t.id === s.activeTabId)?.kind === 'browser'
@@ -87,9 +91,9 @@ export function App() {
 
   // DOM overlays must never be painted over by a browser view.
   useEffect(() => {
-    const overlay = settingsOpen || chatModal !== null
+    const overlay = settingsOpen || chatModal !== null || paletteOpen
     void window.piDesktop.browser.setOverlayOpen({ open: overlay }).catch(() => {})
-  }, [settingsOpen, chatModal])
+  }, [settingsOpen, chatModal, paletteOpen])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -142,12 +146,18 @@ export function App() {
         e.preventDefault()
         store.goForward()
       } else if (e.key === 'b' || e.key === '\\') {
-        e.preventDefault()
-        store.toggleSidebar()
-      } else if (e.key === 'n') {
+        if (!e.shiftKey) {
+          e.preventDefault()
+          store.toggleSidebar()
+        }
+      } else if (e.key === 'n' && !e.shiftKey) {
         e.preventDefault()
         store.navigate({ kind: 'home' })
-      } else if (e.key === 'k') {
+      } else if (e.key === 'k' && !e.shiftKey) {
+        e.preventDefault()
+        store.setPaletteOpen(!store.paletteOpen)
+      } else if (e.key === 'F' && e.shiftKey) {
+        // ⌘⇧F — inline filter inside the sidebar (⌘K is the palette).
         e.preventDefault()
         if (store.sidebarCollapsed) {
           store.toggleSidebar()
@@ -169,6 +179,11 @@ export function App() {
       {panelMounted && (
         <Suspense fallback={null}>
           <RightPanel closing={!panelOpen} />
+        </Suspense>
+      )}
+      {paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette />
         </Suspense>
       )}
       {settingsOpen && (

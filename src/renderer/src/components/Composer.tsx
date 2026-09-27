@@ -64,6 +64,8 @@ function StartingPiStatus({ startedAt }: { startedAt?: number }) {
 export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: ComposerProps) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<ImageContent[]>([])
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
   const [folderOpen, setFolderOpen] = useState(false)
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
@@ -295,10 +297,24 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   return (
     <div
-      className={clsx('composer', { 'is-streaming': streaming })}
+      className={clsx('composer', { 'is-streaming': streaming, 'is-dragover': dragging })}
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          dragDepth.current += 1
+          setDragging(true)
+        }
+      }}
       onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) {
+          setDragging(false)
+        }
+      }}
       onDrop={(e) => {
         e.preventDefault()
+        dragDepth.current = 0
+        setDragging(false)
         void addFiles(e.dataTransfer.files)
       }}
       onPaste={(e) => {

@@ -60,7 +60,8 @@ function isSessionActive(session: SessionSummary): boolean {
   return useChatStore.getState().chats[view.chatId]?.sessionPath === session.path
 }
 
-function openSession(session: SessionSummary): void {
+/** Open (or reveal) the chat for a session file — shared with the palette. */
+export function openSession(session: SessionSummary): void {
   const existing = useChatStore.getState().openSessionChat(session.path)
   const chatId = existing ?? crypto.randomUUID()
   if (!existing) {
@@ -72,7 +73,8 @@ function openSession(session: SessionSummary): void {
   useAppStore.getState().navigate({ kind: 'chat', chatId })
 }
 
-function newChatInProject(cwd: string): void {
+/** Start a draft chat inside a project — shared with the palette. */
+export function newChatInProject(cwd: string): void {
   const chatId = crypto.randomUUID()
   void useChatStore
     .getState()
@@ -464,7 +466,7 @@ export function Sidebar() {
           <button type="button" className="sidebar-item" onClick={toggleSearch}>
             <Search size={15} />
             <span>Search</span>
-            <kbd className="kbd">⌘K</kbd>
+            <kbd className="kbd">⌘⇧F</kbd>
           </button>
 
           {sidebarSearchOpen && (

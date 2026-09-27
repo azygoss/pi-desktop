@@ -34,6 +34,8 @@ export interface ChatState extends ChatViewState {
   commands: PiCommandInfo[]
   stats?: ChatSessionStats
   error?: string
+  /** Last stderr lines from an exited pi process, shown behind "Show details". */
+  stderrTail?: string[]
   uiRequest?: ExtensionUiRequest
   /** Text handed back by fork for the composer to preload (nonce bumps each time). */
   composerSeed?: { text: string; nonce: number }
@@ -236,9 +238,9 @@ export function initChatBridge(): void {
       code === 0
         ? 'The pi process exited.'
         : `The pi process exited with code ${code}.`
-    if (stderrTail.length > 0) {
-      draft.error += `\n${stderrTail.join('\n')}`
-    }
+    // Kept separate from the headline so the UI can hide it behind a
+    // "Show details" expander instead of dumping stderr into the bubble.
+    draft.stderrTail = stderrTail.length > 0 ? stderrTail : undefined
     publish(chatId)
   })
 }
@@ -266,6 +268,7 @@ function applyOpenResult(
     draft.status = 'idle'
   }
   draft.error = undefined
+  draft.stderrTail = undefined
   draft.model = result.state.model
   draft.thinkingLevel = result.state.thinkingLevel
   draft.availableThinkingLevels = result.thinkingLevels
@@ -318,13 +321,19 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   async ensureChat(chatId, input) {
     const existing = drafts.get(chatId)
-    if (existing && existing.status !== 'starting' && existing.status !== 'error') {
+    if (
+      existing &&
+      existing.status !== 'starting' &&
+      existing.status !== 'error' &&
+      existing.status !== 'exited'
+    ) {
       return
     }
     if (existing) {
-      // Retry after a failed start: keep transcript/title, restart status.
+      // Retry after a failed start or a dead process: keep transcript/title.
       existing.status = 'starting'
       existing.error = undefined
+      existing.stderrTail = undefined
       existing.piReady = false
       existing.startedAt = Date.now()
       publish(chatId)

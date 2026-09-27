@@ -590,6 +590,12 @@ body {
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--border) 60%, var(--text-2));
 }
+/* Dashed accent outline while files are dragged over the composer. */
+.composer.is-dragover {
+  border-color: var(--accent);
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+}
 
 .composer-input {
   width: 100%;
@@ -1079,21 +1085,38 @@ body {
 
 .msg-user-row {
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
-.msg-fork-btn {
+/* Hover actions below a message (Copy, Edit & resend) — invisible until the
+   row is hovered or a button inside has focus. */
+.msg-actions {
+  display: flex;
+  gap: 2px;
   opacity: 0;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-  color: var(--muted);
   transition: opacity 150ms;
 }
-.msg-user-row:hover .msg-fork-btn,
-.msg-fork-btn:focus-visible {
+.msg-user-row:hover .msg-actions,
+.msg-assistant:hover .msg-actions,
+.msg-actions:focus-within {
   opacity: 1;
+}
+.msg-action {
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+}
+.msg-action:hover {
+  color: var(--text);
+}
+.msg-assistant .msg-actions {
+  margin-top: -6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-actions {
+    transition: none;
+  }
 }
 .msg-user {
   background: var(--user-bubble);
@@ -1143,6 +1166,134 @@ body {
 }
 .msg-user-text {
   white-space: pre-wrap;
+}
+
+/* ⌘K command palette: centered modal over a blurred backdrop. */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: palette-in 120ms ease-out;
+}
+@keyframes palette-in {
+  from {
+    opacity: 0;
+  }
+}
+.palette-modal {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: palette-modal-in 120ms ease-out;
+}
+@keyframes palette-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-backdrop,
+  .palette-modal {
+    animation: none;
+  }
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 48px;
+  flex-shrink: 0;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+}
+.palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-section {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 8px 3px;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.palette-row.is-highlight {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.palette-row-icon {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  width: 16px;
+}
+.palette-slash {
+  font-weight: 600;
+  color: var(--accent);
+}
+.palette-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-row-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
 }
 .msg-image {
   max-width: 220px;
@@ -1220,6 +1371,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative;
+}
+/* Soft fade so scrolled content slides under the docked composer instead
+   of clipping against its top edge. */
+.chat-composer-dock::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
 }
 .chat-stats {
   font-size: 11.5px;
@@ -1515,6 +1679,70 @@ body {
   .spin {
     animation-duration: 2s;
   }
+}
+
+/* Grouped consecutive tool calls: a single card whose header carries the
+   * aggregate summary; the body lists the individual cards. */
+.tool-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+}
+.tool-group-errors {
+  color: var(--danger);
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+/* pi-exited inline card. */
+.exit-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exit-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--danger);
+}
+.exit-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.exit-card-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.exit-card-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.exit-card-details summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.exit-card-stderr {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .tool-detail {
@@ -2674,7 +2902,7 @@ body {
 /* Hover-revealed controls wait a beat so they don't flicker while the
    pointer crosses a row. */
 .sidebar-item-more,
-.msg-fork-btn,
+.msg-actions,
 .panel-tab-close {
   transition: opacity 140ms ease 50ms;
 }
