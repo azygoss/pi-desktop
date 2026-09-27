@@ -33,6 +33,8 @@ export interface ChatState extends ChatViewState {
   stats?: ChatSessionStats
   error?: string
   uiRequest?: ExtensionUiRequest
+  /** Text handed back by fork for the composer to preload (nonce bumps each time). */
+  composerSeed?: { text: string; nonce: number }
 }
 
 interface ChatStoreState {
@@ -46,6 +48,15 @@ interface ChatStoreState {
   setThinkingLevel(chatId: string, level: ThinkingLevel): Promise<void>
   setCwd(chatId: string, cwd: string): Promise<void>
   closeChat(chatId: string): Promise<void>
+  /** Re-fetch state/messages after fork/clone changes the underlying session. */
+  refresh(chatId: string): Promise<void>
+  /**
+   * Fork the session at the user message at `userIndex` (position among user
+   * messages). Returns the message text pi hands back for editing.
+   */
+  forkFromUserMessage(chatId: string, userIndex: number): Promise<string | undefined>
+  /** Clone the current session branch; the chat continues on the new session. */
+  cloneChat(chatId: string): Promise<void>
   setChatTitle(chatId: string, title: string): void
   respondUi(chatId: string, response: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }): void
 }
@@ -170,6 +181,7 @@ export function initChatBridge(): void {
 }
 
 let optimisticCounter = 0
+let seedCounter = 0
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
   chats: {},
@@ -231,7 +243,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     current.availableThinkingLevels = result.thinkingLevels
     current.models = result.models
     current.commands = result.commands
-    current.cwd = current.cwd || ''
+    current.cwd = result.cwd || current.cwd
     current.sessionPath = result.sessionPath ?? input.sessionPath
     const firstUser = view.messages.find((m) => m.kind === 'user')
     if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
@@ -325,6 +337,70 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return { chats }
     })
     await window.piDesktop.chat.close({ chatId }).catch(() => {})
+  },
+
+  async refresh(chatId) {
+    const draft = drafts.get(chatId)
+    if (!draft) {
+      return
+    }
+    const result = await window.piDesktop.chat.refresh({ chatId })
+    const view = buildChatViewState(result.messages)
+    Object.assign(draft, view, {
+      cwd: result.cwd || draft.cwd,
+      sessionPath: result.sessionPath ?? draft.sessionPath,
+      model: result.state.model,
+      thinkingLevel: result.state.thinkingLevel,
+      availableThinkingLevels: result.thinkingLevels,
+      models: result.models,
+      commands: result.commands,
+      error: undefined,
+      stats: undefined,
+      uiRequest: undefined
+    })
+    draft.status = result.state.isStreaming
+      ? 'streaming'
+      : view.messages.length > 0
+        ? view.status
+        : 'idle'
+    const firstUser = view.messages.find((m) => m.kind === 'user')
+    if (firstUser && firstUser.kind === 'user' && firstUser.text.trim()) {
+      draft.title = firstUser.text.slice(0, 80)
+    }
+    publish(chatId)
+  },
+
+  async forkFromUserMessage(chatId, userIndex) {
+    const draft = drafts.get(chatId)
+    if (!draft) {
+      return undefined
+    }
+    const { messages: forkMessages } = await window.piDesktop.chat.getForkMessages({
+      chatId
+    })
+    const entry = forkMessages[userIndex]
+    if (!entry) {
+      return undefined
+    }
+    const result = await window.piDesktop.chat.fork({ chatId, entryId: entry.entryId })
+    if (result.cancelled) {
+      return undefined
+    }
+    await get().refresh(chatId)
+    const refreshed = drafts.get(chatId)
+    if (refreshed && typeof result.text === 'string') {
+      refreshed.composerSeed = { text: result.text, nonce: ++seedCounter }
+      publish(chatId)
+    }
+    return result.text
+  },
+
+  async cloneChat(chatId) {
+    const result = await window.piDesktop.chat.clone({ chatId })
+    if (result.cancelled) {
+      return
+    }
+    await get().refresh(chatId)
   },
 
   setChatTitle(chatId, title) {

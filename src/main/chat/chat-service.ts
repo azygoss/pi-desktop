@@ -25,6 +25,7 @@ import {
   validateCwd,
   validateImages,
   validateMessage,
+  validateOutputPath,
   validateSessionPath
 } from './validation'
 
@@ -122,6 +123,21 @@ export class ChatService {
       this.attachClient(record)
     }
 
+    return this.fetchCatalog(client, chatId, cwd, sessionPath)
+  }
+
+  /** Re-fetch state/messages/models for an already-open chat. */
+  async refresh(input: { chatId: string }): Promise<ChatOpenResult> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    return this.fetchCatalog(record.client, record.chatId, record.cwd, record.sessionPath)
+  }
+
+  private async fetchCatalog(
+    client: PiRpcClient,
+    chatId: string,
+    cwd: string,
+    sessionPath?: string
+  ): Promise<ChatOpenResult> {
     const [state, messages, models, thinkingLevels, commands] = await Promise.all([
       client.request<PiSessionState>({ type: 'get_state' }),
       client.request<{ messages: AgentMessage[] }>({ type: 'get_messages' }),
@@ -132,6 +148,7 @@ export class ChatService {
 
     return {
       chatId,
+      cwd,
       state: state ?? ({} as PiSessionState),
       messages: messages?.messages ?? [],
       models: models?.models ?? [],
@@ -220,6 +237,124 @@ export class ChatService {
     const cwd = await validateCwd(input.cwd)
     await this.close({ chatId })
     return this.open({ chatId, cwd })
+  }
+
+  async getForkMessages(input: {
+    chatId: string
+  }): Promise<{ messages: { entryId: string; text: string }[] }> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const result = await record.client.request<{
+      messages?: { entryId: string; text: string }[]
+    }>({ type: 'get_fork_messages' })
+    return { messages: result?.messages ?? [] }
+  }
+
+  async fork(input: {
+    chatId: string
+    entryId: string
+  }): Promise<{ text?: string; cancelled?: boolean }> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const entryId = requireString(input.entryId, 'entryId', 256)
+    return (
+      (await record.client.request<{ text?: string; cancelled?: boolean }>({
+        type: 'fork',
+        entryId
+      })) ?? {}
+    )
+  }
+
+  async clone(input: { chatId: string }): Promise<{ cancelled?: boolean }> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    return (
+      (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}
+    )
+  }
+
+  /**
+   * Rename a session that may not have an open chat: reuses the open chat's
+   * process when one exists, otherwise spawns a short-lived `pi --session`
+   * process just for the rename. Session files are never written directly.
+   */
+  async renameSession(input: { sessionPath: string; name: string }): Promise<void> {
+    const sessionPath = validateSessionPath(input.sessionPath)
+    const name = requireString(input.name, 'name', 200)
+    const record = this.recordForSession(sessionPath)
+    if (record) {
+      await record.client.request({ type: 'set_session_name', name })
+      return
+    }
+    await this.withTemporaryClient(sessionPath, async (client) => {
+      await client.request({ type: 'set_session_name', name })
+    })
+  }
+
+  /** Export a session to HTML; uses the open chat's process when available. */
+  async exportSession(input: {
+    sessionPath: string
+    outputPath: string
+  }): Promise<{ path?: string }> {
+    const sessionPath = validateSessionPath(input.sessionPath)
+    const outputPath = validateOutputPath(input.outputPath)
+    const record = this.recordForSession(sessionPath)
+    if (record) {
+      return (
+        (await record.client.request<{ path?: string }>({
+          type: 'export_html',
+          outputPath
+        })) ?? {}
+      )
+    }
+    let result: { path?: string } = {}
+    await this.withTemporaryClient(sessionPath, async (client) => {
+      result =
+        (await client.request<{ path?: string }>({
+          type: 'export_html',
+          outputPath
+        })) ?? {}
+    })
+    return result
+  }
+
+  /**
+   * Close the open chat that uses this session file, if any. Returns true
+   * when a chat was closed (used before trashing a session file).
+   */
+  async closeChatForSession(sessionPath: string): Promise<boolean> {
+    const record = this.recordForSession(sessionPath)
+    if (!record) {
+      return false
+    }
+    await this.close({ chatId: record.chatId })
+    return true
+  }
+
+  /** The chatId currently viewing a session path, if open. */
+  chatIdForSession(sessionPath: string): string | undefined {
+    return this.recordForSession(sessionPath)?.chatId
+  }
+
+  private recordForSession(sessionPath: string): ChatRecord | undefined {
+    for (const record of this.chats.values()) {
+      if (record.sessionPath === sessionPath) {
+        return record
+      }
+    }
+    return undefined
+  }
+
+  private async withTemporaryClient(
+    sessionPath: string,
+    run: (client: PiRpcClient) => Promise<void>
+  ): Promise<void> {
+    const tempId = `tmp-${Math.random().toString(36).slice(2, 12)}`
+    const sessionCwd = await readSessionCwd(sessionPath)
+    const cwd = sessionCwd !== null && (await dirExists(sessionCwd)) ? sessionCwd : homedir()
+    const client = await this.pool.open(tempId, { cwd, sessionPath })
+    try {
+      await run(client)
+    } finally {
+      await this.pool.close(tempId)
+    }
   }
 
   async respondUi(input: { chatId: string } & Record<string, unknown>): Promise<void> {

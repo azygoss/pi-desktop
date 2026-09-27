@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { AppSettings } from '../../../shared/api'
 import type {
   PiRuntimeInfo,
   PiSettings,
@@ -8,11 +9,19 @@ import type {
 
 export type ViewState = { kind: 'home' } | { kind: 'chat'; chatId: string }
 
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  theme: 'system',
+  piRuntime: { mode: 'auto' },
+  hiddenProjects: [],
+  sidebarCollapsed: false
+}
+
 interface AppState {
   ready: boolean
   piAvailable: boolean
   runtimeInfo: PiRuntimeInfo | null
   settings: PiSettings
+  appSettings: AppSettings
   userName: string
   sessions: SessionSummary[]
   projects: ProjectSummary[]
@@ -26,6 +35,7 @@ interface AppState {
 
   init(): Promise<void>
   refreshSessions(): Promise<void>
+  updateAppSettings(patch: Partial<AppSettings>): Promise<void>
   navigate(view: ViewState): void
   goBack(): void
   goForward(): void
@@ -41,6 +51,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   piAvailable: true,
   runtimeInfo: null,
   settings: {},
+  appSettings: DEFAULT_APP_SETTINGS,
   userName: 'there',
   sessions: [],
   projects: [],
@@ -54,9 +65,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async init() {
     try {
-      const [runtimeInfo, settings, userName, sessions, projects] = await Promise.all([
+      const [runtimeInfo, settings, appSettings, userName, sessions, projects] = await Promise.all([
         window.piDesktop.runtime.info().catch(() => null),
         window.piDesktop.settings.get().catch(() => ({})),
+        window.piDesktop.appSettings.get().catch(() => DEFAULT_APP_SETTINGS),
         window.piDesktop.app.getUserFirstName().catch(() => 'there'),
         window.piDesktop.sessions.list().catch(() => []),
         window.piDesktop.projects.list().catch(() => [])
@@ -66,10 +78,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         piAvailable: runtimeInfo !== null,
         runtimeInfo,
         settings,
-        userName,
+        appSettings,
+        userName: appSettings.displayName?.trim() || userName,
+        sidebarCollapsed: appSettings.sidebarCollapsed,
         sessions,
         projects
       })
+      applyTheme(appSettings.theme)
     } catch {
       set({ ready: true, piAvailable: false })
     }
@@ -84,6 +99,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ sessions, projects })
     } catch {
       // keep stale data
+    }
+  },
+
+  async updateAppSettings(patch) {
+    try {
+      const next = await window.piDesktop.appSettings.update(patch)
+      set((s) => ({
+        appSettings: next,
+        userName:
+          next.displayName?.trim() ||
+          (patch.displayName !== undefined ? 'there' : s.userName)
+      }))
+      if (patch.theme !== undefined) {
+        applyTheme(next.theme)
+      }
+      if (patch.hiddenProjects !== undefined || patch.defaultCwd !== undefined) {
+        void get().refreshSessions()
+      }
+    } catch {
+      // settings file may be unavailable; keep previous state
     }
   },
 
@@ -149,3 +184,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
   }
 }))
+
+/** Apply the theme setting; 'system' clears the override so the media query rules. */
+function applyTheme(theme: AppSettings['theme']): void {
+  if (typeof document === 'undefined') {
+    return
+  }
+  if (theme === 'system') {
+    document.documentElement.removeAttribute('data-theme')
+  } else {
+    document.documentElement.dataset['theme'] = theme
+  }
+}

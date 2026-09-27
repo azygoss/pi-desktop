@@ -92,6 +92,20 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     }
   }, [autoFocus])
 
+  // Forked messages are handed back by pi for editing before resend; a nonce
+  // bump preloads the composer (derived state during render, then focus).
+  const seedNonce = chat?.composerSeed?.nonce
+  const [appliedSeed, setAppliedSeed] = useState(0)
+  if (chat?.composerSeed && chat.composerSeed.nonce !== appliedSeed) {
+    setAppliedSeed(chat.composerSeed.nonce)
+    setText(chat.composerSeed.text)
+  }
+  useEffect(() => {
+    if (seedNonce) {
+      textareaRef.current?.focus()
+    }
+  }, [seedNonce])
+
   useEffect(() => {
     if (!folderOpen) {
       return

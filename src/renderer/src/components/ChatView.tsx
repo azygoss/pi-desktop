@@ -1,4 +1,4 @@
-import { ArrowDown, RotateCcw } from 'lucide-react'
+import { ArrowDown, GitFork, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
@@ -45,10 +45,31 @@ function AssistantBlock({
   return null
 }
 
-function MessageRow({ message, chat }: { message: DisplayMessage; chat: ChatState }) {
+function MessageRow({
+  message,
+  chat,
+  userIndex,
+  onFork
+}: {
+  message: DisplayMessage
+  chat: ChatState
+  /** Position among user messages; defined for user rows only. */
+  userIndex?: number
+  onFork?: (userIndex: number) => void
+}) {
   if (message.kind === 'user') {
     return (
       <div className="msg-user-row">
+        {onFork !== undefined && userIndex !== undefined && (
+          <button
+            type="button"
+            className="icon-btn msg-fork-btn"
+            title="Fork chat from this message"
+            onClick={() => onFork(userIndex)}
+          >
+            <GitFork size={13} />
+          </button>
+        )}
         <div className="msg-user">
           {message.images.map((img: ImageContent, i: number) => (
             <img
@@ -287,6 +308,14 @@ export function ChatView({ chatId }: { chatId: string }) {
   }
 
   const footer = statsFooter(chat)
+  let userIndex = -1
+
+  function onForkMessage(userIdx: number): void {
+    void useChatStore
+      .getState()
+      .forkFromUserMessage(chatId, userIdx)
+      .catch(() => {})
+  }
 
   function restart(): void {
     const newId = crypto.randomUUID()
@@ -307,9 +336,20 @@ export function ChatView({ chatId }: { chatId: string }) {
               <span>Starting pi…</span>
             </div>
           )}
-          {chat.messages.map((m) => (
-            <MessageRow key={m.key} message={m} chat={chat} />
-          ))}
+          {chat.messages.map((m) => {
+            const idx = m.kind === 'user' ? ++userIndex : undefined
+            return (
+              <MessageRow
+                key={m.key}
+                message={m}
+                chat={chat}
+                userIndex={idx}
+                onFork={
+                  chat.sessionPath && chat.status !== 'streaming' ? onForkMessage : undefined
+                }
+              />
+            )
+          })}
           {chat.error && (
             <div className="msg-notice msg-notice-error">
               <span>{chat.error}</span>

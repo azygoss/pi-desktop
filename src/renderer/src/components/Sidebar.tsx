@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  MoreHorizontal,
   Plus,
   Search,
   Settings,
@@ -61,6 +62,8 @@ export function Sidebar() {
 
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [renamingPath, setRenamingPath] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
 
   const filteredSessions = useMemo(() => {
@@ -116,6 +119,122 @@ export function Sidebar() {
     }
   }
 
+  function startRename(session: SessionSummary): void {
+    setRenamingPath(session.path)
+    setRenameValue(session.name ?? session.title)
+  }
+
+  async function commitRename(): Promise<void> {
+    const path = renamingPath
+    const name = renameValue.trim()
+    setRenamingPath(null)
+    if (!path || !name) {
+      return
+    }
+    await window.piDesktop.sessions.rename({ sessionPath: path, name }).catch(() => {})
+    useAppStore.getState().renameSession(path, name)
+    void useAppStore.getState().refreshSessions()
+  }
+
+  async function exportSession(session: SessionSummary): Promise<void> {
+    const base = session.title.replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'chat'
+    const outputPath = await window.piDesktop.app.saveFile({
+      defaultPath: `${base}.html`,
+      extension: 'html'
+    })
+    if (!outputPath) {
+      return
+    }
+    try {
+      const result = await window.piDesktop.sessions.exportHtml({
+        sessionPath: session.path,
+        outputPath
+      })
+      const choice = await window.piDesktop.app.confirmDialog({
+        title: 'Chat exported',
+        message: result.path ?? outputPath,
+        buttons: ['Reveal', 'Done']
+      })
+      if (choice === 0) {
+        void window.piDesktop.app.revealPath(result.path ?? outputPath)
+      }
+    } catch {
+      // export failed; pi reported the error already
+    }
+  }
+
+  async function deleteSession(session: SessionSummary): Promise<void> {
+    const choice = await window.piDesktop.app.confirmDialog({
+      title: 'Move this chat to Trash?',
+      message: session.title,
+      buttons: ['Move to Trash', 'Cancel'],
+      danger: true
+    })
+    if (choice !== 0) {
+      return
+    }
+    const wasActive = sessionActive(session)
+    const openChatId = await window.piDesktop.chat
+      .chatIdForSession({ sessionPath: session.path })
+      .catch(() => undefined)
+    await window.piDesktop.sessions.delete({ sessionPath: session.path }).catch(() => {})
+    if (openChatId && useChatStore.getState().chats[openChatId]) {
+      void useChatStore.getState().closeChat(openChatId)
+    }
+    if (wasActive) {
+      navigate({ kind: 'home' })
+    }
+    void useAppStore.getState().refreshSessions()
+  }
+
+  async function sessionContextMenu(session: SessionSummary): Promise<void> {
+    const action = await window.piDesktop.sessions
+      .showMenu({ sessionPath: session.path })
+      .catch(() => null)
+    switch (action) {
+      case 'rename':
+        startRename(session)
+        break
+      case 'export':
+        void exportSession(session)
+        break
+      case 'reveal':
+        void window.piDesktop.app.revealPath(session.path)
+        break
+      case 'copy-path':
+        void navigator.clipboard.writeText(session.path)
+        break
+      case 'delete':
+        void deleteSession(session)
+        break
+    }
+  }
+
+  async function projectContextMenu(cwd: string): Promise<void> {
+    if (!cwd) {
+      return
+    }
+    const action = await window.piDesktop.projects.showMenu({ cwd }).catch(() => null)
+    switch (action) {
+      case 'reveal':
+        void window.piDesktop.app.revealPath(cwd)
+        break
+      case 'new-chat': {
+        const chatId = crypto.randomUUID()
+        void useChatStore.getState().ensureChat(chatId, { cwd }).catch(() => {})
+        navigate({ kind: 'chat', chatId })
+        break
+      }
+      case 'hide': {
+        const current = useAppStore.getState().appSettings.hiddenProjects
+        void useAppStore
+          .getState()
+          .updateAppSettings({ hiddenProjects: [...current, cwd] })
+        break
+      }
+    }
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-topbar drag-region">
@@ -164,6 +283,10 @@ export function Sidebar() {
               })}
               title={project.cwd || project.name}
               onClick={() => setActiveProjectCwd(project.cwd)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                void projectContextMenu(project.cwd)
+              }}
             >
               {activeProjectCwd === project.cwd ? (
                 <FolderOpen size={15} />
@@ -220,18 +343,59 @@ export function Sidebar() {
           <div key={group}>
             <div className="sidebar-date-group">{group}</div>
             {items.map((session) => (
-              <button
+              <div
                 key={session.path}
-                type="button"
                 className={clsx('sidebar-item', 'sidebar-session', {
                   'is-active': sessionActive(session)
                 })}
+                role="button"
+                tabIndex={0}
                 onClick={() => openSession(session)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    openSession(session)
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  void sessionContextMenu(session)
+                }}
               >
                 {sessionActive(session) && <span className="active-dot" />}
-                <span className="sidebar-item-label">{session.title}</span>
+                {renamingPath === session.path ? (
+                  <input
+                    className="sidebar-rename-input"
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => void commitRename()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        void commitRename()
+                      } else if (e.key === 'Escape') {
+                        setRenamingPath(null)
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    spellCheck={false}
+                  />
+                ) : (
+                  <span className="sidebar-item-label">{session.title}</span>
+                )}
+                <button
+                  type="button"
+                  className="icon-btn sidebar-item-more"
+                  title="Chat actions"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void sessionContextMenu(session)
+                  }}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
                 <span className="sidebar-item-meta">{relativeTime(session.modified)}</span>
-              </button>
+              </div>
             ))}
           </div>
         ))}

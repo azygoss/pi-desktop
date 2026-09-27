@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MoreHorizontal, PanelLeft } from 'lucide-react'
+import { useState } from 'react'
 
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
@@ -57,19 +58,132 @@ export function MainTopBar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
   const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
+  const navigate = useAppStore((s) => s.navigate)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
 
   const cwdBase =
     chat?.cwd && chat.cwd !== '/'
       ? (chat.cwd.split('/').filter(Boolean).pop() ?? chat.cwd)
       : null
 
+  function startRename(): void {
+    if (!chat) {
+      return
+    }
+    setRenameValue(chat.title)
+    setRenaming(true)
+  }
+
+  async function commitRename(): Promise<void> {
+    setRenaming(false)
+    if (!chat) {
+      return
+    }
+    const name = renameValue.trim()
+    if (!name || name === chat.title) {
+      return
+    }
+    try {
+      await window.piDesktop.chat.setSessionName({ chatId: chat.chatId, name })
+      useChatStore.getState().setChatTitle(chat.chatId, name)
+      if (chat.sessionPath) {
+        useAppStore.getState().renameSession(chat.sessionPath, name)
+      }
+    } catch {
+      // pi rejected the rename; keep the old title
+    }
+  }
+
+  async function chatMenu(): Promise<void> {
+    if (!chat) {
+      return
+    }
+    const action = await window.piDesktop.chat
+      .showMenu({ chatId: chat.chatId })
+      .catch(() => null)
+    const sessionPath = chat.sessionPath
+    switch (action) {
+      case 'rename':
+        startRename()
+        break
+      case 'export': {
+        const base = chat.title.replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'chat'
+        const outputPath = await window.piDesktop.app.saveFile({
+          defaultPath: `${base}.html`,
+          extension: 'html'
+        })
+        if (outputPath) {
+          await window.piDesktop.chat
+            .exportHtml({ chatId: chat.chatId, outputPath })
+            .catch(() => {})
+        }
+        break
+      }
+      case 'clone':
+        await useChatStore.getState().cloneChat(chat.chatId).catch(() => {})
+        break
+      case 'reveal':
+        if (sessionPath) {
+          void window.piDesktop.app.revealPath(sessionPath)
+        }
+        break
+      case 'delete': {
+        if (!sessionPath) {
+          break
+        }
+        const choice = await window.piDesktop.app.confirmDialog({
+          title: 'Move this chat to Trash?',
+          message: chat.title,
+          buttons: ['Move to Trash', 'Cancel'],
+          danger: true
+        })
+        if (choice === 0) {
+          await window.piDesktop.sessions
+            .delete({ sessionPath })
+            .catch(() => {})
+          void useChatStore.getState().closeChat(chat.chatId)
+          navigate({ kind: 'home' })
+          void useAppStore.getState().refreshSessions()
+        }
+        break
+      }
+    }
+  }
+
   return (
     <div className="main-topbar drag-region">
       {sidebarCollapsed && <NavButtons />}
       {view.kind === 'chat' && chat && (
         <div className="chat-topbar-inner no-drag">
-          <span className="chat-title">{chat.title}</span>
+          {renaming ? (
+            <input
+              className="chat-title-input"
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => void commitRename()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  void commitRename()
+                } else if (e.key === 'Escape') {
+                  setRenaming(false)
+                }
+              }}
+              spellCheck={false}
+            />
+          ) : (
+            <span className="chat-title">{chat.title}</span>
+          )}
           {cwdBase && <span className="chat-cwd">{cwdBase}</span>}
+          <button
+            type="button"
+            className="icon-btn chat-menu-btn"
+            title="Chat actions"
+            onClick={() => void chatMenu()}
+          >
+            <MoreHorizontal size={15} />
+          </button>
         </div>
       )}
     </div>

@@ -73,13 +73,15 @@ export function ModelPicker({
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
-  useEffect(() => {
-    if (openSignal !== undefined && openSignal > 0) {
-      setQuery('')
-      setHighlight(0)
-      setOpen(true)
-    }
-  }, [openSignal])
+  // An "openSignal" bump requests the picker to open (e.g. the /model slash
+  // command); derived state during render avoids a setState-in-effect cascade.
+  const [seenSignal, setSeenSignal] = useState(openSignal ?? 0)
+  if (openSignal !== undefined && openSignal > seenSignal) {
+    setSeenSignal(openSignal)
+    setQuery('')
+    setHighlight(0)
+    setOpen(true)
+  }
 
   function toggleOpen(): void {
     if (!open) {

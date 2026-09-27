@@ -1,12 +1,20 @@
-import { basename } from 'node:path'
+import { basename, isAbsolute } from 'node:path'
 import { execFile } from 'node:child_process'
 import { userInfo } from 'node:os'
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
-import type { ChatOpenInput, ChatSendInput } from '../shared/api'
+import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
+import type {
+  ChatMenuAction,
+  ChatOpenInput,
+  ChatSendInput,
+  ProjectMenuAction,
+  SessionMenuAction
+} from '../shared/api'
 import type { PiRuntimeInfo } from '../shared/session-types'
 import type { ThinkingLevel } from '../shared/pi-types'
 import type { PiProcessPool } from './pi/pool'
 import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
+import { validateChatId, validateSessionPath } from './chat/validation'
+import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { readSettings } from './config/settings'
 import { listProjects, listSessions, watchSessions } from './sessions/session-index'
 
@@ -21,7 +29,14 @@ export const IPC_CHANNELS = {
   appSaveFile: 'pi-desktop:app:save-file',
   appRevealPath: 'pi-desktop:app:reveal-path',
   appConfirmDialog: 'pi-desktop:app:confirm-dialog',
+  appSettingsGet: 'pi-desktop:app-settings:get',
+  appSettingsUpdate: 'pi-desktop:app-settings:update',
   sessionsChanged: 'pi-desktop:sessions:changed',
+  sessionsRename: 'pi-desktop:sessions:rename',
+  sessionsExportHtml: 'pi-desktop:sessions:export-html',
+  sessionsDelete: 'pi-desktop:sessions:delete',
+  sessionsMenu: 'pi-desktop:sessions:menu',
+  projectsMenu: 'pi-desktop:projects:menu',
   chatOpen: 'pi-desktop:chat:open',
   chatSend: 'pi-desktop:chat:send',
   chatAbort: 'pi-desktop:chat:abort',
@@ -32,6 +47,12 @@ export const IPC_CHANNELS = {
   chatCompact: 'pi-desktop:chat:compact',
   chatSetSessionName: 'pi-desktop:chat:set-session-name',
   chatExportHtml: 'pi-desktop:chat:export-html',
+  chatRefresh: 'pi-desktop:chat:refresh',
+  chatGetForkMessages: 'pi-desktop:chat:get-fork-messages',
+  chatFork: 'pi-desktop:chat:fork',
+  chatClone: 'pi-desktop:chat:clone',
+  chatIdForSession: 'pi-desktop:chat:id-for-session',
+  chatMenu: 'pi-desktop:chat:menu',
   chatRespondUi: 'pi-desktop:chat:respond-ui',
   chatClose: 'pi-desktop:chat:close'
 } as const
@@ -72,11 +93,25 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { kind: runtime.kind, version: runtime.version, command: basename(runtime.command) }
   })
 
-  ipcMain.handle(IPC_CHANNELS.sessionsList, () => listSessions())
+  ipcMain.handle(IPC_CHANNELS.sessionsList, async () => {
+    const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
+    const hidden = new Set(settings.hiddenProjects)
+    return sessions.filter((s) => !hidden.has(s.cwd))
+  })
 
-  ipcMain.handle(IPC_CHANNELS.projectsList, async () => listProjects(await listSessions()))
+  ipcMain.handle(IPC_CHANNELS.projectsList, async () => {
+    const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
+    const hidden = new Set(settings.hiddenProjects)
+    return listProjects(sessions.filter((s) => !hidden.has(s.cwd)))
+  })
 
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => readSettings())
+
+  ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => loadAppSettings())
+
+  ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, async (_e, patch: unknown) => {
+    return updateAppSettings(patch)
+  })
 
   ipcMain.handle(IPC_CHANNELS.appUserFirstName, () => resolveUserFirstName())
 
@@ -200,7 +235,112 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     IPC_CHANNELS.chatRespondUi,
     (_e, input: { chatId: string } & Record<string, unknown>) => deps.chat.respondUi(input)
   )
+  ipcMain.handle(
+    IPC_CHANNELS.chatRefresh,
+    (_e, input: { chatId: string }) => deps.chat.refresh(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatGetForkMessages, (_e, input: { chatId: string }) =>
+    deps.chat.getForkMessages(input)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.chatFork,
+    (_e, input: { chatId: string; entryId: string }) => deps.chat.fork(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatClone, (_e, input: { chatId: string }) =>
+    deps.chat.clone(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatIdForSession, (_e, input: { sessionPath: string }) =>
+    deps.chat.chatIdForSession(validateSessionPath(input.sessionPath))
+  )
   ipcMain.handle(IPC_CHANNELS.chatClose, (_e, input: { chatId: string }) => deps.chat.close(input))
+
+  ipcMain.handle(
+    IPC_CHANNELS.sessionsRename,
+    (_e, input: { sessionPath: string; name: string }) => deps.chat.renameSession(input)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.sessionsExportHtml,
+    (_e, input: { sessionPath: string; outputPath: string }) =>
+      deps.chat.exportSession(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.sessionsDelete, async (_e, input: { sessionPath: string }) => {
+    const sessionPath = validateSessionPath(input.sessionPath)
+    await deps.chat.closeChatForSession(sessionPath)
+    await shell.trashItem(sessionPath)
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.sessionsMenu,
+    (event, input: { sessionPath: string }): Promise<SessionMenuAction | null> => {
+      validateSessionPath(input.sessionPath)
+      return popupMenu<SessionMenuAction>(event, [
+        { id: 'rename', label: 'Rename…' },
+        { id: 'export', label: 'Export as HTML…' },
+        { id: 'reveal', label: 'Reveal in Finder' },
+        { id: 'copy-path', label: 'Copy Session Path' },
+        { type: 'separator' },
+        { id: 'delete', label: 'Move to Trash…' }
+      ])
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.projectsMenu,
+    (event, input: { cwd: string }): Promise<ProjectMenuAction | null> => {
+      if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
+        throw new Error('Invalid cwd')
+      }
+      return popupMenu<ProjectMenuAction>(event, [
+        { id: 'reveal', label: 'Reveal in Finder' },
+        { id: 'new-chat', label: 'New Chat in This Project' },
+        { type: 'separator' },
+        { id: 'hide', label: 'Hide from List' }
+      ])
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.chatMenu,
+    (event, input: { chatId: string }): Promise<ChatMenuAction | null> => {
+      validateChatId(input.chatId)
+      return popupMenu<ChatMenuAction>(event, [
+        { id: 'rename', label: 'Rename…' },
+        { id: 'export', label: 'Export as HTML…' },
+        { id: 'clone', label: 'Fork Chat' },
+        { id: 'reveal', label: 'Reveal in Finder' },
+        { type: 'separator' },
+        { id: 'delete', label: 'Move to Trash…' }
+      ])
+    }
+  )
+}
+
+type MenuItem = { id: string; label: string } | { type: 'separator' }
+
+/** Show a native context menu and resolve to the clicked item id (or null). */
+function popupMenu<A extends string>(
+  event: Electron.IpcMainInvokeEvent,
+  items: MenuItem[]
+): Promise<A | null> {
+  return new Promise((resolvePromise) => {
+    let selected: A | null = null
+    const menu = Menu.buildFromTemplate(
+      items.map((item) =>
+        'id' in item
+          ? {
+              label: item.label,
+              click: () => {
+                selected = item.id as A
+              }
+            }
+          : { type: 'separator' as const }
+      )
+    )
+    menu.popup({
+      window: BrowserWindow.fromWebContents(event.sender) ?? undefined,
+      callback: () => resolvePromise(selected)
+    })
+  })
 }
 
 /**

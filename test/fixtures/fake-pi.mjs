@@ -388,6 +388,55 @@ function handle(command) {
     case 'new_session':
       writeLine({ id, type: 'response', command: 'new_session', success: true, data: { cancelled: false } })
       break
+    case 'set_session_name':
+      writeLine({ id, type: 'response', command: 'set_session_name', success: true })
+      break
+    case 'compact':
+      writeLine({ id, type: 'response', command: 'compact', success: true })
+      break
+    case 'export_html':
+      writeLine({
+        id,
+        type: 'response',
+        command: 'export_html',
+        success: true,
+        data: { path: command.outputPath ?? null }
+      })
+      break
+    case 'get_fork_messages':
+      writeLine({
+        id,
+        type: 'response',
+        command: 'get_fork_messages',
+        success: true,
+        data: {
+          messages: getMessages()
+            .filter((m) => m.role === 'user')
+            .map((m, i) => ({
+              entryId: `entry-${i}`,
+              text: typeof m.content === 'string' ? m.content : '(synthetic user message)'
+            }))
+        }
+      })
+      break
+    case 'fork':
+      writeLine({
+        id,
+        type: 'response',
+        command: 'fork',
+        success: true,
+        data: { text: '(forked message text)', cancelled: false }
+      })
+      break
+    case 'clone':
+      writeLine({
+        id,
+        type: 'response',
+        command: 'clone',
+        success: true,
+        data: { cancelled: false }
+      })
+      break
     // --- generic test commands -------------------------------------------------
     case 'echo':
       writeLine({ id, type: 'response', command: 'echo', success: true, data: command.data })

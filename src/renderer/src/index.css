@@ -341,6 +341,36 @@ body {
 .sidebar-item:hover .sidebar-item-chevron {
   opacity: 1;
 }
+.sidebar-item-more {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  opacity: 0;
+  color: var(--muted);
+}
+.sidebar-item:hover .sidebar-item-more,
+.sidebar-item-more:focus-visible {
+  opacity: 1;
+}
+.sidebar-item-more:hover {
+  color: var(--text);
+}
+.sidebar-session:hover .sidebar-item-meta {
+  display: none;
+}
+.sidebar-rename-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  outline: 1px solid var(--accent);
+}
 .sidebar-item.new-chat {
   color: var(--text);
   margin-bottom: 4px;
@@ -859,6 +889,23 @@ body {
   color: var(--muted);
   flex-shrink: 0;
 }
+.chat-title-input {
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  outline: 1px solid var(--accent);
+  min-width: 200px;
+}
+.chat-menu-btn {
+  margin-left: auto;
+  align-self: center;
+}
 
 .chat-scroll {
   flex: 1;
@@ -887,6 +934,20 @@ body {
 .msg-user-row {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.msg-fork-btn {
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: opacity 150ms;
+}
+.msg-user-row:hover .msg-fork-btn,
+.msg-fork-btn:focus-visible {
+  opacity: 1;
 }
 .msg-user {
   background: var(--user-bubble);
