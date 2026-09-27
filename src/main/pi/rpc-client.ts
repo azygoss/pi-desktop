@@ -7,12 +7,12 @@ import type {
   PiRpcCommand,
   PiRpcResponse
 } from '../../shared/pi-types'
+import { createJsonlReader } from './jsonl'
+import type { PiRuntime } from './locator'
 
 // Accept forward-compatible command objects so newer pi commands do not
 // require a client update.
 export type PiRpcWireCommand = PiRpcCommand | ({ type: string } & Record<string, unknown>)
-import type { PiRuntime } from './locator'
-import { createJsonlReader } from './jsonl'
 
 export interface PiRpcClientOptions {
   runtime: PiRuntime
@@ -128,6 +128,11 @@ export class PiRpcClient {
     child.stderr?.on('data', (chunk: Buffer) => stderrReader.push(chunk))
     child.stderr?.on('end', () => stderrReader.end())
 
+    // Writing to a dead child's stdin raises EPIPE asynchronously; the exit
+    // path already rejects pending requests, so just swallow it here.
+    child.stdin?.on('error', () => {
+      // ignored: handled via 'exit'
+    })
     child.on('error', (error) => {
       this.handleExit(null, null, error)
     })

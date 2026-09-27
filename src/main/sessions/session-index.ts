@@ -10,6 +10,7 @@ export type { ProjectSummary, SessionSummary } from '../../shared/session-types'
 
 const TITLE_MAX_LENGTH = 80
 const WATCH_DEBOUNCE_MS = 300
+const MAX_CONCURRENT_PARSES = 16
 
 interface CacheEntry {
   mtimeMs: number
@@ -189,7 +190,26 @@ export async function listSessions(env: NodeJS.ProcessEnv = process.env): Promis
     })
   )
 
-  const summaries = await Promise.all(files.map(summarizeFile))
+  // Parse with bounded concurrency: session files can be large and numerous,
+  // and unbounded parallel reads risk EMFILE.
+  const summaries: (SessionSummary | null)[] = new Array(files.length).fill(null)
+  let next = 0
+  const workers = Array.from({ length: Math.min(MAX_CONCURRENT_PARSES, files.length) }, async () => {
+    while (next < files.length) {
+      const index = next++
+      summaries[index] = await summarizeFile(files[index]!)
+    }
+  })
+  await Promise.all(workers)
+
+  // Drop cache entries for files that disappeared since the last scan.
+  const present = new Set(files)
+  for (const cachedPath of summaryCache.keys()) {
+    if (!present.has(cachedPath)) {
+      summaryCache.delete(cachedPath)
+    }
+  }
+
   return summaries
     .filter((s): s is SessionSummary => s !== null)
     .sort((a, b) => b.modified.localeCompare(a.modified))
