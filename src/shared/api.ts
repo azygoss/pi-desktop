@@ -89,6 +89,12 @@ export interface SetModelResult {
   thinkingLevels: ThinkingLevel[]
 }
 
+/** A project the user added explicitly (may have no sessions yet). */
+export interface AppProject {
+  cwd: string
+  addedAt: string
+}
+
 /** Pi Desktop's own settings (stored in Electron userData, not ~/.pi). */
 export interface AppSettings {
   theme: 'system' | 'light' | 'dark'
@@ -98,7 +104,9 @@ export interface AppSettings {
     mode: 'auto' | 'installed' | 'bundled' | 'custom'
     customPath?: string
   }
+  projects: AppProject[]
   hiddenProjects: string[]
+  collapsedProjects: string[]
   sidebarCollapsed: boolean
 }
 
@@ -122,6 +130,8 @@ export interface AppInfo {
   agentDir: string
   /** agentDir with the home directory collapsed to '~' for display. */
   agentDirDisplay: string
+  /** Scratch dir for project-less chats (sessions here belong to "Chats"). */
+  workspaceDir: string
 }
 
 /** Typed API exposed on `window.piDesktop` by the preload script. */
@@ -146,6 +156,8 @@ export interface PiDesktopApi {
   }
   projects: {
     list(): Promise<ProjectSummary[]>
+    /** Register a project folder (picked via native dialog) in app settings. */
+    add(input: { cwd: string }): Promise<void>
     /** Native context menu for a project row; resolves to the action or null. */
     showMenu(input: { cwd: string }): Promise<ProjectMenuAction | null>
   }

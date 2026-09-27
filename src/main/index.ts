@@ -8,6 +8,7 @@ import {
   wireAppLifecycle
 } from './ipc'
 import { loadAppSettings } from './config/app-settings'
+import { ensureWorkspaceDir } from './config/app-paths'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
@@ -74,6 +75,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  await ensureWorkspaceDir().catch(() => {})
   const appSettings = await loadAppSettings().catch(() => null)
   if (appSettings) {
     pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppSettings } from '../../../shared/api'
+import type { AppInfo, AppSettings } from '../../../shared/api'
 import type {
   PiRuntimeInfo,
   PiSettings,
@@ -12,7 +12,9 @@ export type ViewState = { kind: 'home' } | { kind: 'chat'; chatId: string }
 const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
   piRuntime: { mode: 'auto' },
+  projects: [],
   hiddenProjects: [],
+  collapsedProjects: [],
   sidebarCollapsed: false
 }
 
@@ -22,13 +24,14 @@ interface AppState {
   runtimeInfo: PiRuntimeInfo | null
   settings: PiSettings
   appSettings: AppSettings
+  appInfo: AppInfo | null
   userName: string
   sessions: SessionSummary[]
   projects: ProjectSummary[]
   sidebarCollapsed: boolean
   chatFilter: string
-  activeProjectCwd: string | null
-  showAllProjects: boolean
+  /** Whether the sidebar search field is visible/focused (⌘K, /resume). */
+  sidebarSearchOpen: boolean
   view: ViewState
   backStack: ViewState[]
   forwardStack: ViewState[]
@@ -37,13 +40,16 @@ interface AppState {
   init(): Promise<void>
   refreshSessions(): Promise<void>
   updateAppSettings(patch: Partial<AppSettings>): Promise<void>
+  /** Register a project folder picked via the native dialog. */
+  addProject(cwd: string): Promise<void>
+  /** Collapse/expand a project row in the sidebar (persisted). */
+  toggleProjectCollapsed(cwd: string): void
   navigate(view: ViewState): void
   goBack(): void
   goForward(): void
   toggleSidebar(): void
   setChatFilter(filter: string): void
-  setActiveProjectCwd(cwd: string | null): void
-  setShowAllProjects(show: boolean): void
+  setSidebarSearchOpen(open: boolean): void
   renameSession(path: string, title: string): void
   openSettings(): void
   closeSettings(): void
@@ -55,13 +61,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   runtimeInfo: null,
   settings: {},
   appSettings: DEFAULT_APP_SETTINGS,
+  appInfo: null,
   userName: 'there',
   sessions: [],
   projects: [],
   sidebarCollapsed: false,
   chatFilter: '',
-  activeProjectCwd: null,
-  showAllProjects: false,
+  sidebarSearchOpen: false,
   view: { kind: 'home' },
   backStack: [],
   forwardStack: [],
@@ -69,20 +75,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async init() {
     try {
-      const [runtimeInfo, settings, appSettings, userName, sessions, projects] = await Promise.all([
-        window.piDesktop.runtime.info().catch(() => null),
-        window.piDesktop.settings.get().catch(() => ({})),
-        window.piDesktop.appSettings.get().catch(() => DEFAULT_APP_SETTINGS),
-        window.piDesktop.app.getUserFirstName().catch(() => 'there'),
-        window.piDesktop.sessions.list().catch(() => []),
-        window.piDesktop.projects.list().catch(() => [])
-      ])
+      const [runtimeInfo, settings, appSettings, userName, sessions, projects, appInfo] =
+        await Promise.all([
+          window.piDesktop.runtime.info().catch(() => null),
+          window.piDesktop.settings.get().catch(() => ({})),
+          window.piDesktop.appSettings.get().catch(() => DEFAULT_APP_SETTINGS),
+          window.piDesktop.app.getUserFirstName().catch(() => 'there'),
+          window.piDesktop.sessions.list().catch(() => []),
+          window.piDesktop.projects.list().catch(() => []),
+          window.piDesktop.app.getAppInfo().catch(() => null)
+        ])
       set({
         ready: true,
         piAvailable: runtimeInfo !== null,
         runtimeInfo,
         settings,
         appSettings,
+        appInfo,
         userName: appSettings.displayName?.trim() || userName,
         sidebarCollapsed: appSettings.sidebarCollapsed,
         sessions,
@@ -118,12 +127,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (patch.theme !== undefined) {
         applyTheme(next.theme)
       }
-      if (patch.hiddenProjects !== undefined || patch.defaultCwd !== undefined) {
+      if (
+        patch.hiddenProjects !== undefined ||
+        patch.projects !== undefined ||
+        patch.defaultCwd !== undefined
+      ) {
         void get().refreshSessions()
       }
     } catch {
       // settings file may be unavailable; keep previous state
     }
+  },
+
+  async addProject(cwd) {
+    try {
+      await window.piDesktop.projects.add({ cwd })
+      // Also unhide it if it was previously hidden.
+      const settings = get().appSettings
+      if (settings.hiddenProjects.includes(cwd)) {
+        await get().updateAppSettings({
+          hiddenProjects: settings.hiddenProjects.filter((c) => c !== cwd)
+        })
+      }
+      await get().refreshSessions()
+    } catch {
+      // invalid folder; ignore
+    }
+  },
+
+  toggleProjectCollapsed(cwd) {
+    const collapsed = get().appSettings.collapsedProjects
+    const next = collapsed.includes(cwd)
+      ? collapsed.filter((c) => c !== cwd)
+      : [...collapsed, cwd]
+    void get().updateAppSettings({ collapsedProjects: next })
   },
 
   navigate(view) {
@@ -174,12 +211,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ chatFilter: filter })
   },
 
-  setActiveProjectCwd(cwd) {
-    set((s) => ({ activeProjectCwd: s.activeProjectCwd === cwd ? null : cwd }))
-  },
-
-  setShowAllProjects(show) {
-    set({ showAllProjects: show })
+  setSidebarSearchOpen(open) {
+    set({ sidebarSearchOpen: open })
   },
 
   renameSession(path, title) {

@@ -54,6 +54,12 @@ export function App() {
       } else if (e.key === 'n') {
         e.preventDefault()
         store.navigate({ kind: 'home' })
+      } else if (e.key === 'k') {
+        e.preventDefault()
+        if (store.sidebarCollapsed) {
+          store.toggleSidebar()
+        }
+        store.setSidebarSearchOpen(true)
       }
     }
     window.addEventListener('keydown', onKeyDown)

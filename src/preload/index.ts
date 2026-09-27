@@ -24,6 +24,7 @@ const api: PiDesktopApi = {
   },
   projects: {
     list: () => ipcRenderer.invoke('pi-desktop:projects:list'),
+    add: (input) => ipcRenderer.invoke('pi-desktop:projects:add', input),
     showMenu: (input) => ipcRenderer.invoke('pi-desktop:projects:menu', input)
   },
   settings: {

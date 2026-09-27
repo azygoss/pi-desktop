@@ -84,14 +84,21 @@ describe('Pi Desktop e2e', () => {
     await seedAgentDir(agentDir)
     await mkdir(SHOTS, { recursive: true })
 
-    // Synthetic app settings so screenshots show a fake display name and a
-    // synthetic working directory (never the real home dir basename).
+    // Synthetic app settings so screenshots show a fake display name. New
+    // chats run in the app scratch dir and show "Without project", so no
+    // real directory path can leak into screenshots.
     userDataDir = await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-ud-'))
-    const defaultProject = join(userDataDir, 'demo-project')
-    await mkdir(defaultProject, { recursive: true })
     await writeFile(
       join(userDataDir, 'settings.json'),
-      JSON.stringify({ displayName: 'Alex', defaultCwd: defaultProject })
+      JSON.stringify({
+        displayName: 'Alex',
+        projects: [
+          {
+            cwd: '/Users/example/synthetic-gamma',
+            addedAt: '2024-01-01T00:00:00Z'
+          }
+        ]
+      })
     )
 
     // Strip ELECTRON_RUN_AS_NODE: if inherited it forces the Electron binary
@@ -131,9 +138,12 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.home-greeting h1')
     const greeting = await page.locator('.home-greeting h1').textContent()
     expect(greeting).toMatch(/Good|mind/)
-    // sidebar lists seeded chats grouped by project
-    await visible(page, '.sidebar-session')
+    // sidebar nests seeded chats under their projects (4 + 2), plus a
+    // synthetic user-added project with no chats at all.
+    await visible(page, '.sidebar-project')
+    expect(await page.locator('.sidebar-project').count()).toBe(3)
     expect(await page.locator('.sidebar-session').count()).toBe(6)
+    expect(await page.locator('.sidebar-empty-nested').textContent()).toBe('No chats')
     await page.screenshot({ path: join(SHOTS, 'home-dark.png') })
   })
 
@@ -142,6 +152,19 @@ describe('Pi Desktop e2e', () => {
     await page.waitForTimeout(300)
     await page.screenshot({ path: join(SHOTS, 'home-light.png') })
     await page.evaluate("document.documentElement.dataset.theme = 'dark'")
+  })
+
+  it('opens the composer project picker', async () => {
+    await visible(page, '.folder-chip')
+    expect(await page.locator('.folder-chip').textContent()).toContain('Without project')
+    await page.locator('.folder-chip').click()
+    await visible(page, '.folder-popover')
+    const rows = await page.locator('.folder-popover .folder-row').allTextContents()
+    expect(rows.some((r) => r.includes('Without project'))).toBe(true)
+    expect(rows.some((r) => r.includes('synthetic-alpha'))).toBe(true)
+    await page.screenshot({ path: join(SHOTS, 'project-picker.png') })
+    // click outside the popover to dismiss it
+    await page.locator('.composer-input').click()
   })
 
   it('opens the model picker', async () => {

@@ -20,6 +20,7 @@ import type {
 } from '../../shared/pi-types'
 import type { PiRpcClient } from '../pi/rpc-client'
 import { PiProcessPool } from '../pi/pool'
+import { ensureWorkspaceDir, workspaceDir } from '../config/app-paths'
 import {
   requireString,
   validateChatId,
@@ -113,6 +114,10 @@ export class ChatService {
       const sessionCwd = await readSessionCwd(sessionPath)
       cwd = sessionCwd !== null && (await dirExists(sessionCwd)) ? sessionCwd : homedir()
     } else {
+      // The scratch dir for project-less chats is created on demand.
+      if (input.cwd === workspaceDir()) {
+        await ensureWorkspaceDir()
+      }
       cwd = await validateCwd(input.cwd)
     }
 
@@ -252,6 +257,9 @@ export class ChatService {
 
   async setCwd(input: { chatId: string; cwd: string }): Promise<ChatOpenResult> {
     const chatId = validateChatId(input.chatId)
+    if (input.cwd === workspaceDir()) {
+      await ensureWorkspaceDir()
+    }
     const cwd = await validateCwd(input.cwd)
     await this.close({ chatId })
     return this.open({ chatId, cwd })

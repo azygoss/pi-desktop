@@ -63,6 +63,24 @@ describe('app settings', () => {
     expect(settings.sidebarCollapsed).toBe(false)
   })
 
+  it('persists added projects and collapsed state', async () => {
+    await updateAppSettings({
+      projects: [
+        { cwd: '/Users/example/alpha', addedAt: '2024-01-01T00:00:00Z' },
+        { cwd: 'relative/path', addedAt: '2024-01-01T00:00:00Z' },
+        { cwd: '/Users/example/alpha', addedAt: '2024-02-01T00:00:00Z' },
+        { cwd: '/Users/example/beta' }
+      ],
+      collapsedProjects: ['/Users/example/alpha']
+    })
+    const settings = await loadAppSettings()
+    expect(settings.projects).toEqual([
+      { cwd: '/Users/example/alpha', addedAt: '2024-01-01T00:00:00Z' },
+      { cwd: '/Users/example/beta', addedAt: '' }
+    ])
+    expect(settings.collapsedProjects).toEqual(['/Users/example/alpha'])
+  })
+
   it('ignores invalid patch fields instead of persisting them', async () => {
     const next = await updateAppSettings({
       theme: 'neon',

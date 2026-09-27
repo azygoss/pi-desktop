@@ -19,6 +19,8 @@ export interface PiRpcClientOptions {
   cwd: string
   sessionPath?: string
   extraArgs?: string[]
+  /** Per-process env merged over runtime.env (e.g. the browser bridge token). */
+  extraEnv?: Record<string, string>
 }
 
 export interface PiRpcExit {
@@ -105,7 +107,7 @@ export class PiRpcClient {
     if (this.process) {
       throw new Error('PiRpcClient is already started')
     }
-    const { runtime, cwd, sessionPath, extraArgs } = this.options
+    const { runtime, cwd, sessionPath, extraArgs, extraEnv } = this.options
     const args = [
       ...runtime.args,
       '--mode',
@@ -115,7 +117,7 @@ export class PiRpcClient {
     ]
     const child = spawn(runtime.command, args, {
       cwd,
-      env: { ...process.env, ...runtime.env },
+      env: { ...process.env, ...runtime.env, ...(extraEnv ?? {}) },
       stdio: ['pipe', 'pipe', 'pipe']
     })
     this.process = child

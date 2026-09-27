@@ -10,8 +10,7 @@ import { PiLogo } from './PiLogo'
 export function HomeView() {
   const userName = useAppStore((s) => s.userName)
   const piAvailable = useAppStore((s) => s.piAvailable)
-  const activeProjectCwd = useAppStore((s) => s.activeProjectCwd)
-  const defaultCwd = useAppStore((s) => s.appSettings.defaultCwd)
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
   const navigate = useAppStore((s) => s.navigate)
 
   const [draftId] = useState(() => crypto.randomUUID())
@@ -19,22 +18,22 @@ export function HomeView() {
   const chat = useChatStore((s) => s.chats[draftId])
 
   // Eagerly spawn a draft pi process so the composer has models/state. Drafts
-  // do not create session files until the first prompt (verified against real
-  // pi 0.85.1). Closed on unmount unless a message was sent.
+  // run in the app scratch dir ("Without project") and do not create session
+  // files until the first prompt. Closed on unmount unless a message was sent.
   useEffect(() => {
-    if (!piAvailable) {
+    if (!piAvailable || !workspaceDir) {
       return
     }
     void useChatStore
       .getState()
-      .ensureChat(draftId, { cwd: activeProjectCwd ?? defaultCwd ?? undefined })
+      .ensureChat(draftId, { cwd: workspaceDir })
       .catch(() => {})
     return () => {
       if (!sentRef.current) {
         void useChatStore.getState().closeChat(draftId)
       }
     }
-  }, [draftId, piAvailable, activeProjectCwd, defaultCwd])
+  }, [draftId, piAvailable, workspaceDir])
 
   const greeting = greetingFor(userName)
 

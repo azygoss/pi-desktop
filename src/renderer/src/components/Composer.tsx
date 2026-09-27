@@ -1,4 +1,4 @@
-import { Folder, Plus, Square, ArrowUp, X } from 'lucide-react'
+import { Check, Folder, FolderPlus, Plus, Search, Square, ArrowUp, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
@@ -55,8 +55,8 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const folderRef = useRef<HTMLDivElement>(null)
 
   const projects = useAppStore((s) => s.projects)
-  const activeProjectCwd = useAppStore((s) => s.activeProjectCwd)
-  const setActiveProjectCwd = useAppStore((s) => s.setActiveProjectCwd)
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const [projectQuery, setProjectQuery] = useState('')
 
   const inChat = isChat === true && chat !== null
   const query = slashQuery(text)
@@ -68,9 +68,21 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   const streaming = chat?.status === 'streaming'
   const canSend = text.trim().length > 0 || images.length > 0
-  const defaultCwd = useAppStore((s) => s.appSettings.defaultCwd)
-  const cwd = chat?.cwd ?? activeProjectCwd ?? defaultCwd ?? ''
-  const cwdBase = cwd ? (cwd.split('/').filter(Boolean).pop() ?? cwd) : 'Home'
+  const cwd = chat?.cwd ?? workspaceDir
+  const projectless = cwd === '' || cwd === workspaceDir
+  const cwdBase = projectless
+    ? 'Without project'
+    : (cwd.split('/').filter(Boolean).pop() ?? cwd)
+  // Draft chats can move between projects; a chat with history is anchored
+  // to the cwd recorded in its session.
+  const cwdReadOnly = !!chat && chat.messages.length > 0
+  const filteredProjects = useMemo(() => {
+    const needle = projectQuery.trim().toLowerCase()
+    if (!needle) {
+      return projects
+    }
+    return projects.filter((p) => p.name.toLowerCase().includes(needle) || p.cwd.toLowerCase().includes(needle))
+  }, [projects, projectQuery])
 
   const autosize = useCallback(() => {
     const el = textareaRef.current
@@ -284,7 +296,6 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   }
 
   function changeChatCwd(cwdPath: string): void {
-    setActiveProjectCwd(cwdPath)
     if (chat && chat.cwd !== cwdPath) {
       void useChatStore.getState().setCwd(chat.chatId, cwdPath)
     }
@@ -294,6 +305,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     setFolderOpen(false)
     const folder = await window.piDesktop.app.pickFolder()
     if (folder) {
+      await useAppStore.getState().addProject(folder)
       changeChatCwd(folder)
     }
   }
@@ -391,36 +403,81 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
             }}
           />
           <div className="folder-chip-wrap" ref={folderRef}>
-            <button
-              type="button"
-              className="folder-chip"
-              onClick={() => setFolderOpen(!folderOpen)}
-              title={cwd || 'Home directory'}
-            >
-              <Folder size={13} />
-              <span>{cwdBase}</span>
-            </button>
-            {folderOpen && (
+            {cwdReadOnly ? (
+              <span className="folder-chip folder-chip-readonly" title={cwd}>
+                <Folder size={13} />
+                <span>{cwdBase}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="folder-chip"
+                onClick={() => {
+                  setProjectQuery('')
+                  setFolderOpen(!folderOpen)
+                }}
+                title={cwd}
+              >
+                <Folder size={13} />
+                <span>{cwdBase}</span>
+              </button>
+            )}
+            {folderOpen && !cwdReadOnly && (
               <div className="folder-popover">
-                {projects.slice(0, 8).map((p) => (
+                <div className="folder-popover-search">
+                  <Search size={12} />
+                  <input
+                    autoFocus
+                    value={projectQuery}
+                    onChange={(e) => setProjectQuery(e.target.value)}
+                    placeholder="Search projects"
+                    spellCheck={false}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="folder-row"
+                  onClick={() => {
+                    setFolderOpen(false)
+                    if (workspaceDir) {
+                      changeChatCwd(workspaceDir)
+                    }
+                  }}
+                >
+                  {projectless ? (
+                    <Check size={13} />
+                  ) : (
+                    <span className="folder-row-check" />
+                  )}
+                  <span>Without project</span>
+                </button>
+                <div className="folder-popover-divider" />
+                {filteredProjects.map((p) => (
                   <button
-                    key={p.cwd || 'other'}
+                    key={p.cwd}
                     type="button"
                     className="folder-row"
+                    title={p.cwd}
                     onClick={() => {
                       setFolderOpen(false)
-                      if (p.cwd) {
-                        changeChatCwd(p.cwd)
-                      }
+                      changeChatCwd(p.cwd)
                     }}
                   >
-                    <Folder size={13} />
+                    {cwd === p.cwd ? (
+                      <Check size={13} />
+                    ) : (
+                      <Folder size={13} />
+                    )}
                     <span>{p.name}</span>
                   </button>
                 ))}
+                {filteredProjects.length === 0 && (
+                  <div className="folder-popover-empty">No projects</div>
+                )}
+                <div className="folder-popover-divider" />
                 <button type="button" className="folder-row" onClick={() => void chooseFolder()}>
-                  <Folder size={13} />
-                  <span>Choose folder…</span>
+                  <FolderPlus size={13} />
+                  <span>Add project…</span>
                 </button>
               </div>
             )}

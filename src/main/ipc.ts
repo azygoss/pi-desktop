@@ -1,4 +1,5 @@
-import { basename, isAbsolute } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
+import { stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
@@ -17,9 +18,11 @@ import type { PiProcessPool } from './pi/pool'
 import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
+import { workspaceDir } from './config/app-paths'
 import { readSettings } from './config/settings'
 import { getAgentDir } from './sessions/paths'
-import { listProjects, listSessions, watchSessions } from './sessions/session-index'
+import { listSessions, watchSessions } from './sessions/session-index'
+import { mergeProjects } from './sessions/projects'
 
 export const IPC_CHANNELS = {
   runtimeInfo: 'pi-desktop:runtime:info',
@@ -44,6 +47,7 @@ export const IPC_CHANNELS = {
   sessionsDelete: 'pi-desktop:sessions:delete',
   sessionsMenu: 'pi-desktop:sessions:menu',
   projectsMenu: 'pi-desktop:projects:menu',
+  projectsAdd: 'pi-desktop:projects:add',
   chatOpen: 'pi-desktop:chat:open',
   chatSend: 'pi-desktop:chat:send',
   chatAbort: 'pi-desktop:chat:abort',
@@ -136,8 +140,32 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(IPC_CHANNELS.projectsList, async () => {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
-    const hidden = new Set(settings.hiddenProjects)
-    return listProjects(sessions.filter((s) => !hidden.has(s.cwd)))
+    return mergeProjects(
+      sessions,
+      settings.projects,
+      settings.hiddenProjects,
+      workspaceDir()
+    )
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projectsAdd, async (_e, input: { cwd: string }) => {
+    if (typeof input?.cwd !== 'string' || !isAbsolute(input.cwd)) {
+      throw new Error('Invalid project cwd')
+    }
+    const cwd = resolve(input.cwd)
+    if (!(await stat(cwd).then((s) => s.isDirectory()).catch(() => false))) {
+      throw new Error('Project directory does not exist')
+    }
+    if (cwd === workspaceDir()) {
+      return // the scratch dir is never a project
+    }
+    const settings = await loadAppSettings()
+    if (settings.projects.some((p) => p.cwd === cwd)) {
+      return
+    }
+    await updateAppSettings({
+      projects: [...settings.projects, { cwd, addedAt: new Date().toISOString() }]
+    })
   })
 
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => readSettings())
@@ -251,7 +279,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       agentDirDisplay:
         home !== '/' && agentDir.startsWith(home)
           ? `~${agentDir.slice(home.length)}`
-          : agentDir
+          : agentDir,
+      workspaceDir: workspaceDir()
     }
   })
 

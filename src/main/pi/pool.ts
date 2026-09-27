@@ -5,6 +5,7 @@ export interface OpenChatOptions {
   cwd: string
   sessionPath?: string
   extraArgs?: string[]
+  extraEnv?: Record<string, string>
 }
 
 /**
@@ -62,7 +63,8 @@ export class PiProcessPool {
       runtime,
       cwd: options.cwd,
       sessionPath: options.sessionPath,
-      extraArgs: options.extraArgs
+      extraArgs: options.extraArgs,
+      extraEnv: options.extraEnv
     })
     client.on('exit', () => {
       if (this.clients.get(chatId) === client) {

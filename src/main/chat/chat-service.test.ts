@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,15 +38,21 @@ function makeService() {
 }
 
 let sessionsRoot: string
+let userDataRoot: string
 
 beforeEach(async () => {
   sessionsRoot = await mkdtemp(join(tmpdir(), 'pi-desktop-chat-'))
+  userDataRoot = await mkdtemp(join(tmpdir(), 'pi-desktop-ud-'))
   process.env['PI_CODING_AGENT_SESSION_DIR'] = sessionsRoot
+  // Points the scratch workspace dir at a temp dir without needing Electron.
+  process.env['PI_DESKTOP_USER_DATA_DIR'] = userDataRoot
 })
 
 afterEach(async () => {
   delete process.env['PI_CODING_AGENT_SESSION_DIR']
+  delete process.env['PI_DESKTOP_USER_DATA_DIR']
   await rm(sessionsRoot, { recursive: true, force: true })
+  await rm(userDataRoot, { recursive: true, force: true })
 })
 
 describe('validation', () => {
@@ -102,6 +108,18 @@ describe('ChatService', () => {
       expect(result.models.length).toBeGreaterThan(0)
       expect(result.thinkingLevels).toContain('off')
       expect(result.messages).toEqual([])
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('creates the scratch workspace dir on demand for project-less chats', async () => {
+    const { service, pool } = makeService()
+    const scratch = join(userDataRoot, 'workspace')
+    try {
+      const result = await service.open({ chatId: 'chat-scratch', cwd: scratch })
+      expect(result.cwd).toBe(scratch)
+      expect((await stat(scratch)).isDirectory()).toBe(true)
     } finally {
       await pool.closeAll()
     }

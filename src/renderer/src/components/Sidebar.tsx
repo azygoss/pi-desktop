@@ -2,14 +2,13 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
-  FolderOpen,
   MoreHorizontal,
   Plus,
   Search,
   Settings,
   X
 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 
 import type { SessionSummary } from '../../../shared/session-types'
@@ -19,7 +18,13 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { NavButtons } from './TitleBar'
 
-const MAX_PROJECTS = 6
+const MAX_NESTED_CHATS = 5
+
+/** Chats that run in the app scratch dir (or have no recorded cwd) are
+ *  "project-less" and live in the Chats section, not under a project. */
+export function isProjectless(cwd: string, workspaceDir: string): boolean {
+  return cwd === workspaceDir || cwd === ''
+}
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
@@ -45,155 +50,113 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 30)}mo`
 }
 
-export function Sidebar() {
-  const sessions = useAppStore((s) => s.sessions)
-  const projects = useAppStore((s) => s.projects)
-  const activeProjectCwd = useAppStore((s) => s.activeProjectCwd)
-  const setActiveProjectCwd = useAppStore((s) => s.setActiveProjectCwd)
-  const chatFilter = useAppStore((s) => s.chatFilter)
-  const setChatFilter = useAppStore((s) => s.setChatFilter)
-  const showAllProjects = useAppStore((s) => s.showAllProjects)
-  const setShowAllProjects = useAppStore((s) => s.setShowAllProjects)
-  const navigate = useAppStore((s) => s.navigate)
-  const view = useAppStore((s) => s.view)
-  const runtimeInfo = useAppStore((s) => s.runtimeInfo)
-  const userName = useAppStore((s) => s.userName)
-  const chats = useChatStore((s) => s.chats)
+function isSessionActive(session: SessionSummary): boolean {
+  const { view } = useAppStore.getState()
+  if (view.kind !== 'chat') {
+    return false
+  }
+  return useChatStore.getState().chats[view.chatId]?.sessionPath === session.path
+}
 
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [renamingPath, setRenamingPath] = useState<string | null>(null)
+function openSession(session: SessionSummary): void {
+  const existing = useChatStore.getState().openSessionChat(session.path)
+  const chatId = existing ?? crypto.randomUUID()
+  if (!existing) {
+    void useChatStore
+      .getState()
+      .ensureChat(chatId, { sessionPath: session.path })
+      .catch(() => {})
+  }
+  useAppStore.getState().navigate({ kind: 'chat', chatId })
+}
+
+function newChatInProject(cwd: string): void {
+  const chatId = crypto.randomUUID()
+  void useChatStore.getState().ensureChat(chatId, { cwd }).catch(() => {})
+  useAppStore.getState().navigate({ kind: 'chat', chatId })
+}
+
+async function exportSession(session: SessionSummary): Promise<void> {
+  const base = session.title.replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'chat'
+  const outputPath = await window.piDesktop.app.saveFile({
+    defaultPath: `${base}.html`,
+    extension: 'html'
+  })
+  if (!outputPath) {
+    return
+  }
+  try {
+    const result = await window.piDesktop.sessions.exportHtml({
+      sessionPath: session.path,
+      outputPath
+    })
+    const choice = await window.piDesktop.app.confirmDialog({
+      title: 'Chat exported',
+      message: result.path ?? outputPath,
+      buttons: ['Reveal', 'Done']
+    })
+    if (choice === 0) {
+      void window.piDesktop.app.revealPath(result.path ?? outputPath)
+    }
+  } catch {
+    // export failed; pi reported the error already
+  }
+}
+
+async function deleteSession(session: SessionSummary): Promise<void> {
+  const choice = await window.piDesktop.app.confirmDialog({
+    title: 'Move this chat to Trash?',
+    message: session.title,
+    buttons: ['Move to Trash', 'Cancel'],
+    danger: true
+  })
+  if (choice !== 0) {
+    return
+  }
+  const wasActive = isSessionActive(session)
+  const openChatId = await window.piDesktop.chat
+    .chatIdForSession({ sessionPath: session.path })
+    .catch(() => undefined)
+  await window.piDesktop.sessions.delete({ sessionPath: session.path }).catch(() => {})
+  if (openChatId && useChatStore.getState().chats[openChatId]) {
+    void useChatStore.getState().closeChat(openChatId)
+  }
+  if (wasActive) {
+    useAppStore.getState().navigate({ kind: 'home' })
+  }
+  void useAppStore.getState().refreshSessions()
+}
+
+function SessionRow({ session, nested }: { session: SessionSummary; nested?: boolean }) {
+  const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
-  const searchRef = useRef<HTMLInputElement>(null)
+  const active = isSessionActive(session)
 
-  const filteredSessions = useMemo(() => {
-    let list = sessions
-    if (activeProjectCwd) {
-      list = list.filter((s) => s.cwd === activeProjectCwd)
-    }
-    const needle = chatFilter.trim().toLowerCase()
-    if (needle) {
-      list = list.filter((s) => s.title.toLowerCase().includes(needle))
-    }
-    return list
-  }, [sessions, activeProjectCwd, chatFilter])
-
-  const grouped = useMemo(() => groupByDate(filteredSessions), [filteredSessions])
-  const visibleProjects = showAllProjects ? projects : projects.slice(0, MAX_PROJECTS)
-
-  function openSession(session: SessionSummary): void {
-    const existing = useChatStore.getState().openSessionChat(session.path)
-    const chatId = existing ?? crypto.randomUUID()
-    if (!existing) {
-      void useChatStore
-        .getState()
-        .ensureChat(chatId, { sessionPath: session.path })
-        .catch(() => {})
-    }
-    navigate({ kind: 'chat', chatId })
-  }
-
-  function newChat(): void {
-    navigate({ kind: 'home' })
-  }
-
-  function activeChatId(): string | null {
-    return view.kind === 'chat' ? view.chatId : null
-  }
-
-  function sessionActive(session: SessionSummary): boolean {
-    const chatId = activeChatId()
-    if (!chatId) {
-      return false
-    }
-    return chats[chatId]?.sessionPath === session.path
-  }
-
-  function toggleSearch(): void {
-    if (searchOpen) {
-      setChatFilter('')
-      setSearchOpen(false)
-    } else {
-      setSearchOpen(true)
-      requestAnimationFrame(() => searchRef.current?.focus())
-    }
-  }
-
-  function startRename(session: SessionSummary): void {
-    setRenamingPath(session.path)
+  function startRename(): void {
     setRenameValue(session.name ?? session.title)
+    setRenaming(true)
   }
 
   async function commitRename(): Promise<void> {
-    const path = renamingPath
+    setRenaming(false)
     const name = renameValue.trim()
-    setRenamingPath(null)
-    if (!path || !name) {
+    if (!name) {
       return
     }
-    await window.piDesktop.sessions.rename({ sessionPath: path, name }).catch(() => {})
-    useAppStore.getState().renameSession(path, name)
+    await window.piDesktop.sessions
+      .rename({ sessionPath: session.path, name })
+      .catch(() => {})
+    useAppStore.getState().renameSession(session.path, name)
     void useAppStore.getState().refreshSessions()
   }
 
-  async function exportSession(session: SessionSummary): Promise<void> {
-    const base = session.title.replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'chat'
-    const outputPath = await window.piDesktop.app.saveFile({
-      defaultPath: `${base}.html`,
-      extension: 'html'
-    })
-    if (!outputPath) {
-      return
-    }
-    try {
-      const result = await window.piDesktop.sessions.exportHtml({
-        sessionPath: session.path,
-        outputPath
-      })
-      const choice = await window.piDesktop.app.confirmDialog({
-        title: 'Chat exported',
-        message: result.path ?? outputPath,
-        buttons: ['Reveal', 'Done']
-      })
-      if (choice === 0) {
-        void window.piDesktop.app.revealPath(result.path ?? outputPath)
-      }
-    } catch {
-      // export failed; pi reported the error already
-    }
-  }
-
-  async function deleteSession(session: SessionSummary): Promise<void> {
-    const choice = await window.piDesktop.app.confirmDialog({
-      title: 'Move this chat to Trash?',
-      message: session.title,
-      buttons: ['Move to Trash', 'Cancel'],
-      danger: true
-    })
-    if (choice !== 0) {
-      return
-    }
-    const wasActive = sessionActive(session)
-    const openChatId = await window.piDesktop.chat
-      .chatIdForSession({ sessionPath: session.path })
-      .catch(() => undefined)
-    await window.piDesktop.sessions.delete({ sessionPath: session.path }).catch(() => {})
-    if (openChatId && useChatStore.getState().chats[openChatId]) {
-      void useChatStore.getState().closeChat(openChatId)
-    }
-    if (wasActive) {
-      navigate({ kind: 'home' })
-    }
-    void useAppStore.getState().refreshSessions()
-  }
-
-  async function sessionContextMenu(session: SessionSummary): Promise<void> {
+  async function contextMenu(): Promise<void> {
     const action = await window.piDesktop.sessions
       .showMenu({ sessionPath: session.path })
       .catch(() => null)
     switch (action) {
       case 'rename':
-        startRename(session)
+        startRename()
         break
       case 'export':
         void exportSession(session)
@@ -210,21 +173,84 @@ export function Sidebar() {
     }
   }
 
-  async function projectContextMenu(cwd: string): Promise<void> {
-    if (!cwd) {
-      return
-    }
+  return (
+    <div
+      className={clsx('sidebar-item', 'sidebar-session', {
+        'is-active': active,
+        'sidebar-session-nested': nested
+      })}
+      role="button"
+      tabIndex={0}
+      onClick={() => openSession(session)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          openSession(session)
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        void contextMenu()
+      }}
+    >
+      {active && <span className="active-dot" />}
+      {renaming ? (
+        <input
+          className="sidebar-rename-input"
+          autoFocus
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={() => void commitRename()}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter') {
+              void commitRename()
+            } else if (e.key === 'Escape') {
+              setRenaming(false)
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          spellCheck={false}
+        />
+      ) : (
+        <span className="sidebar-item-label">{session.title}</span>
+      )}
+      <button
+        type="button"
+        className="icon-btn sidebar-item-more"
+        title="Chat actions"
+        onClick={(e) => {
+          e.stopPropagation()
+          void contextMenu()
+        }}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      <span className="sidebar-item-meta">{relativeTime(session.modified)}</span>
+    </div>
+  )
+}
+
+function ProjectRow({ cwd, name }: { cwd: string; name: string }) {
+  const sessions = useAppStore((s) => s.sessions)
+  const collapsed = useAppStore((s) => s.appSettings.collapsedProjects.includes(cwd))
+  const toggleCollapsed = useAppStore((s) => s.toggleProjectCollapsed)
+  const [showAll, setShowAll] = useState(false)
+
+  const projectSessions = useMemo(
+    () => sessions.filter((s) => s.cwd === cwd),
+    [sessions, cwd]
+  )
+  const visible = showAll ? projectSessions : projectSessions.slice(0, MAX_NESTED_CHATS)
+
+  async function contextMenu(): Promise<void> {
     const action = await window.piDesktop.projects.showMenu({ cwd }).catch(() => null)
     switch (action) {
       case 'reveal':
         void window.piDesktop.app.revealPath(cwd)
         break
-      case 'new-chat': {
-        const chatId = crypto.randomUUID()
-        void useChatStore.getState().ensureChat(chatId, { cwd }).catch(() => {})
-        navigate({ kind: 'chat', chatId })
+      case 'new-chat':
+        newChatInProject(cwd)
         break
-      }
       case 'hide': {
         const current = useAppStore.getState().appSettings.hiddenProjects
         void useAppStore
@@ -234,6 +260,125 @@ export function Sidebar() {
       }
     }
   }
+
+  return (
+    <div className="sidebar-project">
+      <div
+        className="sidebar-item sidebar-project-row"
+        role="button"
+        tabIndex={0}
+        title={cwd}
+        onClick={() => toggleCollapsed(cwd)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            toggleCollapsed(cwd)
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          void contextMenu()
+        }}
+      >
+        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        <Folder size={15} />
+        <span className="sidebar-item-label">{name}</span>
+        <button
+          type="button"
+          className="icon-btn sidebar-item-more"
+          title="New chat in this project"
+          onClick={(e) => {
+            e.stopPropagation()
+            newChatInProject(cwd)
+          }}
+        >
+          <Plus size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn sidebar-item-more"
+          title="Project actions"
+          onClick={(e) => {
+            e.stopPropagation()
+            void contextMenu()
+          }}
+        >
+          <MoreHorizontal size={14} />
+        </button>
+      </div>
+      {!collapsed && (
+        <div className="sidebar-project-chats">
+          {visible.map((session) => (
+            <SessionRow key={session.path} session={session} nested />
+          ))}
+          {projectSessions.length === 0 && (
+            <div className="sidebar-empty sidebar-empty-nested">No chats</div>
+          )}
+          {projectSessions.length > MAX_NESTED_CHATS && !showAll && (
+            <button
+              type="button"
+              className="sidebar-item sidebar-item-muted sidebar-session-nested"
+              onClick={() => setShowAll(true)}
+            >
+              <span className="sidebar-item-label">Show more…</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function Sidebar() {
+  const sessions = useAppStore((s) => s.sessions)
+  const projects = useAppStore((s) => s.projects)
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const chatFilter = useAppStore((s) => s.chatFilter)
+  const setChatFilter = useAppStore((s) => s.setChatFilter)
+  const sidebarSearchOpen = useAppStore((s) => s.sidebarSearchOpen)
+  const setSidebarSearchOpen = useAppStore((s) => s.setSidebarSearchOpen)
+  const navigate = useAppStore((s) => s.navigate)
+  const runtimeInfo = useAppStore((s) => s.runtimeInfo)
+  const userName = useAppStore((s) => s.userName)
+
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
+
+  const filtering = chatFilter.trim().length > 0
+  const filteredSessions = useMemo(() => {
+    const needle = chatFilter.trim().toLowerCase()
+    if (!needle) {
+      return []
+    }
+    return sessions.filter((s) => s.title.toLowerCase().includes(needle))
+  }, [sessions, chatFilter])
+
+  const projectLessSessions = useMemo(
+    () => sessions.filter((s) => isProjectless(s.cwd, workspaceDir)),
+    [sessions, workspaceDir]
+  )
+  const grouped = useMemo(() => groupByDate(projectLessSessions), [projectLessSessions])
+  const filteredGrouped = useMemo(() => groupByDate(filteredSessions), [filteredSessions])
+
+  function newChat(): void {
+    navigate({ kind: 'home' })
+  }
+
+  function toggleSearch(): void {
+    if (sidebarSearchOpen) {
+      setChatFilter('')
+      setSidebarSearchOpen(false)
+    } else {
+      setSidebarSearchOpen(true)
+    }
+  }
+
+  async function addProject(): Promise<void> {
+    const folder = await window.piDesktop.app.pickFolder().catch(() => null)
+    if (folder) {
+      await useAppStore.getState().addProject(folder)
+    }
+  }
+
+  const chatGroups = filtering ? filteredGrouped : grouped
 
   return (
     <aside className="sidebar">
@@ -247,85 +392,17 @@ export function Sidebar() {
           <span>New chat</span>
           <kbd className="kbd">⌘N</kbd>
         </button>
+        <button type="button" className="sidebar-item" onClick={toggleSearch}>
+          <Search size={15} />
+          <span>Search</span>
+          <kbd className="kbd">⌘K</kbd>
+        </button>
 
-        <div className="sidebar-section">
-          <button
-            type="button"
-            className="sidebar-section-header"
-            onClick={() => setProjectsCollapsed(!projectsCollapsed)}
-          >
-            {projectsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-            <span>Projects</span>
-          </button>
-          <button
-            type="button"
-            className="icon-btn sidebar-section-add"
-            onClick={() => {
-              void window.piDesktop.app.pickFolder().then((folder) => {
-                if (folder) {
-                  setActiveProjectCwd(folder)
-                }
-              })
-            }}
-            title="Open folder"
-          >
-            <Plus size={13} />
-          </button>
-        </div>
-
-        {!projectsCollapsed &&
-          visibleProjects.map((project) => (
-            <button
-              key={project.cwd || 'other'}
-              type="button"
-              className={clsx('sidebar-item', {
-                'is-active': activeProjectCwd === project.cwd
-              })}
-              title={project.cwd || project.name}
-              onClick={() => setActiveProjectCwd(project.cwd)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                void projectContextMenu(project.cwd)
-              }}
-            >
-              {activeProjectCwd === project.cwd ? (
-                <FolderOpen size={15} />
-              ) : (
-                <Folder size={15} />
-              )}
-              <span className="sidebar-item-label">{project.name}</span>
-              <span className="sidebar-item-meta">{project.sessionCount}</span>
-            </button>
-          ))}
-        {!projectsCollapsed && projects.length > MAX_PROJECTS && !showAllProjects && (
-          <button
-            type="button"
-            className="sidebar-item sidebar-item-muted"
-            onClick={() => setShowAllProjects(true)}
-          >
-            <span className="sidebar-item-label">Show more…</span>
-          </button>
-        )}
-
-        <div className="sidebar-section" style={{ marginTop: 8 }}>
-          <div className="sidebar-section-header" style={{ cursor: 'default' }}>
-            <span>Chats</span>
-          </div>
-          <button
-            type="button"
-            className="icon-btn sidebar-section-add"
-            onClick={toggleSearch}
-            title="Filter chats"
-          >
-            {searchOpen ? <X size={13} /> : <Search size={13} />}
-          </button>
-        </div>
-
-        {searchOpen && (
+        {sidebarSearchOpen && (
           <div className="sidebar-search">
             <Search size={13} />
             <input
-              ref={searchRef}
+              autoFocus
               value={chatFilter}
               onChange={(e) => setChatFilter(e.target.value)}
               onKeyDown={(e) => {
@@ -336,71 +413,65 @@ export function Sidebar() {
               placeholder="Filter chats"
               spellCheck={false}
             />
+            <button
+              type="button"
+              className="icon-btn"
+              title="Close search"
+              onClick={toggleSearch}
+            >
+              <X size={12} />
+            </button>
           </div>
         )}
 
-        {grouped.map(({ group, items }) => (
+        {!filtering && (
+          <>
+            <div className="sidebar-section">
+              <button
+                type="button"
+                className="sidebar-section-header"
+                onClick={() => setProjectsCollapsed(!projectsCollapsed)}
+              >
+                {projectsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                <span>Projects</span>
+              </button>
+              <button
+                type="button"
+                className="icon-btn sidebar-section-add"
+                onClick={() => void addProject()}
+                title="Add project"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+            {!projectsCollapsed &&
+              projects.map((project) => (
+                <ProjectRow key={project.cwd} cwd={project.cwd} name={project.name} />
+              ))}
+            {!projectsCollapsed && projects.length === 0 && (
+              <div className="sidebar-empty">No projects yet</div>
+            )}
+
+            <div className="sidebar-section" style={{ marginTop: 8 }}>
+              <div className="sidebar-section-header" style={{ cursor: 'default' }}>
+                <span>Chats</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {chatGroups.map(({ group, items }) => (
           <div key={group}>
             <div className="sidebar-date-group">{group}</div>
             {items.map((session) => (
-              <div
-                key={session.path}
-                className={clsx('sidebar-item', 'sidebar-session', {
-                  'is-active': sessionActive(session)
-                })}
-                role="button"
-                tabIndex={0}
-                onClick={() => openSession(session)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    openSession(session)
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  void sessionContextMenu(session)
-                }}
-              >
-                {sessionActive(session) && <span className="active-dot" />}
-                {renamingPath === session.path ? (
-                  <input
-                    className="sidebar-rename-input"
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={() => void commitRename()}
-                    onKeyDown={(e) => {
-                      e.stopPropagation()
-                      if (e.key === 'Enter') {
-                        void commitRename()
-                      } else if (e.key === 'Escape') {
-                        setRenamingPath(null)
-                      }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    spellCheck={false}
-                  />
-                ) : (
-                  <span className="sidebar-item-label">{session.title}</span>
-                )}
-                <button
-                  type="button"
-                  className="icon-btn sidebar-item-more"
-                  title="Chat actions"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void sessionContextMenu(session)
-                  }}
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-                <span className="sidebar-item-meta">{relativeTime(session.modified)}</span>
-              </div>
+              <SessionRow key={session.path} session={session} />
             ))}
           </div>
         ))}
-        {filteredSessions.length === 0 && (
-          <div className="sidebar-empty">No chats yet</div>
+        {chatGroups.length === 0 && (
+          <div className="sidebar-empty">
+            {filtering ? 'No matching chats' : 'No chats yet'}
+          </div>
         )}
         <div className="sidebar-spacer" />
       </div>

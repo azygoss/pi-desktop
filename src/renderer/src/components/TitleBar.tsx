@@ -57,13 +57,15 @@ export function NavButtons() {
 export function MainTopBar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
   const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
   const navigate = useAppStore((s) => s.navigate)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
 
+  // Project-less chats run in the app scratch dir — show no project label.
   const cwdBase =
-    chat?.cwd && chat.cwd !== '/'
+    chat?.cwd && chat.cwd !== '/' && chat.cwd !== workspaceDir
       ? (chat.cwd.split('/').filter(Boolean).pop() ?? chat.cwd)
       : null
 

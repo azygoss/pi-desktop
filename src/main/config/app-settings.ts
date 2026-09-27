@@ -1,12 +1,18 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { app } from 'electron'
+import { appUserDataDir } from './app-paths'
 
 /**
  * Pi Desktop's own settings — stored in Electron userData, intentionally NOT
  * in ~/.pi/agent (pi owns that directory). Everything is validated on load;
  * corrupt or unexpected content falls back to defaults.
  */
+export interface AppProject {
+  cwd: string
+  /** ISO timestamp of when the user added the project. */
+  addedAt: string
+}
+
 export interface AppSettings {
   theme: 'system' | 'light' | 'dark'
   displayName?: string
@@ -15,21 +21,25 @@ export interface AppSettings {
     mode: 'auto' | 'installed' | 'bundled' | 'custom'
     customPath?: string
   }
+  /** Projects the user added explicitly (may have no sessions yet). */
+  projects: AppProject[]
   hiddenProjects: string[]
+  /** Project cwds whose sidebar rows are collapsed (expanded by default). */
+  collapsedProjects: string[]
   sidebarCollapsed: boolean
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
   piRuntime: { mode: 'auto' },
+  projects: [],
   hiddenProjects: [],
+  collapsedProjects: [],
   sidebarCollapsed: false
 }
 
 export function settingsFilePath(): string {
-  const override = process.env['PI_DESKTOP_USER_DATA_DIR']
-  const base = override || app.getPath('userData')
-  return join(base, 'settings.json')
+  return join(appUserDataDir(), 'settings.json')
 }
 
 const THEMES = new Set(['system', 'light', 'dark'])
@@ -39,6 +49,34 @@ function stringOrUndefined(value: unknown, maxLength = 1024): string | undefined
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength
     ? value
     : undefined
+}
+
+function normalizeProjects(value: unknown): AppProject[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  const seen = new Set<string>()
+  const projects: AppProject[] = []
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') {
+      continue
+    }
+    const cwd = stringOrUndefined((item as Record<string, unknown>)['cwd'])
+    const addedAt = stringOrUndefined((item as Record<string, unknown>)['addedAt'], 64)
+    if (!cwd?.startsWith('/') || seen.has(cwd)) {
+      continue
+    }
+    seen.add(cwd)
+    projects.push({ cwd, addedAt: addedAt ?? '' })
+  }
+  return projects
+}
+
+function normalizeCwdList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  return value.filter((p): p is string => typeof p === 'string' && p.startsWith('/'))
 }
 
 export function normalizeAppSettings(raw: unknown): AppSettings {
@@ -72,10 +110,17 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
       settings.piRuntime.customPath = customPath
     }
   }
-  if (Array.isArray(input['hiddenProjects'])) {
-    settings.hiddenProjects = input['hiddenProjects'].filter(
-      (p): p is string => typeof p === 'string' && p.startsWith('/')
-    )
+  const projects = normalizeProjects(input['projects'])
+  if (projects) {
+    settings.projects = projects
+  }
+  const hidden = normalizeCwdList(input['hiddenProjects'])
+  if (hidden) {
+    settings.hiddenProjects = hidden
+  }
+  const collapsed = normalizeCwdList(input['collapsedProjects'])
+  if (collapsed) {
+    settings.collapsedProjects = collapsed
   }
   if (typeof input['sidebarCollapsed'] === 'boolean') {
     settings.sidebarCollapsed = input['sidebarCollapsed']
@@ -123,10 +168,17 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
         merged.piRuntime.customPath = stringOrUndefined(rt['customPath'])
       }
     }
-    if (Array.isArray(input['hiddenProjects'])) {
-      merged.hiddenProjects = input['hiddenProjects'].filter(
-        (p): p is string => typeof p === 'string' && p.startsWith('/')
-      )
+    const projects = normalizeProjects(input['projects'])
+    if (projects) {
+      merged.projects = projects
+    }
+    const hidden = normalizeCwdList(input['hiddenProjects'])
+    if (hidden) {
+      merged.hiddenProjects = hidden
+    }
+    const collapsed = normalizeCwdList(input['collapsedProjects'])
+    if (collapsed) {
+      merged.collapsedProjects = collapsed
     }
     if (typeof input['sidebarCollapsed'] === 'boolean') {
       merged.sidebarCollapsed = input['sidebarCollapsed']

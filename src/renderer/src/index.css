@@ -451,6 +451,23 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+.sidebar-empty-nested {
+  padding: 4px 8px 4px 30px;
+}
+
+.sidebar-project-row {
+  gap: 6px;
+}
+.sidebar-project-chats {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-session-nested {
+  padding-left: 30px;
+}
+.sidebar-session-nested .active-dot {
+  left: 22px;
+}
 
 .sidebar-footer {
   display: flex;
@@ -690,6 +707,47 @@ body {
 .folder-row:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+.folder-chip-readonly {
+  cursor: default;
+}
+.folder-chip-readonly:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.folder-row-check {
+  width: 13px;
+  flex-shrink: 0;
+}
+.folder-popover-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--muted);
+}
+.folder-popover-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.folder-popover-search input::placeholder {
+  color: var(--muted);
+}
+.folder-popover-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+.folder-popover-empty {
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
 .send-btn {

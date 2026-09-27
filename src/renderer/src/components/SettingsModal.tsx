@@ -81,13 +81,6 @@ export function SettingsModal() {
     }
   }
 
-  async function pickDefaultFolder(): Promise<void> {
-    const folder = await window.piDesktop.app.pickFolder().catch(() => null)
-    if (folder) {
-      void updateAppSettings({ defaultCwd: folder })
-    }
-  }
-
   function commitDisplayName(): void {
     const name = displayName.trim()
     if (name !== (appSettings.displayName ?? '')) {
@@ -189,26 +182,14 @@ export function SettingsModal() {
               </div>
               <div className="settings-row">
                 <div>
-                  <div className="settings-label">Default folder</div>
-                  <div className="settings-hint">Working directory for new chats</div>
+                  <div className="settings-label">Projects</div>
+                  <div className="settings-hint">
+                    Add folders from the sidebar to group chats by project
+                  </div>
                 </div>
-                <div className="settings-path-row">
-                  <span className="settings-path" title={appSettings.defaultCwd ?? ''}>
-                    {appSettings.defaultCwd ? shortenHome(appSettings.defaultCwd) : 'Home'}
-                  </span>
-                  <button type="button" className="ui-btn" onClick={() => void pickDefaultFolder()}>
-                    Choose…
-                  </button>
-                  {appSettings.defaultCwd && (
-                    <button
-                      type="button"
-                      className="ui-btn"
-                      onClick={() => void updateAppSettings({ defaultCwd: undefined })}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
+                <span className="settings-hint">
+                  {appSettings.projects.length} added
+                </span>
               </div>
             </div>
           )}
