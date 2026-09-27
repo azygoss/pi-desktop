@@ -723,6 +723,13 @@ body {
   justify-content: center;
   padding: 4px 0 12px;
 }
+/* Placeholder for transcript rows outside the rendered window. */
+.msg-window-note {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 0 10px;
+}
 
 .folder-chip-wrap {
   position: relative;

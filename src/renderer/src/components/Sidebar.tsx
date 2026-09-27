@@ -203,6 +203,7 @@ function SessionRow({
         'is-active': active,
         'sidebar-session-nested': nested
       })}
+      data-session-path={session.path}
       role="button"
       tabIndex={0}
       onClick={() => openSession(session)}

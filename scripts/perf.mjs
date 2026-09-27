@@ -339,6 +339,47 @@ try {
         await window.piDesktop.chat.readTranscript({ sessionPath: p })
         return Math.round(performance.now() - t)
       }, biggest.path)
+
+      // Render time in the real UI: reveal every "Show N more" row, click
+      // the session, then measure click → first message and click → row
+      // count stability (the transcript window caps at the latest entries).
+      const moreRows = page.locator('.sidebar-item-muted', { hasText: 'Show ' })
+      for (let guard = 0; guard < 20 && (await moreRows.count()) > 0; guard++) {
+        await moreRows.first().click()
+        await page.waitForTimeout(100)
+      }
+      const rows = page.locator('.sidebar-session')
+      const n = await rows.count()
+      let target = -1
+      for (let i = 0; i < n; i++) {
+        if ((await rows.nth(i).getAttribute('data-session-path')) === biggest.path) {
+          target = i
+          break
+        }
+      }
+      if (target >= 0) {
+        const t = Date.now()
+        await rows.nth(target).click()
+        await page.waitForSelector('.msg-user-row, .msg-assistant', {
+          state: 'visible',
+          timeout: 60_000
+        })
+        results.largest_session_first_message_ms = Date.now() - t
+        const msgRows = page.locator('.msg-user-row, .msg-assistant')
+        let prev = -1
+        let stableAt = Date.now()
+        let rendered = 0
+        while (Date.now() - stableAt < 800 && Date.now() - t < 30_000) {
+          rendered = await msgRows.count()
+          if (rendered !== prev) {
+            prev = rendered
+            stableAt = Date.now()
+          }
+          await page.waitForTimeout(120)
+        }
+        results.largest_session_render_ms = Date.now() - t
+        results.largest_session_rows_rendered = rendered
+      }
     }
   }
 

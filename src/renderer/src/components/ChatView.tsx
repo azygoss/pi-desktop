@@ -512,6 +512,11 @@ function UiRequestDialog({ chat }: { chat: ChatState }) {
   )
 }
 
+/** Rows rendered immediately when opening a long transcript; older rows
+ * mount in chunks as the user scrolls up so first paint stays fast. */
+const INITIAL_RENDER_ROWS = 60
+const RENDER_CHUNK_ROWS = 80
+
 function statsFooter(chat: ChatState): string {
   const parts: string[] = []
   const pct = chat.stats?.contextUsage?.percent
@@ -536,7 +541,30 @@ export function ChatView({ chatId }: { chatId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const [showJump, setShowJump] = useState(false)
+  // rowsWindow.chatId keeps the count scoped: switching chats starts over at
+  // INITIAL_RENDER_ROWS without a reset effect.
+  const [rowsWindow, setRowsWindow] = useState({ chatId, rows: INITIAL_RENDER_ROWS })
+  const renderRows =
+    rowsWindow.chatId === chatId ? rowsWindow.rows : INITIAL_RENDER_ROWS
   const navigate = useAppStore((s) => s.navigate)
+
+  const messageCountForWindow = chat?.messages.length ?? 0
+  // Windowed transcript: only the latest rows mount at first. Scrolling near
+  // the top expands the window; Chromium's overflow-anchor keeps the viewport
+  // steady while rows mount above.
+  useEffect(() => {
+    if (messageCountForWindow === 0) {
+      return
+    }
+    const el = scrollRef.current
+    if (el && el.scrollTop < 480 && renderRows < messageCountForWindow) {
+      // Older content already sits against the top edge (short transcript tail).
+      setRowsWindow((s) => {
+        const base = s.chatId === chatId ? s.rows : INITIAL_RENDER_ROWS
+        return { chatId, rows: Math.min(base + RENDER_CHUNK_ROWS, messageCountForWindow) }
+      })
+    }
+  }, [chatId, renderRows, messageCountForWindow])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -546,7 +574,17 @@ export function ChatView({ chatId }: { chatId: string }) {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     stickRef.current = nearBottom
     setShowJump(!nearBottom)
-  }, [])
+    // Scrolling up mounts the next chunk of older rows immediately instead of
+    // waiting for an idle callback.
+    if (el.scrollTop < 480) {
+      setRowsWindow((s) => {
+        const base = s.chatId === chatId ? s.rows : INITIAL_RENDER_ROWS
+        return base < messageCountForWindow
+          ? { chatId, rows: Math.min(base + RENDER_CHUNK_ROWS, messageCountForWindow) }
+          : s
+      })
+    }
+  }, [chatId, messageCountForWindow])
 
   // Bookkeeping for idle eviction in main: this chat is the visible one.
   // Also clears the unread marker a finished background run left behind.
@@ -604,7 +642,19 @@ export function ChatView({ chatId }: { chatId: string }) {
   }
 
   const footer = statsFooter(chat)
+  const hiddenRows = Math.max(0, chat.messages.length - renderRows)
+  const visibleMessages =
+    hiddenRows > 0 ? chat.messages.slice(hiddenRows) : chat.messages
+  // Fork indices count user messages across the whole transcript, so start
+  // at however many live in the windowed-off head.
   let userIndex = -1
+  if (hiddenRows > 0) {
+    for (const m of chat.messages.slice(0, hiddenRows)) {
+      if (m.kind === 'user') {
+        userIndex += 1
+      }
+    }
+  }
 
   // Before the first token lands there is no assistant block to render yet —
   // show a shimmer placeholder so the stream doesn't look stalled.
@@ -638,7 +688,12 @@ export function ChatView({ chatId }: { chatId: string }) {
               <StartingPiNotice startedAt={chat.startedAt} />
             </div>
           )}
-          {chat.messages.map((m) => {
+          {hiddenRows > 0 && (
+            <div className="msg-window-note" aria-hidden="true">
+              …
+            </div>
+          )}
+          {visibleMessages.map((m) => {
             const idx = m.kind === 'user' ? ++userIndex : undefined
             return (
               <Perf key={m.key} id="MessageRow">
