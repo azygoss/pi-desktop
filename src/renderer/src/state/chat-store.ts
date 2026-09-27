@@ -274,7 +274,13 @@ function applyOpenResult(
   draft.availableThinkingLevels = result.thinkingLevels
   draft.models = result.models
   draft.commands = result.commands
-  draft.cwd = result.cwd || draft.cwd
+  // For session opens the recorded cwd is authoritative; for cwd opens the
+  // draft's cwd wins — it may have been switched (setCwd) while this open
+  // was in flight. A session-open draft starts with an empty cwd, so a
+  // non-empty cwd here means the user picked a project mid-open.
+  if (input.sessionPath !== undefined && !draft.cwd) {
+    draft.cwd = result.cwd || draft.cwd
+  }
   draft.sessionPath = result.sessionPath ?? input.sessionPath ?? draft.sessionPath
   if (!draft.transcriptApplied) {
     const firstUser = view.messages.find((m) => m.kind === 'user')
@@ -340,9 +346,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const retry: ChatOpenResult | void = await window.piDesktop.chat
         .open({ chatId, cwd: existing.cwd || input.cwd, sessionPath: existing.sessionPath ?? input.sessionPath })
         .catch((error: unknown) => {
-          existing.status = 'error'
-          existing.error = error instanceof Error ? error.message : String(error)
-          publish(chatId)
+          // 'Chat closed' means a newer open (project switch, reload) or a
+          // real close superseded this one — it owns the draft state now.
+          const message = error instanceof Error ? error.message : String(error)
+          if (message !== 'Chat closed' && drafts.has(chatId)) {
+            existing.status = 'error'
+            existing.error = message
+            publish(chatId)
+          }
         })
       if (retry) {
         applyOpenResult(chatId, existing, retry, input)
@@ -423,9 +434,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       })
     } catch (error) {
       const current = drafts.get(chatId)
-      if (current) {
+      const message = error instanceof Error ? error.message : String(error)
+      // A superseded open reports 'Chat closed'; the replacement open (e.g.
+      // a project switch via setCwd) owns the draft's status.
+      if (current && message !== 'Chat closed') {
         current.status = 'error'
-        current.error = error instanceof Error ? error.message : String(error)
+        current.error = message
         publish(chatId)
       }
       throw error
@@ -527,9 +541,37 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   async setCwd(chatId, cwd) {
     const draft = drafts.get(chatId)
-    const result = await window.piDesktop.chat.setCwd({ chatId, cwd })
     if (!draft) {
       return
+    }
+    // Apply the selection immediately: restarting pi takes seconds, and the
+    // chip should reflect the picked project right away while the process
+    // warms in the background (sends queue until it is ready).
+    const previousCwd = draft.cwd
+    draft.cwd = cwd
+    draft.status = 'starting'
+    draft.piReady = false
+    draft.startedAt = Date.now()
+    draft.error = undefined
+    draft.stderrTail = undefined
+    publish(chatId)
+    let result: ChatOpenResult
+    try {
+      result = await window.piDesktop.chat.setCwd({ chatId, cwd })
+    } catch (error) {
+      // Reopen failed (e.g. the folder vanished) — restore the old project
+      // and surface the error instead of leaving a stale selection.
+      if (!drafts.has(chatId)) {
+        return
+      }
+      draft.cwd = previousCwd
+      draft.status = 'error'
+      draft.error = error instanceof Error ? error.message : String(error)
+      publish(chatId)
+      return
+    }
+    if (!drafts.has(chatId)) {
+      return // closed while switching
     }
     const view = buildChatViewState(result.messages)
     Object.assign(draft, view, {
@@ -544,7 +586,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       stats: undefined,
       uiRequest: undefined
     })
-    draft.status = 'idle'
+    draft.piReady = true
+    draft.status = result.state.isStreaming ? 'streaming' : 'idle'
     publish(chatId)
   },
 
@@ -567,7 +610,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     const result = await window.piDesktop.chat.refresh({ chatId })
     const view = buildChatViewState(result.messages)
     Object.assign(draft, view, {
-      cwd: result.cwd || draft.cwd,
+      // refresh never changes the project; keep draft.cwd so a concurrent
+      // setCwd isn't undone by a stale result.
+      cwd: draft.cwd,
       sessionPath: result.sessionPath ?? draft.sessionPath,
       model: result.state.model,
       thinkingLevel: result.state.thinkingLevel,
@@ -631,7 +676,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
     const view = buildChatViewState(result.messages)
     Object.assign(current, view, {
-      cwd: result.cwd || current.cwd,
+      // reload never changes the project; keep the draft cwd so a concurrent
+      // setCwd isn't undone by a stale result.
+      cwd: current.cwd,
       sessionPath: result.sessionPath ?? current.sessionPath,
       model: result.state.model,
       thinkingLevel: result.state.thinkingLevel,
