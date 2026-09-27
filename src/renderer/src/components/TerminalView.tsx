@@ -20,11 +20,13 @@ function terminalTheme(): Record<string, string> {
   }
 }
 
+type TerminalTabData = Extract<PanelTab, { kind: 'terminal' }>
+
 /**
  * One xterm instance bound to a main-process pty. Spawned once per tab; the
  * terminal keeps running while the panel or tab is hidden.
  */
-export function TerminalView({ tab }: { tab: PanelTab }) {
+export function TerminalView({ tab }: { tab: TerminalTabData }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -45,6 +47,20 @@ export function TerminalView({ tab }: { tab: PanelTab }) {
     term.loadAddon(fit)
     term.open(host)
     fit.fit()
+
+    // WebGL renderer where available; skipped under automation so tests can
+    // read .xterm-rows from the DOM renderer.
+    let webgl: import('@xterm/addon-webgl').WebglAddon | null = null
+    if (!navigator.webdriver) {
+      void import('@xterm/addon-webgl')
+        .then(({ WebglAddon }) => {
+          if (term.element) {
+            webgl = new WebglAddon()
+            term.loadAddon(webgl)
+          }
+        })
+        .catch(() => {})
+    }
 
     const spawned = window.piDesktop.terminal.spawn({
       id: tab.id,
@@ -89,6 +105,7 @@ export function TerminalView({ tab }: { tab: PanelTab }) {
       themeObserver.disconnect()
       offInput.dispose()
       offData()
+      webgl?.dispose()
       term.dispose()
       // The pty survives view teardown only if the tab still exists; killing
       // here matches "close = terminate".

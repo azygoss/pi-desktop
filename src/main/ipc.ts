@@ -5,6 +5,7 @@ import { homedir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
+  BrowserRect,
   ChatMenuAction,
   ChatOpenInput,
   ChatSendInput,
@@ -22,6 +23,8 @@ import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { workspaceDir } from './config/app-paths'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
+import { BrowserManager } from './browser/browser-manager'
+import { getRepoDiff } from './diff/git-diff'
 import { importSessionFile } from './sessions/import-session'
 import { getAgentDir } from './sessions/paths'
 import { listSessions, watchSessions } from './sessions/session-index'
@@ -82,6 +85,18 @@ export const IPC_CHANNELS = {
   terminalKill: 'pi-desktop:terminal:kill',
   terminalData: 'pi-desktop:terminal:data',
   terminalExit: 'pi-desktop:terminal:exit',
+  browserCreate: 'pi-desktop:browser:create',
+  browserNavigate: 'pi-desktop:browser:navigate',
+  browserBack: 'pi-desktop:browser:back',
+  browserForward: 'pi-desktop:browser:forward',
+  browserReloadOrStop: 'pi-desktop:browser:reload-or-stop',
+  browserClose: 'pi-desktop:browser:close',
+  browserSetVisible: 'pi-desktop:browser:set-visible',
+  browserSetOverlay: 'pi-desktop:browser:set-overlay',
+  browserState: 'pi-desktop:browser:state',
+  browserOpenUrl: 'pi-desktop:browser:open-url',
+  browserDownloaded: 'pi-desktop:browser:downloaded',
+  diffStatus: 'pi-desktop:diff:status',
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external'
 } as const
@@ -90,6 +105,7 @@ export interface IpcDeps {
   pool: PiProcessPool
   chat: ChatService
   pty: PtyManager
+  browser: BrowserManager
 }
 
 /**
@@ -516,6 +532,51 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return deps.pty.kill(input.id)
   })
 
+  const browserId = (value: unknown): string => {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value)) {
+      throw new Error('Invalid browser tab id')
+    }
+    return value
+  }
+
+  ipcMain.handle(IPC_CHANNELS.browserCreate, (_e, input: { id: string; url?: string }) =>
+    deps.browser.create(browserId(input?.id), typeof input?.url === 'string' ? input.url : undefined)
+  )
+  ipcMain.handle(IPC_CHANNELS.browserNavigate, (_e, input: { id: string; url: string }) => {
+    if (typeof input?.url !== 'string' || input.url.length > 4096) {
+      throw new Error('Invalid URL')
+    }
+    deps.browser.navigate(browserId(input.id), input.url)
+  })
+  ipcMain.handle(IPC_CHANNELS.browserBack, (_e, input: { id: string }) =>
+    deps.browser.goBack(browserId(input?.id))
+  )
+  ipcMain.handle(IPC_CHANNELS.browserForward, (_e, input: { id: string }) =>
+    deps.browser.goForward(browserId(input?.id))
+  )
+  ipcMain.handle(IPC_CHANNELS.browserReloadOrStop, (_e, input: { id: string }) =>
+    deps.browser.reloadOrStop(browserId(input?.id))
+  )
+  ipcMain.handle(IPC_CHANNELS.browserClose, (_e, input: { id: string }) =>
+    deps.browser.close(browserId(input?.id))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.browserSetVisible,
+    (_e, input: { id: string | null; rect?: BrowserRect }) => {
+      deps.browser.setVisible(
+        input?.id === null ? null : browserId(input?.id),
+        input?.rect && typeof input.rect === 'object' ? input.rect : undefined
+      )
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.browserSetOverlay, (_e, input: { open: boolean }) =>
+    deps.browser.setOverlayOpen(input?.open === true)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.diffStatus, (_e, input: { cwd: string }) =>
+    validateCwd(input?.cwd).then((cwd) => getRepoDiff(cwd))
+  )
+
   ipcMain.handle(IPC_CHANNELS.appQuit, () => {
     app.quit()
   })
@@ -582,6 +643,7 @@ export function wireAppLifecycle(deps: IpcDeps): void {
   app.on('before-quit', () => {
     void deps.chat.closeAll()
     void deps.pty.killAll()
+    deps.browser.closeAll()
   })
 }
 

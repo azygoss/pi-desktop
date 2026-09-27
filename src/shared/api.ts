@@ -109,6 +109,9 @@ export interface AppSettings {
   hiddenProjects: string[]
   collapsedProjects: string[]
   sidebarCollapsed: boolean
+  /** Right panel open state and pixel width, persisted across restarts. */
+  panelOpen: boolean
+  panelWidth: number
 }
 
 /** Identifiers returned by the native context menu. */
@@ -151,6 +154,35 @@ export interface TerminalExitPayload {
 export interface RuntimeCommand {
   command: string
   args: string[]
+}
+
+/** Rectangle (CSS px, window-relative) where a browser view should paint. */
+export interface BrowserRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Per-tab browser state pushed from main to renderer. */
+export interface BrowserTabState {
+  id: string
+  url: string
+  title: string
+  favicon?: string
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+/** Git working-tree diff for the diff panel. */
+export interface RepoDiffResult {
+  isRepo: boolean
+  branch?: string
+  /** Raw `git diff` output (unified format). */
+  diffText: string
+  /** Untracked text files (≤200KB each), rendered as all-added files. */
+  untracked: { path: string; content: string }[]
 }
 
 /** Actions dispatched from the native application menu. */
@@ -200,6 +232,34 @@ export interface PiDesktopApi {
     kill(input: { id: string }): Promise<void>
     onData(callback: (payload: TerminalDataPayload) => void): () => void
     onExit(callback: (payload: TerminalExitPayload) => void): () => void
+  }
+  browser: {
+    /** Create a browser tab's WebContentsView; optionally navigates. */
+    create(input: { id: string; url?: string }): Promise<void>
+    /** Navigate; url is normalized in main. Errors are thrown. */
+    navigate(input: { id: string; url: string }): Promise<void>
+    goBack(input: { id: string }): Promise<void>
+    goForward(input: { id: string }): Promise<void>
+    /** Reload, or stop if a load is in flight. */
+    reloadOrStop(input: { id: string }): Promise<void>
+    close(input: { id: string }): Promise<void>
+    /**
+     * Which browser tab should be painted and where (window-relative CSS px).
+     * `id: null` hides all browser views.
+     */
+    setVisible(input: { id: string | null; rect?: BrowserRect }): Promise<void>
+    /** Hide/show all browser views while a DOM overlay is open. */
+    setOverlayOpen(input: { open: boolean }): Promise<void>
+    /** Tab state updates (url, title, favicon, loading, history flags). */
+    onState(callback: (state: BrowserTabState) => void): () => void
+    /** Page asked to open a new window → renderer opens a new browser tab. */
+    onOpenUrl(callback: (payload: { url: string }) => void): () => void
+    /** A download completed → renderer shows a toast. */
+    onDownload(callback: (payload: { filename: string }) => void): () => void
+  }
+  diff: {
+    /** Git status + unified diff for a directory; isRepo=false when not git. */
+    status(input: { cwd: string }): Promise<RepoDiffResult>
   }
   projects: {
     list(): Promise<ProjectSummary[]>

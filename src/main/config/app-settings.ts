@@ -27,7 +27,12 @@ export interface AppSettings {
   /** Project cwds whose sidebar rows are collapsed (expanded by default). */
   collapsedProjects: string[]
   sidebarCollapsed: boolean
+  /** Right panel open state and pixel width, persisted across restarts. */
+  panelOpen: boolean
+  panelWidth: number
 }
+
+export const PANEL_MIN_WIDTH = 320
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
@@ -35,7 +40,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   projects: [],
   hiddenProjects: [],
   collapsedProjects: [],
-  sidebarCollapsed: false
+  sidebarCollapsed: false,
+  panelOpen: false,
+  panelWidth: 400
 }
 
 export function settingsFilePath(): string {
@@ -125,6 +132,13 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   if (typeof input['sidebarCollapsed'] === 'boolean') {
     settings.sidebarCollapsed = input['sidebarCollapsed']
   }
+  if (typeof input['panelOpen'] === 'boolean') {
+    settings.panelOpen = input['panelOpen']
+  }
+  const panelWidth = Number(input['panelWidth'])
+  if (Number.isFinite(panelWidth)) {
+    settings.panelWidth = Math.max(PANEL_MIN_WIDTH, Math.min(1200, Math.floor(panelWidth)))
+  }
   return settings
 }
 
@@ -182,6 +196,13 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
     }
     if (typeof input['sidebarCollapsed'] === 'boolean') {
       merged.sidebarCollapsed = input['sidebarCollapsed']
+    }
+    if (typeof input['panelOpen'] === 'boolean') {
+      merged.panelOpen = input['panelOpen']
+    }
+    const panelWidth = Number(input['panelWidth'])
+    if (Number.isFinite(panelWidth)) {
+      merged.panelWidth = Math.max(PANEL_MIN_WIDTH, Math.min(1200, Math.floor(panelWidth)))
     }
   }
   cached = merged

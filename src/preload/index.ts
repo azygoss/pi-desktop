@@ -45,6 +45,22 @@ const api: PiDesktopApi = {
     onData: subscribe('pi-desktop:terminal:data'),
     onExit: subscribe('pi-desktop:terminal:exit')
   },
+  browser: {
+    create: (input) => ipcRenderer.invoke('pi-desktop:browser:create', input),
+    navigate: (input) => ipcRenderer.invoke('pi-desktop:browser:navigate', input),
+    goBack: (input) => ipcRenderer.invoke('pi-desktop:browser:back', input),
+    goForward: (input) => ipcRenderer.invoke('pi-desktop:browser:forward', input),
+    reloadOrStop: (input) => ipcRenderer.invoke('pi-desktop:browser:reload-or-stop', input),
+    close: (input) => ipcRenderer.invoke('pi-desktop:browser:close', input),
+    setVisible: (input) => ipcRenderer.invoke('pi-desktop:browser:set-visible', input),
+    setOverlayOpen: (input) => ipcRenderer.invoke('pi-desktop:browser:set-overlay', input),
+    onState: subscribe('pi-desktop:browser:state'),
+    onOpenUrl: subscribe('pi-desktop:browser:open-url'),
+    onDownload: subscribe('pi-desktop:browser:downloaded')
+  },
+  diff: {
+    status: (input) => ipcRenderer.invoke('pi-desktop:diff:status', input)
+  },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
     pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder'),

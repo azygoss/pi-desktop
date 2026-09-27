@@ -1,8 +1,9 @@
-import { ChevronLeft, ChevronRight, MoreHorizontal, PanelLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MoreHorizontal, PanelLeft, PanelRight } from 'lucide-react'
 import { useState } from 'react'
 
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
+import { usePanelStore } from '../state/panel-store'
 
 /**
  * Navigation buttons that live in the 44px window drag strip: sidebar toggle
@@ -60,6 +61,7 @@ export function MainTopBar() {
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
   const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
   const navigate = useAppStore((s) => s.navigate)
+  const panelOpen = usePanelStore((s) => s.open)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
 
@@ -188,6 +190,14 @@ export function MainTopBar() {
           </button>
         </div>
       )}
+      <button
+        type="button"
+        className="icon-btn panel-toggle no-drag"
+        title={panelOpen ? 'Hide panel (⌘⌥B)' : 'Show panel (⌘⌥B)'}
+        onClick={() => usePanelStore.getState().togglePanel()}
+      >
+        <PanelRight size={16} />
+      </button>
     </div>
   )
 }

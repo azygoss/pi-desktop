@@ -4,6 +4,8 @@
 // user data are involved.
 
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +18,28 @@ const SHOTS = process.env['PI_DESKTOP_SHOT_DIR'] ?? '/tmp/pi-desktop-shots'
 
 const PROJECT_A = '/Users/example/synthetic-alpha'
 const PROJECT_B = '/Users/example/synthetic-beta'
+
+const TEST_PAGE = `<!doctype html><html><head><title>E2E Test Page</title></head>
+<body><h1>Pi Desktop test page</h1><button id="btn">Click me</button>
+<script>document.getElementById('btn').addEventListener('click', (e) => { e.target.textContent = 'Clicked!' })</script>
+</body></html>`
+
+function git(cwd: string, args: string[]): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    execFile('git', ['-C', cwd, ...args], (error) => (error ? reject(error) : resolvePromise()))
+  })
+}
+
+/** Seed a tiny git repo (synthetic basename) with one modified file. */
+async function seedGitRepo(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  await git(dir, ['init', '-b', 'main'])
+  await writeFile(join(dir, 'notes.txt'), 'line one\nline two\n')
+  await git(dir, ['add', 'notes.txt'])
+  await git(dir, ['-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '-m', 'init'])
+  await writeFile(join(dir, 'notes.txt'), 'line one\nline two changed\nline three\n')
+  await writeFile(join(dir, 'new-file.txt'), 'fresh content\n')
+}
 
 function sessionDirName(cwd: string): string {
   return `--${cwd.replaceAll('/', '-')}--`
@@ -78,11 +102,27 @@ describe('Pi Desktop e2e', () => {
   let page: Page
   let agentDir: string
   let userDataDir: string
+  let repoDir: string
+  let server: Server
+  let pageUrl: string
 
   beforeAll(async () => {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-'))
     await seedAgentDir(agentDir)
     await mkdir(SHOTS, { recursive: true })
+
+    // Synthetic git repo for the diff panel (basename shows in the UI).
+    repoDir = join(await mkdtemp(join(tmpdir(), 'pi-e2e-repo-')), 'synthetic-repo')
+    await seedGitRepo(repoDir)
+
+    // Local static page for the browser panel.
+    server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(TEST_PAGE)
+    })
+    await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise))
+    const port = (server.address() as { port: number }).port
+    pageUrl = `http://127.0.0.1:${port}/`
 
     // Synthetic app settings so screenshots show a fake display name. New
     // chats run in the app scratch dir and show "Without project", so no
@@ -96,6 +136,10 @@ describe('Pi Desktop e2e', () => {
           {
             cwd: '/Users/example/synthetic-gamma',
             addedAt: '2024-01-01T00:00:00Z'
+          },
+          {
+            cwd: repoDir,
+            addedAt: '2024-01-02T00:00:00Z'
           }
         ]
       })
@@ -123,11 +167,15 @@ describe('Pi Desktop e2e', () => {
 
   afterAll(async () => {
     await app?.close()
+    server?.close()
     if (agentDir) {
       await rm(agentDir, { recursive: true, force: true })
     }
     if (userDataDir) {
       await rm(userDataDir, { recursive: true, force: true })
+    }
+    if (repoDir) {
+      await rm(dirname(repoDir), { recursive: true, force: true })
     }
   })
 
@@ -141,9 +189,9 @@ describe('Pi Desktop e2e', () => {
     // sidebar nests seeded chats under their projects (4 + 2), plus a
     // synthetic user-added project with no chats at all.
     await visible(page, '.sidebar-project')
-    expect(await page.locator('.sidebar-project').count()).toBe(3)
+    expect(await page.locator('.sidebar-project').count()).toBe(4)
     expect(await page.locator('.sidebar-session').count()).toBe(6)
-    expect(await page.locator('.sidebar-empty-nested').textContent()).toBe('No chats')
+    expect(await page.locator('.sidebar-empty-nested').first().textContent()).toBe('No chats')
     await page.screenshot({ path: join(SHOTS, 'home-dark.png') })
   })
 
@@ -215,5 +263,72 @@ describe('Pi Desktop e2e', () => {
     // nav buttons move into the main pane's top strip
     await visible(page, '.main-topbar .nav-buttons', 5_000)
     await page.screenshot({ path: join(SHOTS, 'sidebar-collapsed.png') })
+  })
+
+  it('opens the right panel and runs a terminal command', async () => {
+    await page.keyboard.press('Meta+Alt+b')
+    await visible(page, '.right-panel')
+    // No tabs yet → the new-tab page lists the Terminal tool.
+    await visible(page, '.newtab-page')
+    await page.locator('.newtab-tools .folder-row', { hasText: 'Terminal' }).click()
+    await visible(page, '.terminal-view .xterm', 20_000)
+    // Wait for the login shell prompt (any output = shell is ready).
+    await page.waitForFunction(
+      "!!document.querySelector('.xterm-rows')?.textContent?.trim()",
+      undefined,
+      { timeout: 20_000 }
+    )
+    await page.locator('.terminal-view').click()
+    // Sanitize the prompt so screenshots never show the real user@host.
+    await page.keyboard.type("PS1='> '")
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('clear')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('echo hello')
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(
+      "document.querySelector('.xterm-rows')?.textContent?.includes('hello')",
+      undefined,
+      { timeout: 20_000 }
+    )
+    await page.screenshot({ path: join(SHOTS, 'panel-terminal.png') })
+  })
+
+  it('opens a browser tab on a local page', async () => {
+    await page.locator('.panel-tab-add').click()
+    await visible(page, '.newtab-address input')
+    await page.locator('.newtab-address input').fill(pageUrl)
+    await page.keyboard.press('Enter')
+    await visible(page, '.browser-toolbar')
+    // WebContentsView paints outside the DOM; the tab title proves the page
+    // loaded and pushed state back over IPC.
+    await page.waitForFunction(
+      "[...document.querySelectorAll('.panel-tab-label')].some((el) => el.textContent === 'E2E Test Page')",
+      undefined,
+      { timeout: 15_000 }
+    )
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: join(SHOTS, 'panel-browser.png') })
+  })
+
+  it('shows the diff tab for a git project', async () => {
+    // Open a draft chat inside the synthetic repo project (re-expand the
+    // sidebar first — the previous test collapsed it).
+    await page.keyboard.press('Meta+b')
+    await visible(page, '.sidebar')
+    await page.keyboard.press('Meta+n')
+    const project = page.locator('.sidebar-project', { hasText: 'synthetic-repo' })
+    await project.hover()
+    await project.locator('button[title="New chat in this project"]').click()
+    await page.waitForSelector('.composer-input')
+
+    await page.locator('.panel-tab-add').click()
+    await page.locator('.newtab-tools .folder-row', { hasText: 'Diff' }).click()
+    await visible(page, '.diff-panel')
+    await visible(page, '.diff-file', 10_000)
+    const paths = await page.locator('.diff-file-path').allTextContents()
+    expect(paths).toContain('notes.txt')
+    expect(paths).toContain('new-file.txt')
+    await page.screenshot({ path: join(SHOTS, 'panel-diff.png') })
   })
 })

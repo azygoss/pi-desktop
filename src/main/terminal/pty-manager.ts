@@ -1,3 +1,7 @@
+import { chmodSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+
 import type { IPty } from 'node-pty'
 
 import type { TerminalSpawnInput } from '../../shared/api'
@@ -40,6 +44,7 @@ export class PtyManager {
     if (this.records.has(input.id)) {
       throw new Error(`Terminal ${input.id} already exists`)
     }
+    ensureSpawnHelper()
     const { spawn } = await import('node-pty')
     const argv = input.argv && input.argv.length > 0 ? input.argv : null
     const command = argv ? argv[0]! : shellPath()
@@ -125,6 +130,37 @@ export class PtyManager {
       record.buffer = ''
       this.callbacks.onData(id, data)
     }
+  }
+}
+
+const require_ = createRequire(import.meta.url)
+let helperFixed = false
+
+/**
+ * node-pty spawns a `spawn-helper` binary for each pty. Some installs lose
+ * the executable bit (pnpm store hardlinks, asar extraction); restore it
+ * lazily — without it every spawn fails with `posix_spawnp failed`.
+ */
+function ensureSpawnHelper(): void {
+  if (helperFixed || process.platform === 'win32') {
+    return
+  }
+  helperFixed = true
+  try {
+    const pkgDir = dirname(require_.resolve('node-pty/package.json')).replace(
+      'app.asar',
+      'app.asar.unpacked'
+    )
+    const helper = join(
+      pkgDir,
+      'prebuilds',
+      `${process.platform}-${process.arch}`,
+      'spawn-helper'
+    )
+    chmodSync(helper, 0o755)
+  } catch {
+    // Non-prebuild layout (node-gyp build) or read-only bundle — spawn will
+    // surface a clear error either way.
   }
 }
 

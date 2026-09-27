@@ -17,6 +17,11 @@ export function App() {
   const ready = useAppStore((s) => s.ready)
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const chatModal = useAppStore((s) => s.chatModal)
+  const panelOpen = usePanelStore((s) => s.open)
+  const browserActive = usePanelStore(
+    (s) => s.open && s.tabs.find((t) => t.id === s.activeTabId)?.kind === 'browser'
+  )
 
   useEffect(() => {
     initChatBridge()
@@ -41,9 +46,37 @@ export function App() {
     }
   }, [])
 
+  // Seed the panel from persisted settings once app settings are loaded.
+  const hydratedPanel = usePanelStore((s) => s.hydrated)
+  useEffect(() => {
+    if (ready && !hydratedPanel) {
+      const s = useAppStore.getState().appSettings
+      usePanelStore.getState().hydrate(s.panelOpen, s.panelWidth)
+    }
+  }, [ready, hydratedPanel])
+
+  // Keep browser views hidden whenever no browser tab is on screen.
+  useEffect(() => {
+    if (!browserActive) {
+      void window.piDesktop.browser.setVisible({ id: null }).catch(() => {})
+    }
+  }, [browserActive, panelOpen])
+
+  // DOM overlays must never be painted over by a browser view.
+  useEffect(() => {
+    const overlay = settingsOpen || chatModal !== null
+    void window.piDesktop.browser.setOverlayOpen({ open: overlay }).catch(() => {})
+  }, [settingsOpen, chatModal])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const store = useAppStore.getState()
+      // ⌘⌥B toggles the right panel (⌥ may change e.key on macOS).
+      if (e.metaKey && e.altKey && e.code === 'KeyB') {
+        e.preventDefault()
+        usePanelStore.getState().togglePanel()
+        return
+      }
       // ⌃` toggles/creates a terminal (ctrl-only, no meta).
       if (e.key === '`' && e.ctrlKey && !e.metaKey) {
         e.preventDefault()

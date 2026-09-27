@@ -15,7 +15,9 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   projects: [],
   hiddenProjects: [],
   collapsedProjects: [],
-  sidebarCollapsed: false
+  sidebarCollapsed: false,
+  panelOpen: false,
+  panelWidth: 400
 }
 
 interface AppState {

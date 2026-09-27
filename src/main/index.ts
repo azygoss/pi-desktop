@@ -10,6 +10,7 @@ import {
 } from './ipc'
 import { loadAppSettings } from './config/app-settings'
 import { ensureWorkspaceDir } from './config/app-paths'
+import { BrowserManager } from './browser/browser-manager'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
@@ -24,6 +25,11 @@ const pty = new PtyManager({
   onData: (id, data) => broadcastAll(IPC_CHANNELS.terminalData, { id, data }),
   onExit: (id, exitCode, signal) =>
     broadcastAll(IPC_CHANNELS.terminalExit, { id, exitCode, signal })
+})
+const browser = new BrowserManager({
+  onState: (state) => broadcastAll(IPC_CHANNELS.browserState, state),
+  onOpenUrl: (url) => broadcastAll(IPC_CHANNELS.browserOpenUrl, { url }),
+  onDownload: (filename) => broadcastAll(IPC_CHANNELS.browserDownloaded, { filename })
 })
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
@@ -87,9 +93,9 @@ app.whenReady().then(async () => {
   if (appSettings) {
     pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))
   }
-  registerIpcHandlers({ pool, chat, pty })
+  registerIpcHandlers({ pool, chat, pty, browser })
   startSessionWatcher()
-  wireAppLifecycle({ pool, chat, pty })
+  wireAppLifecycle({ pool, chat, pty, browser })
   installAppMenu(isDev)
   createWindow()
 

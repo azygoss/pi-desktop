@@ -6,13 +6,16 @@ import type { Plugin } from 'vite'
 // Strict CSP for the renderer. In dev mode the page is served by the Vite dev
 // server, which needs inline module scripts (react-refresh preamble) and
 // websocket HMR, so only the production policy is fully locked down.
+// https: in img-src is for browser-tab favicons; http only in dev for local
+// pages the panel browser can visit (favicons load from the page origin).
 const CSP_PROD =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; " +
+  "img-src 'self' data: https: http://localhost:* http://127.0.0.1:*; connect-src 'self'; font-src 'self'; object-src 'none'; " +
   "base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 const CSP_DEV =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*; " +
+  "img-src 'self' data: https: http://localhost:* http://127.0.0.1:*; " +
+  "connect-src 'self' ws://localhost:* http://localhost:*; " +
   "font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 
 function cspPlugin(): Plugin {

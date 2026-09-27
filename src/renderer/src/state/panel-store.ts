@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 
-import type { TerminalProfile } from '../../../shared/api'
+import type { BrowserTabState, TerminalProfile } from '../../../shared/api'
+import { toast } from './toast-store'
+
+export const PANEL_MIN_WIDTH = 320
+const PANEL_MAX_RATIO = 0.7
+const DIFF_TAB_ID = 'diff'
 
 export interface TerminalTabSpec {
   cwd: string
@@ -10,36 +15,125 @@ export interface TerminalTabSpec {
   initialInput?: string
 }
 
-export interface PanelTab {
-  id: string
-  kind: 'terminal'
-  title: string
-  spec: TerminalTabSpec
-  /** Set once the pty spawned; cleared on exit. */
-  exited?: boolean
-}
+export type PanelTab =
+  | {
+      id: string
+      kind: 'terminal'
+      title: string
+      spec: TerminalTabSpec
+      /** Set once the pty spawned; cleared on exit. */
+      exited?: boolean
+    }
+  | {
+      id: string
+      kind: 'browser'
+      title: string
+      url: string
+      favicon?: string
+      loading?: boolean
+      canGoBack?: boolean
+      canGoForward?: boolean
+      /** Set for tabs owned by a pi agent's browser tools (section E). */
+      agentChatId?: string
+    }
+  | { id: string; kind: 'diff' }
+  | { id: string; kind: 'newtab' }
 
 interface PanelState {
+  hydrated: boolean
   open: boolean
+  width: number
   tabs: PanelTab[]
   activeTabId: string | null
 
+  /** Seed open/width from persisted app settings (called once at startup). */
+  hydrate(open: boolean, width: number): void
   setOpen(open: boolean): void
+  togglePanel(): void
+  setWidth(width: number): void
+  addNewTab(): string
+  /** Turn a new-tab page into a browser tab navigated to `url`. */
+  convertNewTab(id: string, url: string): void
   openTerminal(spec: TerminalTabSpec, title: string): string
+  openBrowser(url: string, opts?: { title?: string; agentChatId?: string }): string
+  /** Focus the one diff tab, creating it if needed. */
+  openDiff(): void
   /** Focus an existing terminal tab or create a fresh shell terminal. */
   toggleTerminal(cwd: string): void
   activate(id: string): void
   closeTab(id: string): void
   markExited(id: string): void
+  /** Merge main-process browser state into a browser tab. */
+  applyBrowserState(state: BrowserTabState): void
+}
+
+let widthPersistTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistOpen(open: boolean): void {
+  void window.piDesktop.appSettings.update({ panelOpen: open }).catch(() => {})
+}
+
+function persistWidth(width: number): void {
+  if (widthPersistTimer) {
+    clearTimeout(widthPersistTimer)
+  }
+  widthPersistTimer = setTimeout(() => {
+    void window.piDesktop.appSettings.update({ panelWidth: width }).catch(() => {})
+  }, 500)
 }
 
 export const usePanelStore = create<PanelState>((set, get) => ({
+  hydrated: false,
   open: false,
+  width: 400,
   tabs: [],
   activeTabId: null,
 
+  hydrate(open, width) {
+    if (get().hydrated) {
+      return
+    }
+    set({ hydrated: true, open, width: Math.max(PANEL_MIN_WIDTH, width) })
+  },
+
   setOpen(open) {
     set({ open })
+    persistOpen(open)
+  },
+
+  togglePanel() {
+    get().setOpen(!get().open)
+  },
+
+  setWidth(width) {
+    const max = Math.max(PANEL_MIN_WIDTH, Math.round(window.innerWidth * PANEL_MAX_RATIO))
+    const clamped = Math.max(PANEL_MIN_WIDTH, Math.min(max, Math.round(width)))
+    set({ width: clamped })
+    persistWidth(clamped)
+  },
+
+  addNewTab() {
+    const id = crypto.randomUUID()
+    set((s) => ({
+      open: true,
+      tabs: [...s.tabs, { id, kind: 'newtab' }],
+      activeTabId: id
+    }))
+    return id
+  },
+
+  convertNewTab(id, url) {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === id && t.kind === 'newtab'
+          ? { id, kind: 'browser' as const, title: 'New Tab', url }
+          : t
+      )
+    }))
+    void window.piDesktop.browser.create({ id, url }).catch((e) => {
+      toast(`Could not open browser: ${String(e)}`)
+      get().closeTab(id)
+    })
   },
 
   openTerminal(spec, title) {
@@ -52,12 +146,49 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     return id
   },
 
+  openBrowser(url, opts) {
+    const id = crypto.randomUUID()
+    set((s) => ({
+      open: true,
+      tabs: [
+        ...s.tabs,
+        {
+          id,
+          kind: 'browser',
+          title: opts?.title ?? 'New Tab',
+          url,
+          agentChatId: opts?.agentChatId
+        }
+      ],
+      activeTabId: id
+    }))
+    void window.piDesktop.browser.create({ id, url }).catch((e) => {
+      toast(`Could not open browser: ${String(e)}`)
+      get().closeTab(id)
+    })
+    return id
+  },
+
+  openDiff() {
+    const existing = get().tabs.find((t) => t.id === DIFF_TAB_ID)
+    if (existing) {
+      set({ open: true, activeTabId: DIFF_TAB_ID })
+      return
+    }
+    set((s) => ({
+      open: true,
+      tabs: [...s.tabs, { id: DIFF_TAB_ID, kind: 'diff' }],
+      activeTabId: DIFF_TAB_ID
+    }))
+  },
+
   toggleTerminal(cwd) {
     const { tabs, open, activeTabId } = get()
     const existing = tabs.find((t) => t.kind === 'terminal' && !t.exited)
     if (!open) {
-      set({ open: true, activeTabId: existing?.id ?? activeTabId })
-      if (!existing) {
+      if (existing) {
+        set({ open: true, activeTabId: existing.id })
+      } else {
         get().openTerminal({ cwd }, 'Terminal')
       }
       return
@@ -66,8 +197,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       get().openTerminal({ cwd }, 'Terminal')
       return
     }
-    // Panel open with a terminal: a second press toggles the panel closed.
+    if (activeTabId !== existing.id) {
+      set({ activeTabId: existing.id })
+      return
+    }
+    // Panel open on a terminal: a second press closes the panel.
     set({ open: false })
+    persistOpen(false)
   },
 
   activate(id) {
@@ -75,23 +211,46 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   closeTab(id) {
-    void window.piDesktop.terminal.kill({ id }).catch(() => {})
+    const tab = get().tabs.find((t) => t.id === id)
+    if (tab?.kind === 'browser') {
+      void window.piDesktop.browser.close({ id }).catch(() => {})
+    } else if (tab?.kind === 'terminal') {
+      void window.piDesktop.terminal.kill({ id }).catch(() => {})
+    }
     set((s) => {
       const tabs = s.tabs.filter((t) => t.id !== id)
       const activeTabId =
         s.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : s.activeTabId
-      return { tabs, activeTabId, open: tabs.length === 0 ? false : s.open }
+      return { tabs, activeTabId }
     })
   },
 
   markExited(id) {
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, exited: true } : t))
+      tabs: s.tabs.map((t) => (t.id === id && t.kind === 'terminal' ? { ...t, exited: true } : t))
+    }))
+  },
+
+  applyBrowserState(state) {
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === state.id && t.kind === 'browser'
+          ? {
+              ...t,
+              url: state.url || t.url,
+              title: state.title || 'New Tab',
+              favicon: state.favicon,
+              loading: state.loading,
+              canGoBack: state.canGoBack,
+              canGoForward: state.canGoForward
+            }
+          : t
+      )
     }))
   }
 }))
 
-/** Wire pty exit events → tab state once per session. */
+/** Wire pty/browser events → tab state once per session. */
 let ptyBridgeReady = false
 export function initPanelBridge(): void {
   if (ptyBridgeReady) {
@@ -101,14 +260,20 @@ export function initPanelBridge(): void {
   window.piDesktop.terminal.onExit(({ id }) => {
     usePanelStore.getState().markExited(id)
   })
+  window.piDesktop.browser.onState((state) => {
+    usePanelStore.getState().applyBrowserState(state)
+  })
+  window.piDesktop.browser.onOpenUrl(({ url }) => {
+    usePanelStore.getState().openBrowser(url)
+  })
+  window.piDesktop.browser.onDownload(({ filename }) => {
+    toast(`Downloaded ${filename}`)
+  })
 }
 
-/**
- * Open a URL — until the in-app browser panel (section D) exists, this falls
- * back to the system browser.
- */
+/** Open a URL in a browser tab in the right panel. */
 export function openInBrowser(url: string): void {
-  void window.piDesktop.app.openExternal(url).catch(() => {})
+  usePanelStore.getState().openBrowser(url)
 }
 
 /** Spawn a pi TUI terminal tab running a built-in slash command. */
