@@ -187,6 +187,34 @@ export class ChatService {
     return record.client.request<ChatSessionStats>({ type: 'get_session_stats' })
   }
 
+  async compact(input: { chatId: string; customInstructions?: string }): Promise<void> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const customInstructions =
+      input.customInstructions === undefined
+        ? undefined
+        : requireString(input.customInstructions, 'customInstructions', 4096)
+    await record.client.request({
+      type: 'compact',
+      ...(customInstructions ? { customInstructions } : {})
+    })
+  }
+
+  async setSessionName(input: { chatId: string; name: string }): Promise<void> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const name = requireString(input.name, 'name', 200)
+    await record.client.request({ type: 'set_session_name', name })
+  }
+
+  async exportHtml(input: { chatId: string; outputPath: string }): Promise<{ path?: string }> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const outputPath = validateOutputPath(input.outputPath)
+    const result = await record.client.request<{ path?: string }>({
+      type: 'export_html',
+      outputPath
+    })
+    return result ?? {}
+  }
+
   async setCwd(input: { chatId: string; cwd: string }): Promise<ChatOpenResult> {
     const chatId = validateChatId(input.chatId)
     const cwd = await validateCwd(input.cwd)

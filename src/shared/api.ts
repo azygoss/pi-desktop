@@ -100,6 +100,19 @@ export interface PiDesktopApi {
     getUserFirstName(): Promise<string>
     /** Native folder picker; resolves to the chosen absolute path or null. */
     pickFolder(): Promise<string | null>
+    /** Native file picker for a single existing file (used for custom paths). */
+    pickFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>
+    /** Native save dialog; resolves to the chosen path or null. */
+    saveFile(input: { defaultPath?: string; extension: string }): Promise<string | null>
+    /** Reveal a path in the OS file manager. */
+    revealPath(path: string): Promise<void>
+    /** Native confirm/message dialog; resolves to the clicked button index. */
+    confirmDialog(input: {
+      title: string
+      message?: string
+      buttons: string[]
+      danger?: boolean
+    }): Promise<number>
   }
   chat: {
     open(input: ChatOpenInput): Promise<ChatOpenResult>
@@ -109,6 +122,9 @@ export interface PiDesktopApi {
     setThinkingLevel(input: { chatId: string; level: ThinkingLevel }): Promise<void>
     getStats(input: { chatId: string }): Promise<ChatSessionStats | undefined>
     setCwd(input: { chatId: string; cwd: string }): Promise<ChatOpenResult>
+    compact(input: { chatId: string; customInstructions?: string }): Promise<void>
+    setSessionName(input: { chatId: string; name: string }): Promise<void>
+    exportHtml(input: { chatId: string; outputPath: string }): Promise<{ path?: string }>
     respondUi(input: ChatUiResponseInput): Promise<void>
     close(input: { chatId: string }): Promise<void>
     onEvent(callback: (payload: ChatEventPayload) => void): () => void

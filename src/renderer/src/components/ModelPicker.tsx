@@ -19,6 +19,8 @@ interface ModelPickerProps {
   thinkingLevel: ThinkingLevel | null
   thinkingLevels: ThinkingLevel[]
   disabled?: boolean
+  /** Increment to open the popover programmatically (e.g. `/model`). */
+  openSignal?: number
   onSelect(provider: string, modelId: string): void
   onThinkingChange(level: ThinkingLevel): void
 }
@@ -29,6 +31,7 @@ export function ModelPicker({
   thinkingLevel,
   thinkingLevels,
   disabled,
+  openSignal,
   onSelect,
   onThinkingChange
 }: ModelPickerProps) {
@@ -69,6 +72,14 @@ export function ModelPicker({
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
+
+  useEffect(() => {
+    if (openSignal !== undefined && openSignal > 0) {
+      setQuery('')
+      setHighlight(0)
+      setOpen(true)
+    }
+  }, [openSignal])
 
   function toggleOpen(): void {
     if (!open) {

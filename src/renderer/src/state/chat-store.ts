@@ -46,6 +46,7 @@ interface ChatStoreState {
   setThinkingLevel(chatId: string, level: ThinkingLevel): Promise<void>
   setCwd(chatId: string, cwd: string): Promise<void>
   closeChat(chatId: string): Promise<void>
+  setChatTitle(chatId: string, title: string): void
   respondUi(chatId: string, response: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }): void
 }
 
@@ -324,6 +325,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return { chats }
     })
     await window.piDesktop.chat.close({ chatId }).catch(() => {})
+  },
+
+  setChatTitle(chatId, title) {
+    const draft = drafts.get(chatId)
+    if (draft) {
+      draft.title = title
+      publish(chatId)
+    }
   },
 
   respondUi(chatId, response) {

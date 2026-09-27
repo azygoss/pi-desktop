@@ -25,7 +25,11 @@ const api: PiDesktopApi = {
   },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
-    pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder')
+    pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder'),
+    pickFile: (filters) => ipcRenderer.invoke('pi-desktop:app:pick-file', { filters }),
+    saveFile: (input) => ipcRenderer.invoke('pi-desktop:app:save-file', input),
+    revealPath: (path) => ipcRenderer.invoke('pi-desktop:app:reveal-path', path),
+    confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input)
   },
   chat: {
     open: (input) => ipcRenderer.invoke('pi-desktop:chat:open', input),
@@ -35,6 +39,9 @@ const api: PiDesktopApi = {
     setThinkingLevel: (input) => ipcRenderer.invoke('pi-desktop:chat:set-thinking-level', input),
     getStats: (input) => ipcRenderer.invoke('pi-desktop:chat:get-stats', input),
     setCwd: (input) => ipcRenderer.invoke('pi-desktop:chat:set-cwd', input),
+    compact: (input) => ipcRenderer.invoke('pi-desktop:chat:compact', input),
+    setSessionName: (input) => ipcRenderer.invoke('pi-desktop:chat:set-session-name', input),
+    exportHtml: (input) => ipcRenderer.invoke('pi-desktop:chat:export-html', input),
     respondUi: (input) => ipcRenderer.invoke('pi-desktop:chat:respond-ui', input),
     close: (input) => ipcRenderer.invoke('pi-desktop:chat:close', input),
     onEvent: subscribe('pi-desktop:chat:event'),

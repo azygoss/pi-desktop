@@ -347,6 +347,7 @@ export function ChatView({ chatId }: { chatId: string }) {
       <div className="chat-composer-dock">
         <Composer
           chat={chat}
+          isChat
           onSend={(message, images, mode) => {
             void useChatStore.getState().send(chatId, message, images, mode).catch(() => {})
           }}

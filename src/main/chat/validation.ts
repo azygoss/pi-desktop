@@ -93,6 +93,17 @@ export function validateImages(value: unknown): ImageContent[] | undefined {
   return images
 }
 
+/** Output path for exports: absolute, reasonable extension whitelist. */
+export function validateOutputPath(value: unknown): string {
+  if (typeof value !== 'string' || !isAbsolute(value)) {
+    throw new Error('Invalid outputPath: expected an absolute path')
+  }
+  if (!value.endsWith('.html')) {
+    throw new Error('Invalid outputPath: expected a .html file')
+  }
+  return value
+}
+
 export function requireString(value: unknown, field: string, maxLength = 4096): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
     throw new Error(`Invalid ${field}`)
