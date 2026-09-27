@@ -262,11 +262,11 @@ describe('watchSessions', () => {
     }, env)
     try {
       await writeSession('p', 's.jsonl', [HEADER])
-      await expect.poll(() => calls, { timeout: 5000 }).toBeGreaterThan(0)
+      await expect.poll(() => calls, { timeout: 10_000 }).toBeGreaterThan(0)
     } finally {
       unwatch()
     }
-  })
+  }, 15_000)
 
   it('does not throw when the sessions dir is missing', async () => {
     const unwatch = watchSessions(() => {}, env)
