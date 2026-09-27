@@ -72,6 +72,7 @@ const api: PiDesktopApi = {
     getAppInfo: () => ipcRenderer.invoke('pi-desktop:app:info'),
     openAgentDir: () => ipcRenderer.invoke('pi-desktop:app:open-agent-dir'),
     openExternal: (url) => ipcRenderer.invoke('pi-desktop:app:open-external', url),
+    localServers: () => ipcRenderer.invoke('pi-desktop:app:local-servers'),
     quit: () => ipcRenderer.invoke('pi-desktop:app:quit'),
     onMenuAction: subscribe('pi-desktop:menu:action')
   },

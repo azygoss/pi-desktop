@@ -18,7 +18,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { NavButtons } from './TitleBar'
 
-const MAX_NESTED_CHATS = 5
+const MAX_NESTED_CHATS = 3
 
 /** Chats that run in the app scratch dir (or have no recorded cwd) are
  *  "project-less" and live in the Chats section, not under a project. */
@@ -250,15 +250,19 @@ function SessionRow({
 function ProjectRow({
   cwd,
   name,
-  liveByPath
+  liveByPath,
+  autoExpanded
 }: {
   cwd: string
   name: string
   liveByPath: Map<string, LiveStatus>
+  /** True while the project holds the active chat — stays open regardless. */
+  autoExpanded?: boolean
 }) {
   const sessions = useAppStore((s) => s.sessions)
-  const collapsed = useAppStore((s) => s.appSettings.collapsedProjects.includes(cwd))
-  const toggleCollapsed = useAppStore((s) => s.toggleProjectCollapsed)
+  const expanded =
+    useAppStore((s) => s.appSettings.expandedProjects.includes(cwd)) || autoExpanded === true
+  const toggleExpanded = useAppStore((s) => s.toggleProjectExpanded)
   const [showAll, setShowAll] = useState(false)
 
   const projectSessions = useMemo(
@@ -293,10 +297,10 @@ function ProjectRow({
         role="button"
         tabIndex={0}
         title={cwd}
-        onClick={() => toggleCollapsed(cwd)}
+        onClick={() => toggleExpanded(cwd)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
-            toggleCollapsed(cwd)
+            toggleExpanded(cwd)
           }
         }}
         onContextMenu={(e) => {
@@ -304,7 +308,7 @@ function ProjectRow({
           void contextMenu()
         }}
       >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <Folder size={15} />
         <span className="sidebar-item-label">{name}</span>
         <button
@@ -330,7 +334,7 @@ function ProjectRow({
           <MoreHorizontal size={14} />
         </button>
       </div>
-      {!collapsed && (
+      {expanded && (
         <div className="sidebar-project-chats">
           {visible.map((session) => (
             <SessionRow
@@ -349,7 +353,9 @@ function ProjectRow({
               className="sidebar-item sidebar-item-muted sidebar-session-nested"
               onClick={() => setShowAll(true)}
             >
-              <span className="sidebar-item-label">Show more…</span>
+              <span className="sidebar-item-label">
+                Show {projectSessions.length - MAX_NESTED_CHATS} more…
+              </span>
             </button>
           )}
         </div>
@@ -371,6 +377,10 @@ export function Sidebar() {
   const userName = useAppStore((s) => s.userName)
   const sessionsLoaded = useAppStore((s) => s.sessionsLoaded)
   const chats = useChatStore((s) => s.chats)
+  const view = useAppStore((s) => s.view)
+  // Auto-expand the project holding the active chat even if the user
+  // collapsed it — the row they're looking at should stay visible.
+  const activeChatCwd = view.kind === 'chat' ? chats[view.chatId]?.cwd : undefined
 
   // sessionPath → live status of the open chat running that session, so the
   // sidebar can show a pulsing dot while it streams and an unread dot once a
@@ -500,6 +510,7 @@ export function Sidebar() {
                   cwd={project.cwd}
                   name={project.name}
                   liveByPath={liveByPath}
+                  autoExpanded={activeChatCwd === project.cwd}
                 />
               ))}
             {!projectsCollapsed && projects.length === 0 && (

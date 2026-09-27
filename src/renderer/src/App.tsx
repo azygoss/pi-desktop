@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { ChatView } from './components/ChatView'
 import { HomeView } from './components/HomeView'
@@ -60,9 +60,21 @@ export function App() {
   useEffect(() => {
     if (ready && !hydratedPanel) {
       const s = useAppStore.getState().appSettings
-      usePanelStore.getState().hydrate(s.panelOpen, s.panelWidth)
+      usePanelStore.getState().hydrate(s.panelOpen, s.panelWidth, s.recentUrls)
     }
   }, [ready, hydratedPanel])
+
+  // Keep the panel mounted briefly while its close animation plays out.
+  const [panelMounted, setPanelMounted] = useState(panelOpen)
+  useEffect(() => {
+    if (panelOpen) {
+      setPanelMounted(true)
+      return
+    }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const timer = setTimeout(() => setPanelMounted(false), reduced ? 0 : 200)
+    return () => clearTimeout(timer)
+  }, [panelOpen])
 
   // Keep browser views hidden whenever no browser tab is on screen.
   useEffect(() => {
@@ -84,6 +96,28 @@ export function App() {
       if (e.metaKey && e.altKey && e.code === 'KeyB') {
         e.preventDefault()
         usePanelStore.getState().togglePanel()
+        return
+      }
+      // ⌘L: focus the new-tab page's omnibox (opens a tab when needed).
+      if (e.metaKey && e.key === 'l' && usePanelStore.getState().open) {
+        e.preventDefault()
+        const panel = usePanelStore.getState()
+        const omnibox = document.querySelector<HTMLInputElement>(
+          '.panel-tab-content.is-active .newtab-omnibox input'
+        )
+        if (omnibox) {
+          omnibox.focus()
+          omnibox.select()
+        } else {
+          panel.addNewTab()
+          setTimeout(
+            () =>
+              document
+                .querySelector<HTMLInputElement>('.newtab-omnibox input')
+                ?.focus(),
+            50
+          )
+        }
         return
       }
       // ⌃` toggles/creates a terminal (ctrl-only, no meta).
@@ -130,9 +164,9 @@ export function App() {
         <MainTopBar />
         {ready && (view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />)}
       </main>
-      {panelOpen && (
+      {panelMounted && (
         <Suspense fallback={null}>
-          <RightPanel />
+          <RightPanel closing={!panelOpen} />
         </Suspense>
       )}
       {settingsOpen && (

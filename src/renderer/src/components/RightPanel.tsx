@@ -1,5 +1,5 @@
 import { Bot, FileDiff, Globe, Plus, TerminalSquare, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 
 import { useAppStore } from '../state/app-store'
@@ -114,7 +114,7 @@ function useTabStripScroll(activeTabId: string | null, tabCount: number) {
  * Right-side panel: browser tabs, terminal tabs and one diff tab. Hidden
  * tabs keep running (rendered with visibility:hidden so xterm survives).
  */
-export function RightPanel() {
+export function RightPanel({ closing }: { closing?: boolean }) {
   const open = usePanelStore((s) => s.open)
   const width = usePanelStore((s) => s.width)
   const tabs = usePanelStore((s) => s.tabs)
@@ -146,58 +146,87 @@ export function RightPanel() {
 
   const { stripRef, onWheel } = useTabStripScroll(activeTabId, tabs.length)
 
-  if (!open) {
+  // On open the aside mounts at width 0 and expands on the next frame, so
+  // the 180ms width transition plays both ways; the inner column keeps the
+  // final width so content slides in instead of squishing.
+  const [opening, setOpening] = useState(open)
+  useEffect(() => {
+    if (!opening) {
+      return
+    }
+    const raf = requestAnimationFrame(() => setOpening(false))
+    return () => cancelAnimationFrame(raf)
+  }, [opening])
+
+  if (!open && !closing) {
     return null
   }
 
+  const animated = closing || opening
   const cwd = chat?.cwd || workspaceDir || '/'
   const store = usePanelStore.getState()
 
   return (
-    <aside className="right-panel" style={{ width }}>
+    <aside
+      className={clsx('right-panel', { 'is-animating': animated })}
+      style={{ width: animated ? 0 : width }}
+    >
       <div
         className="panel-resize-handle"
         onPointerDown={onResizeStart}
         onPointerMove={onResizeMove}
         onPointerUp={onResizeEnd}
       />
-      <div className="panel-tabs-wrap">
-        <div className="panel-tabs" ref={stripRef} onWheel={onWheel}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={clsx('panel-tab', {
-                'is-active': tab.id === activeTabId,
-                'panel-tab-agent': isAgentTab(tab)
-              })}
-              onClick={() => store.activate(tab.id)}
-              title={tabTooltip(tab)}
-            >
-              {tabIcon(tab)}
-              <span className="panel-tab-label">{tabTitle(tab)}</span>
-              {tab.kind === 'browser' && tab.loading && <span className="browser-loading" />}
-              <span
-                role="button"
-                className="panel-tab-close"
-                title="Close"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  store.closeTab(tab.id)
-                }}
+      <div className="panel-inner" style={{ width }}>
+        {/* The panel header is part of the window's 44px drag strip: pills
+            and buttons opt out with no-drag, gaps drag the window. */}
+        <div className="panel-header drag-region">
+        <div className="panel-tabs-wrap">
+          <div className="panel-tabs" ref={stripRef} onWheel={onWheel}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={clsx('panel-tab', 'no-drag', {
+                  'is-active': tab.id === activeTabId,
+                  'panel-tab-agent': isAgentTab(tab)
+                })}
+                onClick={() => store.activate(tab.id)}
+                title={tabTooltip(tab)}
               >
-                <X size={11} />
-              </span>
-            </button>
-          ))}
+                {tabIcon(tab)}
+                <span className="panel-tab-label">{tabTitle(tab)}</span>
+                {tab.kind === 'browser' && tab.loading && <span className="browser-loading" />}
+                <span
+                  role="button"
+                  className="panel-tab-close"
+                  title="Close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    store.closeTab(tab.id)
+                  }}
+                >
+                  <X size={11} />
+                </span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="icon-btn panel-tab-add no-drag"
+            title="New tab"
+            onClick={() => store.addNewTab()}
+          >
+            <Plus size={14} />
+          </button>
         </div>
         <button
           type="button"
-          className="icon-btn panel-tab-add"
-          title="New tab"
-          onClick={() => store.addNewTab()}
+          className="icon-btn panel-close no-drag"
+          title="Hide panel (⌘⌥B)"
+          onClick={() => store.setOpen(false)}
         >
-          <Plus size={14} />
+          <X size={14} />
         </button>
       </div>
       <div className="panel-body">
@@ -213,6 +242,7 @@ export function RightPanel() {
             {tab.kind === 'diff' && <DiffPanel active={open && tab.id === activeTabId} />}
             {tab.kind === 'newtab' && (
               <NewTabPage
+                cwd={cwd}
                 onNavigate={(url) => store.convertNewTab(tab.id, url)}
                 onTerminal={() => {
                   store.closeTab(tab.id)
@@ -228,11 +258,13 @@ export function RightPanel() {
         ))}
         {tabs.length === 0 && (
           <NewTabPage
+            cwd={cwd}
             onNavigate={(url) => store.openBrowser(url)}
             onTerminal={() => store.openTerminal({ cwd }, 'Terminal')}
             onDiff={() => store.openDiff()}
           />
         )}
+      </div>
       </div>
     </aside>
   )

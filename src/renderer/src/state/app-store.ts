@@ -14,7 +14,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   piRuntime: { mode: 'auto' },
   projects: [],
   hiddenProjects: [],
-  collapsedProjects: [],
+  expandedProjects: [],
+  recentUrls: [],
   sidebarCollapsed: false,
   panelOpen: false,
   panelWidth: 400
@@ -48,8 +49,8 @@ interface AppState {
   updateAppSettings(patch: Partial<AppSettings>): Promise<void>
   /** Register a project folder picked via the native dialog. */
   addProject(cwd: string): Promise<void>
-  /** Collapse/expand a project row in the sidebar (persisted). */
-  toggleProjectCollapsed(cwd: string): void
+  /** Expand/collapse a project row in the sidebar (persisted). */
+  toggleProjectExpanded(cwd: string): void
   navigate(view: ViewState): void
   goBack(): void
   goForward(): void
@@ -167,12 +168,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  toggleProjectCollapsed(cwd) {
-    const collapsed = get().appSettings.collapsedProjects
-    const next = collapsed.includes(cwd)
-      ? collapsed.filter((c) => c !== cwd)
-      : [...collapsed, cwd]
-    void get().updateAppSettings({ collapsedProjects: next })
+  toggleProjectExpanded(cwd) {
+    const expanded = get().appSettings.expandedProjects
+    const next = expanded.includes(cwd)
+      ? expanded.filter((c) => c !== cwd)
+      : [...expanded, cwd]
+    void get().updateAppSettings({ expandedProjects: next })
   },
 
   navigate(view) {

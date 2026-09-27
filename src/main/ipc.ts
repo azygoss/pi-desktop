@@ -20,6 +20,7 @@ import type { PiProcessPool } from './pi/pool'
 import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateCwd, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
+import { listLocalServers, type LocalServer } from './local-servers'
 import { workspaceDir } from './config/app-paths'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
@@ -104,7 +105,8 @@ export const IPC_CHANNELS = {
   browserAgentTab: 'pi-desktop:browser:agent-tab',
   diffStatus: 'pi-desktop:diff:status',
   appQuit: 'pi-desktop:app:quit',
-  appOpenExternal: 'pi-desktop:app:open-external'
+  appOpenExternal: 'pi-desktop:app:open-external',
+  appLocalServers: 'pi-desktop:app:local-servers'
 } as const
 
 export interface IpcDeps {
@@ -113,7 +115,7 @@ export interface IpcDeps {
   pty: PtyManager
   browser: BrowserManager
   /** Loopback bridge server for pi browser tools; stopped on quit. */
-  bridge?: { stop(): Promise<void> }
+  bridge?: { stop(): Promise<void>; url?: string }
 }
 
 /**
@@ -330,6 +332,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.appOpenAgentDir, () => shell.openPath(getAgentDir()))
+
+  ipcMain.handle(IPC_CHANNELS.appLocalServers, async (): Promise<LocalServer[]> => {
+    // The browser-tools bridge listens on loopback — never surface it as a
+    // "local server" the user can open.
+    const bridgePort = Number(new URL(deps.bridge?.url ?? 'http://x:0').port)
+    const exclude = Number.isInteger(bridgePort) && bridgePort > 0 ? [bridgePort] : []
+    return listLocalServers(exclude)
+  })
 
   ipcMain.handle(IPC_CHANNELS.chatOpen, (_e, input: ChatOpenInput) => deps.chat.open(input))
   ipcMain.handle(IPC_CHANNELS.chatSend, (_e, input: ChatSendInput) => deps.chat.send(input))

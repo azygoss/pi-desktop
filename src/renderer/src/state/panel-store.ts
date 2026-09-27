@@ -42,12 +42,16 @@ export type PanelTab =
 interface PanelState {
   hydrated: boolean
   open: boolean
+  /** True while the open/close width animation runs (~190ms). */
+  animating: boolean
   width: number
   tabs: PanelTab[]
   activeTabId: string | null
+  /** Recently visited browser URLs, newest first (persisted). */
+  recentUrls: string[]
 
-  /** Seed open/width from persisted app settings (called once at startup). */
-  hydrate(open: boolean, width: number): void
+  /** Seed open/width/recents from persisted app settings (once at startup). */
+  hydrate(open: boolean, width: number, recentUrls?: string[]): void
   setOpen(open: boolean): void
   togglePanel(): void
   setWidth(width: number): void
@@ -73,6 +77,36 @@ interface PanelState {
 }
 
 let widthPersistTimer: ReturnType<typeof setTimeout> | null = null
+let animTimer: ReturnType<typeof setTimeout> | null = null
+
+export const PANEL_ANIM_MS = 180
+
+/** Flag a ~180ms window during which browser views stay hidden while the
+ *  panel width animates; the active tab pushes final bounds afterwards. */
+function beginAnimation(set: (partial: Partial<PanelState>) => void): void {
+  set({ animating: true })
+  if (animTimer) {
+    clearTimeout(animTimer)
+  }
+  animTimer = setTimeout(() => {
+    animTimer = null
+    usePanelStore.setState({ animating: false })
+  }, PANEL_ANIM_MS + 20)
+}
+
+/** Remember a visited http(s) URL for the new-tab page's Recent list. */
+function recordRecentUrl(url: string): void {
+  if (!/^https?:\/\//.test(url)) {
+    return
+  }
+  const current = usePanelStore.getState().recentUrls
+  const next = [url, ...current.filter((u) => u !== url)].slice(0, 8)
+  if (next.length === current.length && next.every((u, i) => u === current[i])) {
+    return
+  }
+  usePanelStore.setState({ recentUrls: next })
+  void window.piDesktop.appSettings.update({ recentUrls: next }).catch(() => {})
+}
 
 function persistOpen(open: boolean): void {
   void window.piDesktop.appSettings.update({ panelOpen: open }).catch(() => {})
@@ -90,18 +124,28 @@ function persistWidth(width: number): void {
 export const usePanelStore = create<PanelState>((set, get) => ({
   hydrated: false,
   open: false,
+  animating: false,
   width: 400,
   tabs: [],
   activeTabId: null,
+  recentUrls: [],
 
-  hydrate(open, width) {
+  hydrate(open, width, recentUrls) {
     if (get().hydrated) {
       return
     }
-    set({ hydrated: true, open, width: Math.max(PANEL_MIN_WIDTH, width) })
+    set({
+      hydrated: true,
+      open,
+      width: Math.max(PANEL_MIN_WIDTH, width),
+      recentUrls: recentUrls ?? []
+    })
   },
 
   setOpen(open) {
+    if (open !== get().open) {
+      beginAnimation(set)
+    }
     set({ open })
     persistOpen(open)
   },
@@ -119,6 +163,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   addNewTab() {
     const id = crypto.randomUUID()
+    if (!get().open) {
+      beginAnimation(set)
+    }
     set((s) => ({
       open: true,
       tabs: [...s.tabs, { id, kind: 'newtab' }],
@@ -143,6 +190,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   openTerminal(spec, title) {
     const id = crypto.randomUUID()
+    if (!get().open) {
+      beginAnimation(set)
+    }
     set((s) => ({
       open: true,
       tabs: [...s.tabs, { id, kind: 'terminal', title, spec }],
@@ -153,6 +203,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   openBrowser(url, opts) {
     const id = crypto.randomUUID()
+    if (!get().open) {
+      beginAnimation(set)
+    }
+    recordRecentUrl(url)
     set((s) => ({
       open: true,
       tabs: [
@@ -182,7 +236,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       // the 'agent-<chatId>' namespace).
       const existing = s.tabs.find((t) => t.kind === 'browser' && t.agentChatId === chatId)
       if (existing) {
+        if (!s.open) {
+          beginAnimation(set)
+        }
         return { open: true, activeTabId: existing.id }
+      }
+      if (!s.open) {
+        beginAnimation(set)
       }
       return {
         open: true,
@@ -196,6 +256,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   openDiff() {
+    if (!get().open) {
+      beginAnimation(set)
+    }
     const existing = get().tabs.find((t) => t.id === DIFF_TAB_ID)
     if (existing) {
       set({ open: true, activeTabId: DIFF_TAB_ID })
@@ -213,6 +276,7 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     const existing = tabs.find((t) => t.kind === 'terminal' && !t.exited)
     if (!open) {
       if (existing) {
+        beginAnimation(set)
         set({ open: true, activeTabId: existing.id })
       } else {
         get().openTerminal({ cwd }, 'Terminal')
@@ -228,11 +292,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       return
     }
     // Panel open on a terminal: a second press closes the panel.
-    set({ open: false })
-    persistOpen(false)
+    get().setOpen(false)
   },
 
   activate(id) {
+    if (!get().open) {
+      beginAnimation(set)
+    }
     set({ activeTabId: id, open: true })
   },
 
@@ -258,6 +324,11 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   applyBrowserState(state) {
+    const tab = get().tabs.find((t) => t.id === state.id)
+    // Agent-owned tabs don't count as "the user visited this".
+    if (state.url && !(tab?.kind === 'browser' && tab.agentChatId)) {
+      recordRecentUrl(state.url)
+    }
     set((s) => ({
       tabs: s.tabs.map((t) =>
         t.id === state.id && t.kind === 'browser'

@@ -24,8 +24,10 @@ export interface AppSettings {
   /** Projects the user added explicitly (may have no sessions yet). */
   projects: AppProject[]
   hiddenProjects: string[]
-  /** Project cwds whose sidebar rows are collapsed (expanded by default). */
-  collapsedProjects: string[]
+  /** Project cwds expanded in the sidebar (all others stay collapsed). */
+  expandedProjects: string[]
+  /** Recently opened browser-panel URLs (http(s) only, newest first). */
+  recentUrls: string[]
   sidebarCollapsed: boolean
   /** Right panel open state and pixel width, persisted across restarts. */
   panelOpen: boolean
@@ -47,7 +49,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   piRuntime: { mode: 'auto' },
   projects: [],
   hiddenProjects: [],
-  collapsedProjects: [],
+  expandedProjects: [],
+  recentUrls: [],
   sidebarCollapsed: false,
   panelOpen: false,
   panelWidth: 400
@@ -161,9 +164,18 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   if (hidden) {
     settings.hiddenProjects = hidden
   }
-  const collapsed = normalizeCwdList(input['collapsedProjects'])
-  if (collapsed) {
-    settings.collapsedProjects = collapsed
+  // 'expandedProjects' replaced the old 'collapsedProjects' list: the new
+  // default is collapsed, which already preserves every previously
+  // collapsed project, so no explicit migration is needed.
+  const expanded = normalizeCwdList(input['expandedProjects'])
+  if (expanded) {
+    settings.expandedProjects = expanded
+  }
+  const recent = input['recentUrls']
+  if (Array.isArray(recent)) {
+    settings.recentUrls = recent
+      .filter((u): u is string => typeof u === 'string' && /^https?:\/\//.test(u))
+      .slice(0, 12)
   }
   if (typeof input['sidebarCollapsed'] === 'boolean') {
     settings.sidebarCollapsed = input['sidebarCollapsed']
@@ -230,9 +242,14 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
     if (hidden) {
       merged.hiddenProjects = hidden
     }
-    const collapsed = normalizeCwdList(input['collapsedProjects'])
-    if (collapsed) {
-      merged.collapsedProjects = collapsed
+    const expanded = normalizeCwdList(input['expandedProjects'])
+    if (expanded) {
+      merged.expandedProjects = expanded
+    }
+    if (Array.isArray(input['recentUrls'])) {
+      merged.recentUrls = input['recentUrls']
+        .filter((u): u is string => typeof u === 'string' && /^https?:\/\//.test(u))
+        .slice(0, 12)
     }
     if (typeof input['sidebarCollapsed'] === 'boolean') {
       merged.sidebarCollapsed = input['sidebarCollapsed']

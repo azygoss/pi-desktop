@@ -152,6 +152,9 @@ describe('Pi Desktop e2e', () => {
       join(userDataDir, 'settings.json'),
       JSON.stringify({
         displayName: 'Alex',
+        // Projects are collapsed by default; expand the seeded ones so the
+        // session rows underneath them are visible to the assertions.
+        expandedProjects: [PROJECT_A, PROJECT_B],
         projects: [
           {
             cwd: '/Users/example/synthetic-gamma',
@@ -225,10 +228,18 @@ describe('Pi Desktop e2e', () => {
     const greeting = await page.locator('.home-greeting h1').textContent()
     expect(greeting).toMatch(/Good|mind/)
     // sidebar nests seeded chats under their projects (4 + 2), plus a
-    // synthetic user-added project with no chats at all.
+    // synthetic user-added project with no chats at all. Expanded projects
+    // cap at 3 chats with a "Show N more" row, so alpha shows 3, beta 2.
     await visible(page, '.sidebar-project')
     expect(await page.locator('.sidebar-project').count()).toBe(4)
-    expect(await page.locator('.sidebar-session').count()).toBe(6)
+    expect(await page.locator('.sidebar-session').count()).toBe(5)
+    expect(await page.locator('.sidebar-item-muted').first().textContent()).toBe('Show 1 more…')
+    // Toggling a project collapses it and persists that choice.
+    const alphaRow = page.locator('.sidebar-project', { hasText: 'synthetic-alpha' })
+    await alphaRow.click()
+    expect(await page.locator('.sidebar-session').count()).toBe(2)
+    await alphaRow.click()
+    expect(await page.locator('.sidebar-session').count()).toBe(5)
     expect(await page.locator('.sidebar-empty-nested').first().textContent()).toBe('No chats')
     await page.screenshot({ path: join(SHOTS, 'home-dark.png') })
   })
@@ -393,8 +404,8 @@ describe('Pi Desktop e2e', () => {
     // The browser-tools test may have left an agent tab open, so open a
     // fresh new-tab page via "+" before picking the Terminal tool.
     await page.locator('.panel-tab-add').click()
-    await visible(page, '.newtab-tools')
-    await page.locator('.newtab-tools .folder-row', { hasText: 'Terminal' }).click()
+    await visible(page, '.newtab-inner')
+    await page.locator('.newtab-row', { hasText: 'Terminal' }).click()
     await visible(
       page,
       '.panel-tab-content.is-active .terminal-view .xterm',
@@ -416,8 +427,13 @@ describe('Pi Desktop e2e', () => {
 
   it('opens a browser tab on a local page', async () => {
     await page.locator('.panel-tab-add').click()
-    await visible(page, '.panel-tab-content.is-active .newtab-address input')
-    await page.locator('.panel-tab-content.is-active .newtab-address input').fill(pageUrl)
+    await visible(page, '.panel-tab-content.is-active .newtab-omnibox input')
+    // The omnibox is a fixed-height single-line input, not a stretched box.
+    const box = await page
+      .locator('.panel-tab-content.is-active .newtab-omnibox')
+      .boundingBox()
+    expect(box?.height ?? 0).toBeLessThanOrEqual(48)
+    await page.locator('.panel-tab-content.is-active .newtab-omnibox input').fill(pageUrl)
     await page.keyboard.press('Enter')
     await visible(page, '.panel-tab-content.is-active .browser-toolbar')
     // WebContentsView paints outside the DOM; the tab title proves the page
@@ -444,7 +460,7 @@ describe('Pi Desktop e2e', () => {
 
     await page.locator('.panel-tab-add').click()
     await page
-      .locator('.panel-tab-content.is-active .newtab-tools .folder-row', { hasText: 'Diff' })
+      .locator('.panel-tab-content.is-active .newtab-row', { hasText: 'Diff' })
       .click()
     await visible(page, '.panel-tab-content.is-active .diff-panel')
     await visible(page, '.panel-tab-content.is-active .diff-file', 10_000)

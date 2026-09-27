@@ -11,8 +11,13 @@ vi.mock('electron', () => ({
   }
 }))
 
-const { DEFAULT_APP_SETTINGS, loadAppSettings, resetAppSettingsCache, updateAppSettings } =
-  await import('./app-settings')
+const {
+  DEFAULT_APP_SETTINGS,
+  loadAppSettings,
+  normalizeAppSettings,
+  resetAppSettingsCache,
+  updateAppSettings
+} = await import('./app-settings')
 
 let dir: string
 
@@ -63,7 +68,7 @@ describe('app settings', () => {
     expect(settings.sidebarCollapsed).toBe(false)
   })
 
-  it('persists added projects and collapsed state', async () => {
+  it('persists added projects and expanded state', async () => {
     await updateAppSettings({
       projects: [
         { cwd: '/Users/example/alpha', addedAt: '2024-01-01T00:00:00Z' },
@@ -71,14 +76,22 @@ describe('app settings', () => {
         { cwd: '/Users/example/alpha', addedAt: '2024-02-01T00:00:00Z' },
         { cwd: '/Users/example/beta' }
       ],
-      collapsedProjects: ['/Users/example/alpha']
+      expandedProjects: ['/Users/example/alpha']
     })
     const settings = await loadAppSettings()
     expect(settings.projects).toEqual([
       { cwd: '/Users/example/alpha', addedAt: '2024-01-01T00:00:00Z' },
       { cwd: '/Users/example/beta', addedAt: '' }
     ])
-    expect(settings.collapsedProjects).toEqual(['/Users/example/alpha'])
+    expect(settings.expandedProjects).toEqual(['/Users/example/alpha'])
+  })
+
+  it('drops the legacy collapsedProjects field on load', () => {
+    // Previously-collapsed projects are still collapsed under the new
+    // expanded-by-opt-in default, so there is nothing to carry over.
+    const settings = normalizeAppSettings({ collapsedProjects: ['/x'] })
+    expect(settings.expandedProjects).toEqual([])
+    expect('collapsedProjects' in settings).toBe(false)
   })
 
   it('ignores invalid patch fields instead of persisting them', async () => {

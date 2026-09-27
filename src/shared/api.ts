@@ -146,11 +146,20 @@ export interface AppSettings {
   }
   projects: AppProject[]
   hiddenProjects: string[]
-  collapsedProjects: string[]
+  /** Project cwds expanded in the sidebar (all others stay collapsed). */
+  expandedProjects: string[]
+  /** Recently opened browser-panel URLs (http(s) only, newest first). */
+  recentUrls: string[]
   sidebarCollapsed: boolean
   /** Right panel open state and pixel width, persisted across restarts. */
   panelOpen: boolean
   panelWidth: number
+}
+
+/** A listening localhost dev server shown on the panel's new-tab page. */
+export interface LocalServer {
+  port: number
+  command: string
 }
 
 /** Identifiers returned by the native context menu. */
@@ -350,6 +359,8 @@ export interface PiDesktopApi {
     openAgentDir(): Promise<void>
     /** Open an http(s) URL in the system browser. */
     openExternal(url: string): Promise<void>
+    /** Listening local TCP servers (dev servers) for the new-tab page. */
+    localServers(): Promise<LocalServer[]>
     /** Quit the app (renderer confirms with the user first when needed). */
     quit(): Promise<void>
     /** Native application menu actions; returns an unsubscribe function. */

@@ -1,8 +1,17 @@
-import { ArrowLeft, ArrowRight, Bot, Globe, RotateCw, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  FileDiff,
+  Globe,
+  RotateCw,
+  TerminalSquare,
+  X
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
 
-import type { PanelTab } from '../state/panel-store'
+import type { LocalServer } from '../../../shared/api'
+import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { toast } from '../state/toast-store'
 
 type BrowserTabData = Extract<PanelTab, { kind: 'browser' }>
@@ -15,6 +24,9 @@ type BrowserTabData = Extract<PanelTab, { kind: 'browser' }>
 export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [address, setAddress] = useState(tab.url)
+  // While the panel animates its width the WebContentsView stays hidden;
+  // the final rect is pushed when `animating` clears.
+  const animating = usePanelStore((s) => s.animating)
 
   // Keep the address bar in sync with navigations coming from main
   // (derived-state-during-render pattern; user edits set lastUrl too).
@@ -25,7 +37,7 @@ export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boole
   }
 
   useEffect(() => {
-    if (!active) {
+    if (!active || animating) {
       return
     }
     const host = hostRef.current
@@ -52,7 +64,7 @@ export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boole
       observer.disconnect()
       cancelAnimationFrame(raf)
     }
-  }, [active, tab.id])
+  }, [active, animating, tab.id])
 
   function submit(): void {
     const value = address.trim()
@@ -115,45 +127,143 @@ export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boole
   )
 }
 
-/** The "+" tab page: URL bar plus the tools list (Terminal, Diff). */
+/** Compact "localhost:3000" label for a recent/server URL. */
+function urlLabel(url: string): string {
+  try {
+    const u = new URL(url)
+    return u.host + (u.pathname === '/' ? '' : u.pathname)
+  } catch {
+    return url
+  }
+}
+
+/** The "+" tab page: omnibox plus sections (local servers, tools, recent). */
 export function NewTabPage({
   onNavigate,
   onTerminal,
-  onDiff
+  onDiff,
+  cwd
 }: {
   onNavigate(url: string): void
   onTerminal(): void
   onDiff(): void
+  cwd: string
 }) {
   const [address, setAddress] = useState('')
+  const [servers, setServers] = useState<LocalServer[]>([])
+  const [diffFiles, setDiffFiles] = useState<number | null>(null)
+  const recentUrls = usePanelStore((s) => s.recentUrls)
+
+  // Refresh the dev-server list every time the page mounts.
+  useEffect(() => {
+    let alive = true
+    window.piDesktop.app
+      .localServers()
+      .then((list) => {
+        if (alive) {
+          setServers(list)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Show "N files changed" next to Diff when the cwd is a dirty repo.
+  useEffect(() => {
+    let alive = true
+    window.piDesktop.diff
+      .status({ cwd })
+      .then((result) => {
+        if (!alive || !result.isRepo) {
+          return
+        }
+        const changed =
+          (result.diffText.match(/^diff --git /gm) ?? []).length +
+          result.untracked.length
+        setDiffFiles(changed)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [cwd])
 
   return (
     <div className="newtab-page">
-      <div className={clsx('browser-address', 'newtab-address')}>
-        <Globe size={12} />
-        <input
-          autoFocus
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && address.trim()) {
-              onNavigate(address.trim())
-            }
-          }}
-          placeholder="Search or enter a URL"
-          spellCheck={false}
-          aria-label="Address"
-        />
-      </div>
-      <div className="newtab-tools">
-        <div className="newtab-tools-label">Tools</div>
-        <button type="button" className="folder-row" onClick={onTerminal}>
-          <span className="newtab-tool-name">Terminal</span>
-          <kbd className="kbd">⌃`</kbd>
-        </button>
-        <button type="button" className="folder-row" onClick={onDiff}>
-          <span className="newtab-tool-name">Diff</span>
-        </button>
+      <div className="newtab-inner">
+        <div className="browser-address newtab-omnibox">
+          <Globe size={14} />
+          <input
+            autoFocus
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && address.trim()) {
+                onNavigate(address.trim())
+              }
+            }}
+            placeholder="Search or enter a URL"
+            spellCheck={false}
+            aria-label="Address"
+          />
+          <kbd className="kbd">⌘L</kbd>
+        </div>
+
+        {servers.length > 0 && (
+          <section className="newtab-section">
+            <div className="newtab-label">Local servers</div>
+            {servers.map((server) => (
+              <button
+                key={server.port}
+                type="button"
+                className="newtab-row"
+                onClick={() => onNavigate(`http://localhost:${server.port}`)}
+              >
+                <Globe size={13} className="newtab-row-icon" />
+                <span className="newtab-row-name">localhost:{server.port}</span>
+                <span className="newtab-row-meta">{server.command}</span>
+              </button>
+            ))}
+          </section>
+        )}
+
+        <section className="newtab-section">
+          <div className="newtab-label">Tools</div>
+          <button type="button" className="newtab-row" onClick={onTerminal}>
+            <TerminalSquare size={13} className="newtab-row-icon" />
+            <span className="newtab-row-name">Terminal</span>
+            <kbd className="kbd">⌃`</kbd>
+          </button>
+          <button type="button" className="newtab-row" onClick={onDiff}>
+            <FileDiff size={13} className="newtab-row-icon" />
+            <span className="newtab-row-name">Diff</span>
+            {diffFiles !== null && diffFiles > 0 && (
+              <span className="newtab-row-meta">
+                {diffFiles} file{diffFiles === 1 ? '' : 's'} changed
+              </span>
+            )}
+          </button>
+        </section>
+
+        {recentUrls.length > 0 && (
+          <section className="newtab-section">
+            <div className="newtab-label">Recent</div>
+            {recentUrls.slice(0, 5).map((url) => (
+              <button
+                key={url}
+                type="button"
+                className="newtab-row"
+                title={url}
+                onClick={() => onNavigate(url)}
+              >
+                <Globe size={13} className="newtab-row-icon" />
+                <span className="newtab-row-name">{urlLabel(url)}</span>
+              </button>
+            ))}
+          </section>
+        )}
       </div>
     </div>
   )
