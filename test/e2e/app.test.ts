@@ -236,11 +236,24 @@ describe('Pi Desktop e2e', () => {
   })
 
   it('opens the model picker', async () => {
-    // The home draft chat provides models via the fake pi.
+    // The home draft chat provides models via the fake pi. Select the
+    // no-reasoning model so the picker and composer show the muted
+    // "No reasoning" state.
     await visible(page, '[data-testid="model-picker-trigger"]')
     await page.locator('[data-testid="model-picker-trigger"]').click()
     await visible(page, '[data-testid="model-popover"]')
     await visible(page, '.model-row')
+    await page.locator('.model-row', { hasText: 'Synthetic Haiku' }).click()
+    await page.waitForSelector('[data-testid="model-popover"]', {
+      state: 'detached',
+      timeout: 5_000
+    })
+    // Reopen so the shot shows the selection check, the row hints and the
+    // muted "No reasoning" state (the hint renders inside the popover).
+    await page.locator('[data-testid="model-picker-trigger"]').click()
+    await visible(page, '[data-testid="model-popover"]')
+    await visible(page, '.thinking-none')
+    await visible(page, '.model-row .model-row-hint')
     await page.screenshot({ path: join(SHOTS, 'model-picker.png') })
     await page.keyboard.press('Escape')
   })
@@ -299,6 +312,19 @@ describe('Pi Desktop e2e', () => {
     const src = await page.locator('.tool-card .tool-image img').getAttribute('src')
     expect(src).toMatch(/^data:image\/jpeg;base64,/)
     await page.screenshot({ path: join(SHOTS, 'chat-browser-tools.png') })
+  })
+
+  it('shows the /session info modal', async () => {
+    await page.locator('.composer-input').fill('/session')
+    await visible(page, '.slash-popover')
+    // Enter would complete the highlighted row instead; click /session.
+    await page.locator('.slash-row', { hasText: '/session' }).click()
+    await visible(page, '.cmd-modal')
+    await visible(page, '.session-info')
+    await visible(page, '.session-path')
+    await page.screenshot({ path: join(SHOTS, 'session-modal.png') })
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.cmd-modal', { state: 'detached', timeout: 5_000 })
   })
 
   it('collapses the sidebar', async () => {

@@ -24,6 +24,13 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   `/export`, `/model` and `/thinking`.
 - **Session management** — rename, export to HTML, reveal in Finder, copy
   path, move to Trash, fork from any user message, and clone a chat.
+- **Projects and chats** — sessions nest under their project folder;
+  project-less chats run in an app-owned scratch workspace.
+- **Side panel** — browser tabs, a real terminal (`node-pty` + xterm) and
+  a live git diff view for the chat's project, toggled with ⌘⌥B.
+- **Agent browser** — pi can drive the in-app browser itself through an
+  extension that ships with the app: `browser_open`, `browser_click`,
+  `browser_screenshot` and friends, backed by Chrome DevTools Protocol.
 - **Runtime flexibility** — uses your installed `pi`, the bundled pinned
   `@earendil-works/pi-coding-agent`, or a custom path you choose in
   Settings.
@@ -32,6 +39,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   ⌘[ / ⌘] history, ⌘, settings).
 
 ![Chat with an expanded tool call](docs/screenshots/chat-toolcard.png)
+
+![Right panel with browser tab](docs/screenshots/panel-browser.png)
 
 ## Install
 

@@ -151,16 +151,20 @@ function ensureSpawnHelper(): void {
       'app.asar',
       'app.asar.unpacked'
     )
-    const helper = join(
-      pkgDir,
-      'prebuilds',
-      `${process.platform}-${process.arch}`,
-      'spawn-helper'
-    )
-    chmodSync(helper, 0o755)
+    // Prebuilds layout and the build/Release layout produced by
+    // @electron/rebuild during packaging.
+    for (const helper of [
+      join(pkgDir, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+      join(pkgDir, 'build', 'Release', 'spawn-helper')
+    ]) {
+      try {
+        chmodSync(helper, 0o755)
+      } catch {
+        // not present in this layout
+      }
+    }
   } catch {
-    // Non-prebuild layout (node-gyp build) or read-only bundle — spawn will
-    // surface a clear error either way.
+    // node-pty unresolvable — spawn will surface a clear error either way.
   }
 }
 
