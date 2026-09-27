@@ -243,12 +243,19 @@ describe('Pi Desktop e2e', () => {
     expect(await page.locator('.sidebar-session').count()).toBe(6)
     expect(await page.locator('.sidebar-item-muted').first().textContent()).toBe('Show 1 more…')
     // Toggling a project collapses it and persists that choice.
-    const alphaRow = page.locator('.sidebar-project', { hasText: 'synthetic-alpha' })
+    const alphaRow = page.locator('.sidebar-project-row', { hasText: 'synthetic-alpha' })
+    const sessionCount = () => page.locator('.sidebar-session').count()
     await alphaRow.click()
-    expect(await page.locator('.sidebar-session').count()).toBe(3)
+    await expect.poll(sessionCount).toBe(3)
     await alphaRow.click()
-    expect(await page.locator('.sidebar-session').count()).toBe(6)
-    expect(await page.locator('.sidebar-empty-nested').first().textContent()).toBe('No chats')
+    await expect.poll(sessionCount).toBe(6)
+    // Expand the empty user-added project to see its "No chats" row.
+    await page
+      .locator('.sidebar-project-row', { hasText: 'synthetic-gamma' })
+      .click()
+    await expect
+      .poll(() => page.locator('.sidebar-empty-nested').first().textContent())
+      .toBe('No chats')
     await page.screenshot({ path: join(SHOTS, 'home-dark.png') })
   })
 
@@ -315,6 +322,24 @@ describe('Pi Desktop e2e', () => {
     await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
   })
 
+  it('opens the command palette and runs a chat search', async () => {
+    await page.keyboard.press('Meta+k')
+    await visible(page, '.palette-modal')
+    await page.screenshot({ path: join(SHOTS, 'palette.png') })
+    await page.locator('.palette-input').fill('flaky')
+    await visible(page, '.palette-row')
+    expect(await page.locator('.palette-row').first().textContent()).toContain(
+      'Fix flaky router test'
+    )
+    await page.keyboard.press('Enter')
+    // The palette closed and navigated into that session.
+    await page.waitForSelector('.palette-modal', { state: 'detached', timeout: 5_000 })
+    await visible(page, '.msg-user-row', 15_000)
+    // Back home for the next test.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-greeting')
+  })
+
   it('sends a prompt and renders a streamed reply with a tool card', async () => {
     await page.locator('.composer-input').fill('Write a file and show the result')
     await page.keyboard.press('Enter')
@@ -327,6 +352,14 @@ describe('Pi Desktop e2e', () => {
     const lastMarkdown = await page.locator('.markdown').last().textContent()
     expect(lastMarkdown).toContain('Done')
     await page.screenshot({ path: join(SHOTS, 'chat-toolcard.png') })
+    // Wait for the run to fully settle — sending while still streaming
+    // becomes a steer and races the next test's pending-shimmer state.
+    await expect
+      .poll(async () => {
+        const stats = await page.locator('.chat-stats').allTextContents()
+        return !stats.some((t) => t.includes('Enter to steer'))
+      })
+      .toBe(true)
   })
 
   it('shows the thinking shimmer while a reply starts', async () => {
@@ -337,16 +370,31 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.msg-pending .shimmer-text')
     // 'visible' only means rendered — wait until the pending row is actually
     // inside the scroll viewport before shooting.
-    await page.waitForFunction(
-      `(() => {
-        const el = document.querySelector('.msg-pending')
-        if (!el) return false
-        const r = el.getBoundingClientRect()
-        return r.top >= 0 && r.bottom <= window.innerHeight
-      })()`,
-      undefined,
-      { timeout: 5_000 }
-    )
+    // Poll the box via CDP only — page-side JS predicates hit the CSP ban
+    // on eval. Electron pages have no fixed viewport, so take the window's
+    // content height from main. The composer fade can overlay the row's
+    // bottom edge, so any vertical intersection with the window counts.
+    const viewHeight = await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      return win ? win.getContentSize()[1]! : 0
+    })
+    // Wheel the transcript to the bottom so the pending row is in view even
+    // if the auto-scroll pin lost a race with the stream flush.
+    await page.locator('.chat-scroll').hover()
+    await page.mouse.wheel(0, 2000)
+    const pending = page.locator('.msg-pending')
+    await expect
+      .poll(
+        async () => {
+          if ((await pending.count()) === 0) {
+            return false
+          }
+          const box = await pending.boundingBox().catch(() => null)
+          return !!box && box.y + box.height > 0 && box.y < viewHeight
+        },
+        { timeout: 5_000, interval: 100 }
+      )
+      .toBe(true)
     await page.screenshot({ path: join(SHOTS, 'chat-streaming.png') })
     // Let the reply finish; the scripted answer includes a markdown table.
     await visible(page, '.markdown .table-scroll table', 30_000)
@@ -391,8 +439,16 @@ describe('Pi Desktop e2e', () => {
       '.right-panel .panel-tab-label:text-is("Pi · E2E Test Page")',
       20_000
     )
+    // The two consecutive browser calls collapse into a group row.
+    const group = page.locator('.tool-group')
+    await visible(page, '.tool-group .tool-row', 20_000)
+    expect(await group.locator('.tool-name').textContent()).toContain('Ran 2 tools')
+    await page.screenshot({ path: join(SHOTS, 'chat-toolgroup.png') })
+    await group.locator('.tool-row').first().click()
     // Screenshot tool returned a real JPEG; expanding the card shows it.
-    const shotCard = page.locator('.tool-card', { hasText: 'browser_screenshot' })
+    const shotCard = page.locator('.tool-group .tool-card', {
+      hasText: 'browser_screenshot'
+    })
     await shotCard.locator('.tool-row').waitFor({ state: 'visible', timeout: 20_000 })
     await shotCard.locator('.tool-row').click()
     await visible(page, '.tool-card .tool-image img', 10_000)
@@ -459,8 +515,27 @@ describe('Pi Desktop e2e', () => {
       .locator('.panel-tab-content.is-active .newtab-omnibox')
       .boundingBox()
     expect(box?.height ?? 0).toBeLessThanOrEqual(48)
-    await page.locator('.panel-tab-content.is-active .newtab-omnibox input').fill(pageUrl)
-    await page.keyboard.press('Enter')
+    // Local servers are populated via lsof — on a busy machine the list
+    // caps at 8, so our test server may not always make the cut; assert the
+    // section shows real listeners, and prefer clicking its row when ours
+    // is present.
+    const localSection = page.locator('.panel-tab-content.is-active .newtab-section', {
+      hasText: 'Local servers'
+    })
+    await expect
+      .poll(() => localSection.locator('.newtab-row').count(), { timeout: 10_000 })
+      .toBeGreaterThan(0)
+    await page.screenshot({ path: join(SHOTS, 'panel-newtab.png') })
+    const port = new URL(pageUrl).port
+    const localRow = localSection.locator('.newtab-row', { hasText: `:${port}` })
+    if ((await localRow.count()) > 0) {
+      await localRow.click()
+    } else {
+      await page
+        .locator('.panel-tab-content.is-active .newtab-omnibox input')
+        .fill(pageUrl)
+      await page.keyboard.press('Enter')
+    }
     await visible(page, '.panel-tab-content.is-active .browser-toolbar')
     // WebContentsView paints outside the DOM; the tab title proves the page
     // loaded and pushed state back over IPC.

@@ -45,11 +45,12 @@ export function parseLsofListeners(
     }
     seen.add(port)
     servers.push({ port, command: line.trim().split(/\s+/)[0] ?? 'process' })
-    if (servers.length >= MAX_SERVERS) {
-      break
-    }
   }
-  return servers
+  // Highest ports first: freshly started dev servers usually land on
+  // ephemeral ports, which keeps them in the list on busy machines where
+  // lsof reports dozens of long-lived listeners.
+  servers.sort((a, b) => b.port - a.port)
+  return servers.slice(0, MAX_SERVERS)
 }
 
 /**

@@ -14,9 +14,10 @@ mystery   1005     alex    9u  IPv4 0xaaa              0t0  TCP 127.0.0.1:4040->
 describe('parseLsofListeners', () => {
   it('keeps user-space listeners and dedupes by port', () => {
     const servers = parseLsofListeners(LSOF_OUT)
+    // Sorted by port descending (newest ephemeral ports first).
     expect(servers).toEqual([
-      { port: 5173, command: 'node' },
-      { port: 8000, command: 'Python' }
+      { port: 8000, command: 'Python' },
+      { port: 5173, command: 'node' }
     ])
   })
 
@@ -34,7 +35,9 @@ describe('parseLsofListeners', () => {
     ).join('\n')
     const servers = parseLsofListeners(many, new Set([3000, 3001]))
     expect(servers).toHaveLength(8)
-    expect(servers[0]!.port).toBe(3002)
+    // Highest (most recently allocated) ports first, so the cap drops the
+    // oldest listeners, not a server the user just started.
+    expect(servers[0]!.port).toBe(3011)
   })
 
   it('tolerates empty and malformed output', () => {

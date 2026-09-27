@@ -214,9 +214,19 @@ export function CommandPalette() {
     [query, sessions, projects, chatId, chat, workspaceDir]
   )
 
-  useEffect(() => {
-    setHighlight(0)
-  }, [query])
+  // Flatten items into header/row pairs once — no mutation during render.
+  const rows = useMemo(() => {
+    const out: ({ type: 'header'; label: string } | { type: 'item'; item: PaletteItem; index: number })[] = []
+    let lastSection = ''
+    items.forEach((item, index) => {
+      if (item.section !== lastSection) {
+        out.push({ type: 'header', label: item.section })
+        lastSection = item.section
+      }
+      out.push({ type: 'item', item, index })
+    })
+    return out
+  }, [items])
 
   useEffect(() => {
     listRef.current
@@ -251,9 +261,6 @@ export function CommandPalette() {
     }
   }
 
-  let lastSection = ''
-  let flatIndex = -1
-
   return (
     <div className="palette-backdrop" onClick={close}>
       <div
@@ -268,7 +275,10 @@ export function CommandPalette() {
             className="palette-input"
             autoFocus
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setHighlight(0)
+            }}
             onKeyDown={onKeyDown}
             placeholder="Search chats, projects, actions…"
             spellCheck={false}
@@ -277,30 +287,25 @@ export function CommandPalette() {
         </div>
         <div className="palette-list" ref={listRef}>
           {items.length === 0 && <div className="palette-empty">No results</div>}
-          {items.map((item) => {
-            flatIndex += 1
-            const index = flatIndex
-            const header =
-              item.section !== lastSection ? (
-                <div className="palette-section">{item.section}</div>
-              ) : null
-            lastSection = item.section
-            return (
-              <div key={item.id}>
-                {header}
-                <button
-                  type="button"
-                  className={clsx('palette-row', { 'is-highlight': index === highlight })}
-                  onMouseEnter={() => setHighlight(index)}
-                  onClick={() => runItem(index)}
-                >
-                  <span className="palette-row-icon">{item.icon}</span>
-                  <span className="palette-row-title">{item.title}</span>
-                  {item.hint && <span className="palette-row-hint">{item.hint}</span>}
-                </button>
+          {rows.map((row) =>
+            row.type === 'header' ? (
+              <div key={`h-${row.label}`} className="palette-section">
+                {row.label}
               </div>
+            ) : (
+              <button
+                key={row.item.id}
+                type="button"
+                className={clsx('palette-row', { 'is-highlight': row.index === highlight })}
+                onMouseEnter={() => setHighlight(row.index)}
+                onClick={() => runItem(row.index)}
+              >
+                <span className="palette-row-icon">{row.item.icon}</span>
+                <span className="palette-row-title">{row.item.title}</span>
+                {row.item.hint && <span className="palette-row-hint">{row.item.hint}</span>}
+              </button>
             )
-          })}
+          )}
         </div>
       </div>
     </div>

@@ -76,6 +76,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   const projects = useAppStore((s) => s.projects)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const homeDir = useAppStore((s) => s.appInfo?.homeDir ?? '')
   const [projectQuery, setProjectQuery] = useState('')
 
   const inChat = isChat === true && chat !== null
@@ -94,7 +95,8 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const streaming = chat?.status === 'streaming'
   const canSend = text.trim().length > 0 || images.length > 0
   const cwd = chat?.cwd ?? workspaceDir
-  const projectless = cwd === '' || cwd === workspaceDir
+  const projectless =
+    cwd === '' || cwd === workspaceDir || (homeDir !== '' && cwd === homeDir)
   const cwdBase = projectless
     ? 'Without project'
     : (cwd.split('/').filter(Boolean).pop() ?? cwd)
