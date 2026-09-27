@@ -1,9 +1,19 @@
 import { join } from 'node:path'
 import { BrowserWindow, app, shell } from 'electron'
-import { registerIpcHandlers, startSessionWatcher, wireAppLifecycle } from './ipc'
+import {
+  broadcastAll,
+  registerIpcHandlers,
+  startSessionWatcher,
+  wireAppLifecycle
+} from './ipc'
+import { ChatService } from './chat/chat-service'
 import { PiProcessPool } from './pi/pool'
 
-const pool = new PiProcessPool()
+const pool = new PiProcessPool({
+  // Test/dev override: point at a custom pi executable (e.g. a fixture).
+  customPath: process.env['PI_DESKTOP_PI_COMMAND'] || undefined
+})
+const chat = new ChatService(pool, broadcastAll)
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
 
@@ -61,9 +71,9 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers({ pool })
+  registerIpcHandlers({ pool, chat })
   startSessionWatcher()
-  wireAppLifecycle({ pool })
+  wireAppLifecycle({ pool, chat })
   createWindow()
 
   app.on('activate', () => {
