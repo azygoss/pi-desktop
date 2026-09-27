@@ -43,6 +43,8 @@ export interface ChatState extends ChatViewState {
   piReady?: boolean
   /** When the pi spawn began — drives the "Starting pi… Ns" indicator. */
   startedAt?: number
+  /** Known startup blocker parsed from pi stderr (e.g. a retrying MCP server). */
+  startupHint?: string
   /** The file transcript has more message entries than are loaded. */
   hasEarlier?: boolean
   /** Message window currently loaded from the session file. */
@@ -213,11 +215,21 @@ export function initChatBridge(): void {
     if (ready.sessionPath && !draft.sessionPath) {
       draft.sessionPath = ready.sessionPath
     }
+    draft.startupHint = undefined
     if (draft.status === 'starting') {
       draft.status = ready.state.isStreaming ? 'streaming' : 'idle'
     }
     clearQueuedFlags(draft)
     publish(ready.chatId)
+  })
+
+  window.piDesktop.chat.onStartupHint(({ chatId, hint }) => {
+    const draft = drafts.get(chatId)
+    if (!draft || draft.piReady) {
+      return
+    }
+    draft.startupHint = hint
+    publish(chatId)
   })
 
   window.piDesktop.chat.onUiRequest(({ chatId, request }) => {
@@ -269,6 +281,7 @@ function applyOpenResult(
   }
   draft.error = undefined
   draft.stderrTail = undefined
+  draft.startupHint = undefined
   draft.model = result.state.model
   draft.thinkingLevel = result.state.thinkingLevel
   draft.availableThinkingLevels = result.thinkingLevels
@@ -554,6 +567,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     draft.startedAt = Date.now()
     draft.error = undefined
     draft.stderrTail = undefined
+    draft.startupHint = undefined
     publish(chatId)
     let result: ChatOpenResult
     try {

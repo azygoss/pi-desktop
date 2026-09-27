@@ -96,6 +96,15 @@ export interface ChatExitPayload {
   stderrTail: string[]
 }
 
+/**
+ * Sent while a chat's pi is still starting when stderr shows a known blocker
+ * (e.g. an MCP server retrying) — rendered next to the starting indicator.
+ */
+export interface ChatStartupHintPayload {
+  chatId: string
+  hint: string
+}
+
 export interface ChatSessionStats {
   sessionFile?: string
   sessionId?: string
@@ -403,6 +412,8 @@ export interface PiDesktopApi {
     close(input: { chatId: string }): Promise<void>
     /** Mark a chat as currently visible (idle eviction bookkeeping). */
     focus(input: { chatId: string }): Promise<void>
+    /** Warm a spare pi for a project cwd (hover intent; best-effort). */
+    warm(input: { cwd: string }): Promise<void>
     /** File-derived transcript of a session (renders before pi is ready). */
     readTranscript(input: {
       sessionPath: string
@@ -413,6 +424,7 @@ export interface PiDesktopApi {
     onReady(callback: (payload: ChatReadyPayload) => void): () => void
     onUiRequest(callback: (payload: ChatUiRequestPayload) => void): () => void
     onExit(callback: (payload: ChatExitPayload) => void): () => void
+    onStartupHint(callback: (payload: ChatStartupHintPayload) => void): () => void
   }
   /** Last-known pi catalog for instant composer/palette rendering. */
   catalog: {

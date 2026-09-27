@@ -57,7 +57,9 @@ export const CHAT_CHANNELS = {
   event: 'pi-desktop:chat:event',
   uiRequest: 'pi-desktop:chat:ui-request',
   exit: 'pi-desktop:chat:exit',
-  ready: 'pi-desktop:chat:ready'
+  ready: 'pi-desktop:chat:ready',
+  /** A startup blocker detected on pi's stderr (e.g. a retrying MCP server). */
+  hint: 'pi-desktop:chat:hint'
 } as const
 
 interface Gate<T> {
@@ -86,6 +88,10 @@ interface ChatRecord {
   sessionPath?: string
   streaming: boolean
   spawnedAt: number
+  /** True once the first catalog round trip finished (open settled). */
+  ready: boolean
+  /** True once a prompt/steer/follow-up was issued — parked spares stay clean. */
+  prompted: boolean
   /** Resolves once the process answered its first catalog requests. */
   gate: Gate<void>
   /** Coalesces message_update deltas into batched IPC payloads. */
@@ -96,9 +102,31 @@ interface ChatRecord {
   focused: boolean
   /** A pending extension UI request keeps the process alive. */
   pendingUi: boolean
+  /** attachClient listener refs, removed when the process is parked as a spare. */
+  listeners: {
+    event: (event: PiEvent) => void
+    uiRequest: (request: unknown) => void
+    exit: (payload: { code: number | null; signal: string | null }) => void
+    stderr: (line: string) => void
+  }
 }
 
-/** Chat id used for the warm spare process until a draft adopts it. */
+/**
+ * A pre-spawned pi waiting to be adopted by the next chat for `cwd`. Spares
+ * absorb pi's startup time (eager extensions/MCP servers can take seconds):
+ * the workspace spare warms right after launch, project spares warm on hover
+ * or are parked from chats that closed before their first prompt.
+ */
+interface WarmSpare {
+  id: string
+  client: PiRpcClient
+  warm: Promise<void>
+  at: number
+  /** The workspace spare regenerates after adoption and never expires. */
+  pinned: boolean
+}
+
+/** Chat id used for the pinned workspace spare until a draft adopts it. */
 const SPARE_CHAT_ID = '__spare__'
 
 const EXIT_STDERR_LINES = 20
@@ -108,6 +136,26 @@ const MAX_IDLE_PROCESSES = 4
 /** Idle chats not viewed for this long are stopped (revived on demand). */
 const IDLE_EVICT_MS = 10 * 60 * 1000
 const EVICT_SWEEP_MS = 60 * 1000
+/** Unadopted non-pinned spares kept warm; extra ones are stopped. */
+const MAX_WARM_SPARES = 2
+/** Project spares parked/warmed this long ago are stopped as unused. */
+const SPARE_TTL_MS = 5 * 60 * 1000
+
+/**
+ * Translate a pi stderr line into a user-facing startup hint. Covers the
+ * pi-mcp extension's retry/failure messages, the common slow-boot cause.
+ */
+export function startupHintFromStderr(line: string): string | undefined {
+  const retry = /Retrying "([^"]+)"/.exec(line)
+  if (retry) {
+    return `waiting on MCP server “${retry[1]}”`
+  }
+  const failed = /Server "([^"]+)" failed/.exec(line)
+  if (failed) {
+    return `MCP server “${failed[1]}” failed to start`
+  }
+  return undefined
+}
 
 /** Eviction policy overrides (tests). */
 export interface EvictionOptions {
@@ -168,11 +216,14 @@ export class ChatService {
    */
   private readonly pendingOpens = new Map<string, Gate<ChatRecord>>()
   /**
-   * One pre-spawned pi for the "Without project" workspace. Pi's startup can
-   * take seconds (eager extensions/MCP servers), so the spare is spawned
-   * shortly after launch and adopted by the next project-less draft.
+   * Pre-spawned pi processes waiting to be adopted, keyed by cwd. The pinned
+   * "Without project" spare warms after launch; project spares are added by
+   * warmCwd() (hover intent) or parked from chats closed before their first
+   * prompt. Non-pinned spares are capped and expire after SPARE_TTL_MS.
    */
-  private spare: { id: string; client: PiRpcClient; warm: Promise<void> } | null = null
+  private readonly spares = new Map<string, WarmSpare>()
+  private readonly spareSpawning = new Set<string>()
+  private warmSeq = 0
   /**
    * Chats whose idle process was evicted: enough context to respawn on the
    * same cwd/session the next time the renderer talks to them.
@@ -222,31 +273,138 @@ export class ChatService {
    * seconds after launch and again each time the spare is adopted.
    */
   async warmSpare(): Promise<void> {
-    if (this.spare) {
+    await this.ensureSpare(workspaceDir(), true)
+  }
+
+  /**
+   * Warm a spare pi for a project cwd (hover intent from the project list).
+   * Best-effort: unknown dirs and missing runtimes are ignored silently.
+   */
+  async warmCwd(input: { cwd: string }): Promise<void> {
+    const cwd = await validateCwd(input.cwd)
+    if (cwd === workspaceDir()) {
+      await ensureWorkspaceDir()
+      await this.ensureSpare(cwd, true)
       return
     }
-    try {
-      await ensureWorkspaceDir()
-      const client = await this.pool.open(SPARE_CHAT_ID, {
-        cwd: workspaceDir(),
-        ...this.bridgeExtras(SPARE_CHAT_ID)
-      })
-      // Warming: pi only becomes responsive once startup work (eager MCP
-      // servers, extension init) is done; the first request absorbs that.
-      const warm = client
-        .request({ type: 'get_state' })
-        .then(() => {})
-        .catch(() => {})
-      this.spare = { id: SPARE_CHAT_ID, client, warm }
-      client.on('exit', () => {
-        if (this.spare?.client === client) {
-          this.spare = null
-        }
-        this.bridge?.revoke(SPARE_CHAT_ID)
-      })
-    } catch {
-      this.spare = null // no runtime yet — drafts will spawn normally
+    await this.ensureSpare(cwd, false)
+  }
+
+  private ensureSpare(cwd: string, pinned: boolean): Promise<void> {
+    const existing = this.spares.get(cwd)
+    if (existing) {
+      existing.at = Date.now() // hover/interest refreshes the TTL
+      return Promise.resolve()
     }
+    if (this.spareSpawning.has(cwd)) {
+      return Promise.resolve()
+    }
+    this.spareSpawning.add(cwd)
+    return (async () => {
+      try {
+        if (cwd === workspaceDir()) {
+          await ensureWorkspaceDir()
+        }
+        const id = pinned ? SPARE_CHAT_ID : `__warm__${++this.warmSeq}`
+        const client = await this.pool.open(id, { cwd, ...this.bridgeExtras(id) })
+        if (this.spares.has(cwd)) {
+          void client.stop() // a parked spare arrived first
+          return
+        }
+        // Warming: pi only becomes responsive once startup work (eager MCP
+        // servers, extension init) is done; the first request absorbs that.
+        const warm = client
+          .request({ type: 'get_state' })
+          .then(() => {})
+          .catch(() => {})
+        this.spares.set(cwd, { id, client, warm, at: Date.now(), pinned })
+        client.on('exit', () => {
+          if (this.spares.get(cwd)?.client === client) {
+            this.spares.delete(cwd)
+          }
+          this.bridge?.revoke(id)
+        })
+        this.capSpares()
+      } catch {
+        // No runtime (or dir) — opens will spawn normally.
+      } finally {
+        this.spareSpawning.delete(cwd)
+      }
+    })()
+  }
+
+  /** Remove a warm spare entirely (stop its process and revoke its token). */
+  private async removeSpare(cwd: string): Promise<void> {
+    const spare = this.spares.get(cwd)
+    if (!spare) {
+      return
+    }
+    this.spares.delete(cwd)
+    this.bridge?.revoke(spare.id)
+    await this.pool.close(spare.id)
+  }
+
+  /** Stop the oldest non-pinned spares beyond MAX_WARM_SPARES. */
+  private capSpares(): void {
+    const loose = [...this.spares.entries()]
+      .filter(([, spare]) => !spare.pinned)
+      .sort((a, b) => a[1].at - b[1].at)
+    for (const [cwd] of loose.slice(0, Math.max(0, loose.length - MAX_WARM_SPARES))) {
+      void this.removeSpare(cwd)
+    }
+  }
+
+  /**
+   * Turn an unneeded chat process into a warm spare for its cwd instead of
+   * killing it — switching a draft's project or closing an untouched draft
+   * recycles the already-warming process. Only clean processes qualify: a
+   * prompted or session-bound pi carries state that must not leak into the
+   * next chat.
+   */
+  private parkRecord(record: ChatRecord): boolean {
+    if (
+      !record.ready ||
+      record.prompted ||
+      record.streaming ||
+      record.sessionPath !== undefined ||
+      !record.client.isRunning ||
+      record.cwd === workspaceDir()
+    ) {
+      return false
+    }
+    const id = `__warm__${++this.warmSeq}`
+    if (!this.pool.adopt(record.chatId, id)) {
+      return false
+    }
+    // Detach the old chat's listeners; the adopt path re-attaches fresh ones.
+    record.coalescer.dispose()
+    record.client.off('event', record.listeners.event)
+    record.client.off('ui-request', record.listeners.uiRequest)
+    record.client.off('exit', record.listeners.exit)
+    record.client.off('stderr', record.listeners.stderr)
+    this.bridge?.adopt?.(record.chatId, id)
+    const replaced = this.spares.get(record.cwd)
+    if (replaced) {
+      this.spares.delete(record.cwd)
+      this.bridge?.revoke(replaced.id)
+      void this.pool.close(replaced.id)
+    }
+    const { client, cwd } = record
+    client.on('exit', () => {
+      if (this.spares.get(cwd)?.client === client) {
+        this.spares.delete(cwd)
+      }
+      this.bridge?.revoke(id)
+    })
+    this.spares.set(cwd, {
+      id,
+      client,
+      warm: Promise.resolve(),
+      at: Date.now(),
+      pinned: false
+    })
+    this.capSpares()
+    return true
   }
 
   async open(input: ChatOpenInput): Promise<ChatOpenResult> {
@@ -283,15 +441,29 @@ export class ChatService {
 
       let client: PiRpcClient | undefined
       let spareWarm: Promise<void> | undefined
-      // Project-less drafts adopt the warm spare when one is waiting.
-      if (!existing && sessionPath === undefined && cwd === workspaceDir() && this.spare) {
-        const adopted = this.pool.adopt(this.spare.id, chatId)
-        if (adopted) {
-          this.bridge?.adopt?.(this.spare.id, chatId)
-          spareWarm = this.spare.warm
-          client = adopted
-          this.spare = null
-          void this.warmSpare() // spawn the replacement in the background
+      // Drafts adopt a warm spare for their cwd when one is waiting.
+      if (!existing && sessionPath === undefined) {
+        const spare = this.spares.get(cwd)
+        if (spare && spare.client.isRunning) {
+          const adopted = this.pool.adopt(spare.id, chatId)
+          if (adopted) {
+            this.bridge?.adopt?.(spare.id, chatId)
+            spareWarm = spare.warm
+            client = adopted
+            this.spares.delete(cwd)
+            if (spare.pinned) {
+              void this.warmSpare() // spawn the replacement in the background
+            }
+            // Retries that already fired while the spare warmed still explain
+            // a slow startup — surface the latest one to the new chat.
+            for (let i = client.stderrTail.length - 1; i >= 0; i--) {
+              const hint = startupHintFromStderr(client.stderrTail[i]!)
+              if (hint) {
+                this.broadcast(CHAT_CHANNELS.hint, { chatId, hint })
+                break
+              }
+            }
+          }
         }
       }
       if (!client) {
@@ -313,13 +485,21 @@ export class ChatService {
           sessionPath,
           streaming: false,
           spawnedAt: Date.now(),
+          ready: false,
+          prompted: false,
           gate: createGate<void>(),
           coalescer: new EventCoalescer((events) =>
             this.broadcast(CHAT_CHANNELS.event, { chatId, events })
           ),
           lastViewedAt: Date.now(),
           focused: false,
-          pendingUi: false
+          pendingUi: false,
+          listeners: {
+            event: () => {},
+            uiRequest: () => {},
+            exit: () => {},
+            stderr: () => {}
+          }
         }
         this.chats.set(chatId, record)
         this.attachClient(record)
@@ -336,6 +516,7 @@ export class ChatService {
         // chat can be revived onto the same session later.
         record.sessionPath = result.sessionPath
       }
+      record.ready = true
       record.gate.resolve()
       updateCatalogCache({
         models: result.models,
@@ -408,6 +589,7 @@ export class ChatService {
     // Queued send: while pi is still starting the request waits here; the
     // renderer already shows the user message with a queued indicator.
     const record = await this.requireReady(chatId)
+    record.prompted = true
 
     const mode = input.mode
     if (mode === 'steer') {
@@ -672,6 +854,11 @@ export class ChatService {
     record?.gate.reject(new Error('Chat closed'))
     this.pendingOpens.get(chatId)?.reject(new Error('Chat closed'))
     this.pendingOpens.delete(chatId)
+    // A clean, unprompted process becomes a warm spare for its cwd instead of
+    // dying — the next chat for that project adopts it instantly.
+    if (record && this.parkRecord(record)) {
+      return
+    }
     this.bridge?.revoke(chatId)
     await this.pool.close(chatId)
   }
@@ -691,7 +878,8 @@ export class ChatService {
     this.chats.clear()
     this.pendingOpens.clear()
     this.evicted.clear()
-    this.spare = null
+    this.spares.clear()
+    this.spareSpawning.clear()
     await this.pool.closeAll()
   }
 
@@ -761,6 +949,12 @@ export class ChatService {
     for (const record of [...expired, ...overCap]) {
       await this.evict(record)
     }
+    // Expire unadopted project spares — the pinned workspace spare stays.
+    for (const [cwd, spare] of this.spares) {
+      if (!spare.pinned && now - spare.at > SPARE_TTL_MS) {
+        await this.removeSpare(cwd)
+      }
+    }
   }
 
   /** Stop an idle chat's process but keep enough context to revive it. */
@@ -790,6 +984,11 @@ export class ChatService {
     return this.chats.has(chatId)
   }
 
+  /** Test/observability hook: is a warm spare waiting for this cwd? */
+  hasWarmSpare(cwd: string): boolean {
+    return this.spares.get(cwd)?.client.isRunning === true
+  }
+
   /** Test/observability hook: was this chat's process evicted? */
   isEvicted(chatId: string): boolean {
     return this.evicted.has(chatId)
@@ -797,19 +996,19 @@ export class ChatService {
 
   private attachClient(record: ChatRecord): void {
     const { client, chatId } = record
-    client.on('event', (event: PiEvent) => {
+    const onEvent = (event: PiEvent) => {
       if (event.type === 'agent_start') {
         record.streaming = true
       } else if (event.type === 'agent_settled') {
         record.streaming = false
       }
       record.coalescer.push(event)
-    })
-    client.on('ui-request', (request) => {
+    }
+    const onUiRequest = (request: unknown) => {
       record.pendingUi = true
       this.broadcast(CHAT_CHANNELS.uiRequest, { chatId, request })
-    })
-    client.on('exit', ({ code, signal }) => {
+    }
+    const onExit = ({ code, signal }: { code: number | null; signal: string | null }) => {
       const current = this.chats.get(chatId)
       this.chats.delete(chatId)
       record.coalescer.dispose()
@@ -829,7 +1028,28 @@ export class ChatService {
         stderrTail: [...client.stderrTail].slice(-EXIT_STDERR_LINES)
       }
       this.broadcast(CHAT_CHANNELS.exit, payload)
-    })
+    }
+    const onStderr = (line: string) => {
+      // While startup runs, translate known stderr noise (pi-mcp retries)
+      // into a "waiting on X" hint next to the starting indicator.
+      if (record.ready) {
+        return
+      }
+      const hint = startupHintFromStderr(line)
+      if (hint) {
+        this.broadcast(CHAT_CHANNELS.hint, { chatId, hint })
+      }
+    }
+    record.listeners = {
+      event: onEvent,
+      uiRequest: onUiRequest,
+      exit: onExit,
+      stderr: onStderr
+    }
+    client.on('event', onEvent)
+    client.on('ui-request', onUiRequest)
+    client.on('exit', onExit)
+    client.on('stderr', onStderr)
   }
 }
 

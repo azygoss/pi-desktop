@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
   chatClose: 'pi-desktop:chat:close',
   chatTranscript: 'pi-desktop:chat:transcript',
   chatFocus: 'pi-desktop:chat:focus',
+  chatWarm: 'pi-desktop:chat:warm',
   catalogGet: 'pi-desktop:catalog:get',
   chatReload: 'pi-desktop:chat:reload',
   chatGetTree: 'pi-desktop:chat:get-tree',
@@ -396,6 +397,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.chat.chatIdForSession(validateSessionPath(input.sessionPath))
   )
   ipcMain.handle(IPC_CHANNELS.chatClose, (_e, input: { chatId: string }) => deps.chat.close(input))
+  ipcMain.handle(IPC_CHANNELS.chatWarm, (_e, input: { cwd: string }) =>
+    deps.chat.warmCwd(input)
+  )
 
   ipcMain.handle(
     IPC_CHANNELS.chatTranscript,

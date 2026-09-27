@@ -101,11 +101,13 @@ const api: PiDesktopApi = {
     respondUi: (input) => ipcRenderer.invoke('pi-desktop:chat:respond-ui', input),
     close: (input) => ipcRenderer.invoke('pi-desktop:chat:close', input),
     focus: (input) => ipcRenderer.invoke('pi-desktop:chat:focus', input),
+    warm: (input) => ipcRenderer.invoke('pi-desktop:chat:warm', input),
     readTranscript: (input) => ipcRenderer.invoke('pi-desktop:chat:transcript', input),
     onEvent: subscribe('pi-desktop:chat:event'),
     onReady: subscribe('pi-desktop:chat:ready'),
     onUiRequest: subscribe('pi-desktop:chat:ui-request'),
-    onExit: subscribe('pi-desktop:chat:exit')
+    onExit: subscribe('pi-desktop:chat:exit'),
+    onStartupHint: subscribe('pi-desktop:chat:hint')
   },
   catalog: {
     get: () => ipcRenderer.invoke('pi-desktop:catalog:get')

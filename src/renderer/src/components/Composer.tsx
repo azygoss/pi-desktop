@@ -12,6 +12,7 @@ import {
   parseSlashSend,
   slashQuery
 } from '../lib/slash-commands'
+import { warmProjectSoon } from '../lib/warm'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { ModelPicker } from './ModelPicker'
@@ -46,7 +47,7 @@ function fileToImage(file: File): Promise<ImageContent | null> {
 }
 
 /** Subtle "Starting pi… Ns" line while the chat's pi process warms up. */
-function StartingPiStatus({ startedAt }: { startedAt?: number }) {
+function StartingPiStatus({ startedAt, hint }: { startedAt?: number; hint?: string }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
@@ -57,6 +58,7 @@ function StartingPiStatus({ startedAt }: { startedAt?: number }) {
     <div className="composer-status" role="status">
       <span className="composer-status-dot" />
       {seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}
+      {hint && <span className="composer-status-hint"> — {hint}</span>}
     </div>
   )
 }
@@ -395,7 +397,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         spellCheck={false}
       />
 
-      {chat?.status === 'starting' && <StartingPiStatus startedAt={chat.startedAt} />}
+      {chat?.status === 'starting' && (
+        <StartingPiStatus startedAt={chat.startedAt} hint={chat.startupHint} />
+      )}
 
       <div className="composer-bar">
         <div className="composer-left">
@@ -476,6 +480,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                     type="button"
                     className="folder-row"
                     title={p.cwd}
+                    onMouseEnter={() => warmProjectSoon(p.cwd)}
                     onClick={() => {
                       setFolderOpen(false)
                       changeChatCwd(p.cwd)

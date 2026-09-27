@@ -45,6 +45,7 @@ const fakeApi = {
     onReady: () => () => {},
     onUiRequest: () => () => {},
     onExit: () => () => {},
+    onStartupHint: () => () => {},
     open: async (input: { chatId: string }) =>
       openHandler
         ? await openHandler(input)

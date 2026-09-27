@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { PiProcessPool } from '../pi/pool'
 import type { LocatorDeps } from '../pi/locator'
-import { ChatService, type EvictionOptions } from './chat-service'
+import {
+  ChatService,
+  startupHintFromStderr,
+  type EvictionOptions
+} from './chat-service'
 import {
   validateChatId,
   validateCwd,
@@ -100,6 +104,18 @@ describe('validation', () => {
     expect(validateMessage('hello')).toBe('hello')
     expect(() => validateMessage('')).toThrow()
     expect(() => validateMessage('x'.repeat(200_001))).toThrow()
+  })
+})
+
+describe('startupHintFromStderr', () => {
+  it('names a retrying MCP server', () => {
+    expect(startupHintFromStderr('[pi-mcp] Retrying "xcodebuildmcp" in 1000ms')).toBe(
+      'waiting on MCP server “xcodebuildmcp”'
+    )
+    expect(startupHintFromStderr('[pi-mcp] Server "x" failed after 3 retries')).toBe(
+      'MCP server “x” failed to start'
+    )
+    expect(startupHintFromStderr('ordinary noise')).toBeUndefined()
   })
 })
 
@@ -341,6 +357,55 @@ describe('ChatService', () => {
       expect(forked.cancelled).toBe(false)
       const cloned = await service.clone({ chatId: 'chat-fk' })
       expect(cloned.cancelled).toBe(false)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('adopts a project warm spare warmed via warmCwd', async () => {
+    const { service, pool } = makeService()
+    try {
+      await service.warmCwd({ cwd: tmpdir() })
+      expect(service.hasWarmSpare(tmpdir())).toBe(true)
+      const result = await service.open({ chatId: 'chat-warm', cwd: tmpdir() })
+      expect(result.cwd).toBe(tmpdir())
+      // The spare was adopted, not left running alongside the chat.
+      expect(service.hasWarmSpare(tmpdir())).toBe(false)
+      expect(service.hasProcess('chat-warm')).toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('parks an unprompted chat process on setCwd and reuses it on return', async () => {
+    const { service, pool } = makeService()
+    try {
+      const dirA = await mkdtemp(join(tmpdir(), 'pi-park-a-'))
+      const dirB = await mkdtemp(join(tmpdir(), 'pi-park-b-'))
+      await service.open({ chatId: 'chat-swp', cwd: dirA })
+      const first = pool.get('chat-swp')
+      await service.setCwd({ chatId: 'chat-swp', cwd: dirB })
+      // The untouched dirA process was parked as a spare instead of killed.
+      expect(service.hasWarmSpare(dirA)).toBe(true)
+      expect(pool.get('chat-swp')).not.toBe(first)
+      // Switching back adopts the parked process — no cold restart.
+      await service.setCwd({ chatId: 'chat-swp', cwd: dirA })
+      expect(pool.get('chat-swp')).toBe(first)
+      expect(service.hasWarmSpare(dirA)).toBe(false)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('does not park a prompted chat on setCwd', async () => {
+    const { service, pool } = makeService()
+    try {
+      const dirA = await mkdtemp(join(tmpdir(), 'pi-park-c-'))
+      const dirB = await mkdtemp(join(tmpdir(), 'pi-park-d-'))
+      await service.open({ chatId: 'chat-sent', cwd: dirA })
+      await service.send({ chatId: 'chat-sent', message: 'hi', mode: 'prompt' })
+      await service.setCwd({ chatId: 'chat-sent', cwd: dirB })
+      expect(service.hasWarmSpare(dirA)).toBe(false)
     } finally {
       await pool.closeAll()
     }

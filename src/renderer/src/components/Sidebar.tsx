@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import type { SessionSummary } from '../../../shared/session-types'
 import { groupByDate } from '../lib/date-groups'
 import { capitalizeName } from '../lib/greeting'
+import { warmProjectSoon } from '../lib/warm'
 import { Perf } from '../lib/perf'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
@@ -304,6 +305,7 @@ function ProjectRow({
         role="button"
         tabIndex={0}
         title={cwd}
+        onMouseEnter={() => warmProjectSoon(cwd)}
         onClick={() => toggleExpanded(cwd)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {

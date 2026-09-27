@@ -684,6 +684,12 @@ body {
   background: var(--accent);
   animation: composer-status-pulse 1.2s ease-in-out infinite;
 }
+.composer-status-hint {
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @keyframes composer-status-pulse {
   0%,
   100% {
