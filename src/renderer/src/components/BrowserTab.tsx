@@ -223,7 +223,7 @@ export function NewTabPage({
               >
                 <Globe size={13} className="newtab-row-icon" />
                 <span className="newtab-row-name">localhost:{server.port}</span>
-                <span className="newtab-row-meta">{server.command}</span>
+                <span className="newtab-row-meta">{server.title ?? server.command}</span>
               </button>
             ))}
           </section>

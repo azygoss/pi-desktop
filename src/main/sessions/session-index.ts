@@ -26,7 +26,7 @@ const PERSIST_DEBOUNCE_MS = 800
 const PERSIST_MAX_ENTRIES = 5000
 // Bump when the summary shape or title derivation changes so stale cached
 // titles get recomputed instead of served.
-const PERSIST_VERSION = 2
+const PERSIST_VERSION = 3
 
 let persistedLoaded = false
 let persistTimer: ReturnType<typeof setTimeout> | null = null

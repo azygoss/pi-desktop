@@ -525,6 +525,40 @@ describe('Pi Desktop e2e', () => {
     await expect
       .poll(() => localSection.locator('.newtab-row').count(), { timeout: 10_000 })
       .toBeGreaterThan(0)
+    // Drag the panel to its minimum width (320) — no new-tab element may
+    // stick out of the panel's box. Dispatch real PointerEvents on the
+    // resize handle so the capture logic runs end to end.
+    await page.evaluate(`(() => {
+      const h = document.querySelector('.panel-resize-handle')
+      if (!h) return
+      const r = h.getBoundingClientRect()
+      const cx = r.x + r.width / 2
+      const cy = r.y + 20
+      const opts = { bubbles: true, pointerId: 7, isPrimary: true }
+      h.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: cx, clientY: cy }))
+      h.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: cx + 300, clientY: cy }))
+      h.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: cx + 300, clientY: cy }))
+    })()`)
+    await expect
+      .poll(async () => (await page.locator('.right-panel').boundingBox())?.width ?? 0, {
+        timeout: 5_000
+      })
+      .toBeLessThanOrEqual(330)
+    const panelBox = await page.locator('.right-panel').boundingBox()
+    const parts = page.locator(
+      '.panel-tab-content.is-active .newtab-inner, ' +
+        '.panel-tab-content.is-active .newtab-omnibox, ' +
+        '.panel-tab-content.is-active .newtab-section, ' +
+        '.panel-tab-content.is-active .newtab-row'
+    )
+    for (let i = 0, n = await parts.count(); i < n; i++) {
+      const box = await parts.nth(i).boundingBox()
+      if (!box || !panelBox) {
+        continue
+      }
+      expect(box.x).toBeGreaterThanOrEqual(panelBox.x - 1)
+      expect(box.x + box.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1)
+    }
     await page.screenshot({ path: join(SHOTS, 'panel-newtab.png') })
     const port = new URL(pageUrl).port
     const localRow = localSection.locator('.newtab-row', { hasText: `:${port}` })

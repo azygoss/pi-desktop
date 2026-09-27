@@ -160,6 +160,8 @@ export interface AppSettings {
 export interface LocalServer {
   port: number
   command: string
+  /** HTML <title> when the server returned one during the probe. */
+  title?: string
 }
 
 /** Identifiers returned by the native context menu. */

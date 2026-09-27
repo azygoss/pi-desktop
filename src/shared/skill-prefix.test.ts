@@ -61,4 +61,33 @@ describe('titleFromUserText', () => {
     expect(titleFromUserText('plain')).toBe('plain')
     expect(titleFromUserText(undefined)).toBeUndefined()
   })
+
+  it('strips leading image paths (synthetic temp paths)', () => {
+    expect(
+      titleFromUserText('/tmp/synthetic/pi-clipboard-1.png what does this show?')
+    ).toBe('what does this show?')
+    expect(
+      titleFromUserText('/var/folders/xx/synthetic.png\n/var/folders/yy/synthetic.jpg\nlook at these')
+    ).toBe('look at these')
+    expect(
+      titleFromUserText('file:///tmp/synthetic/shot.webp describe it')
+    ).toBe('describe it')
+  })
+
+  it('falls back to "Image" when only pasted images remain', () => {
+    expect(titleFromUserText('/tmp/synthetic/pi-clipboard-1.png')).toBe('Image')
+    expect(titleFromUserText('~/shots/a.png /tmp/b.jpeg')).toBe('Image')
+    expect(
+      titleFromUserText('<skill name="a" location="/x">b</skill> /tmp/synthetic/c.png')
+    ).toBe('Image')
+  })
+
+  it('keeps non-image paths and mid-text image mentions', () => {
+    expect(titleFromUserText('/opt/synthetic/project fix the build')).toBe(
+      '/opt/synthetic/project fix the build'
+    )
+    expect(titleFromUserText('the file /tmp/x.png is broken')).toBe(
+      'the file /tmp/x.png is broken'
+    )
+  })
 })

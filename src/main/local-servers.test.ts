@@ -28,16 +28,36 @@ describe('parseLsofListeners', () => {
     expect(servers.map((s) => s.port)).not.toContain(4040)
   })
 
-  it('honors excluded ports and caps the list', () => {
-    const many = Array.from(
-      { length: 12 },
-      (_, i) => `node  ${2000 + i}  alex  3u  IPv4 0x1  0t0  TCP *:${3000 + i} (LISTEN)`
-    ).join('\n')
-    const servers = parseLsofListeners(many, new Set([3000, 3001]))
-    expect(servers).toHaveLength(8)
-    // Highest (most recently allocated) ports first, so the cap drops the
-    // oldest listeners, not a server the user just started.
-    expect(servers[0]!.port).toBe(3011)
+  it('drops the ephemeral port range', () => {
+    const out = [
+      'node  1001  alex  3u  IPv4 0x1  0t0  TCP *:3000 (LISTEN)',
+      'node  1002  alex  3u  IPv4 0x1  0t0  TCP *:49151 (LISTEN)',
+      'node  1003  alex  3u  IPv4 0x1  0t0  TCP *:49152 (LISTEN)',
+      'node  1004  alex  3u  IPv4 0x1  0t0  TCP *:65373 (LISTEN)'
+    ].join('\n')
+    const servers = parseLsofListeners(out)
+    // 49151 is the last non-ephemeral port: kept. 49152+ are dropped.
+    expect(servers.map((s) => s.port)).toEqual([49151, 3000])
+  })
+
+  it('drops pids owned by this app and its children', () => {
+    const out = [
+      'node      1001  alex  3u  IPv4 0x1  0t0  TCP *:3000 (LISTEN)',
+      'pi        2002  alex  3u  IPv4 0x1  0t0  TCP *:4567 (LISTEN)',
+      'Electron  3003  alex  3u  IPv4 0x1  0t0  TCP *:8222 (LISTEN)'
+    ].join('\n')
+    const servers = parseLsofListeners(out, { pids: new Set([2002]) })
+    // pid 2002 is excluded directly; Electron 3003 by command name.
+    expect(servers.map((s) => s.port)).toEqual([3000])
+  })
+
+  it('honors excluded ports', () => {
+    const out = [
+      'node  1001  alex  3u  IPv4 0x1  0t0  TCP *:3000 (LISTEN)',
+      'node  1002  alex  3u  IPv4 0x1  0t0  TCP *:3001 (LISTEN)'
+    ].join('\n')
+    const servers = parseLsofListeners(out, { ports: new Set([3000]) })
+    expect(servers.map((s) => s.port)).toEqual([3001])
   })
 
   it('tolerates empty and malformed output', () => {

@@ -49,15 +49,42 @@ export function parseSkillPrefix(text: string): SkillPrefix {
   return { skills, rest: rest.trim() }
 }
 
+/**
+ * A leading token that is an absolute path (or file:// URL) to an image
+ * file — pi drops pasted screenshots into temp files and prefixes the
+ * message with their paths. Never title a chat after one.
+ */
+const IMAGE_PATH_TOKEN =
+  /^\s*(?:file:\/\/\S+|~?\/\S+|[A-Za-z]:\\\S+)\.(?:png|jpe?g|gif|webp|bmp|heic|heif|avif|tiff?|svg)(?=\s|$)/i
+
+function stripLeadingImagePaths(text: string): { rest: string; hadImage: boolean } {
+  let rest = text
+  let hadImage = false
+  for (;;) {
+    const match = IMAGE_PATH_TOKEN.exec(rest)
+    if (!match) {
+      break
+    }
+    hadImage = true
+    rest = rest.slice(match[0].length)
+  }
+  return { rest: rest.trim(), hadImage }
+}
+
 /** Title for a chat from its first user message: the typed text, or a
- *  `/skill:name` label when the message was only a skill invocation. */
+ *  `/skill:name` label when the message was only a skill invocation, or
+ *  "Image" when it was only pasted images. */
 export function titleFromUserText(text: string | undefined): string | undefined {
   if (text === undefined) {
     return undefined
   }
-  const { skills, rest } = parseSkillPrefix(text)
+  const { skills, rest: afterSkills } = parseSkillPrefix(text)
+  const { rest, hadImage } = stripLeadingImagePaths(afterSkills)
   if (rest) {
     return rest
+  }
+  if (hadImage) {
+    return 'Image'
   }
   const first = skills.find((s) => s.name)
   return first ? `/skill:${first.name}` : text

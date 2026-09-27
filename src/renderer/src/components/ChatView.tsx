@@ -78,17 +78,6 @@ function AssistantBlock({
   return null
 }
 
-/** Elapsed-seconds label for the "Starting pi…" notice (ticks each second). */
-function StartingPiNotice({ startedAt }: { startedAt?: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  const seconds = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0
-  return <span>{seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}</span>
-}
-
 /**
  * Memoized per finalized block: during a stream only the block receiving
  * deltas gets a new object identity, so earlier blocks skip re-parsing.
@@ -681,11 +670,6 @@ export function ChatView({ chatId }: { chatId: string }) {
               >
                 Load earlier messages
               </button>
-            </div>
-          )}
-          {chat.status === 'starting' && (
-            <div className="msg-notice msg-notice-info">
-              <StartingPiNotice startedAt={chat.startedAt} />
             </div>
           )}
           {hiddenRows > 0 && (
