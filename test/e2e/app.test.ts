@@ -290,6 +290,34 @@ describe('Pi Desktop e2e', () => {
     await page.screenshot({ path: join(SHOTS, 'chat-toolcard.png') })
   })
 
+  it('shows the thinking shimmer while a reply starts', async () => {
+    // "slow" makes the fake pi pause 2.5s before its first delta, so the
+    // pending shimmer row is on screen long enough to capture.
+    await page.locator('.composer-input').fill('slow reply please')
+    await page.keyboard.press('Enter')
+    await visible(page, '.msg-pending .shimmer-text')
+    // 'visible' only means rendered — wait until the pending row is actually
+    // inside the scroll viewport before shooting.
+    await page.waitForFunction(
+      `(() => {
+        const el = document.querySelector('.msg-pending')
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        return r.top >= 0 && r.bottom <= window.innerHeight
+      })()`,
+      undefined,
+      { timeout: 5_000 }
+    )
+    await page.screenshot({ path: join(SHOTS, 'chat-streaming.png') })
+    // Let the reply finish; the scripted answer includes a markdown table.
+    await visible(page, '.markdown .table-scroll table', 30_000)
+    await page.screenshot({ path: join(SHOTS, 'chat-markdown.png') })
+    await page.evaluate("document.documentElement.dataset.theme = 'light'")
+    await page.waitForTimeout(250)
+    await page.screenshot({ path: join(SHOTS, 'chat-markdown-light.png') })
+    await page.evaluate("document.documentElement.dataset.theme = 'dark'")
+  })
+
   it('drives the in-app browser via the pi browser tools', async () => {
     // Still on the chat view from the previous test. The fake pi sees the
     // bridge env vars and issues real browser_open/browser_screenshot calls

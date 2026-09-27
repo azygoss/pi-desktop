@@ -525,6 +525,9 @@ export function ChatView({ chatId }: { chatId: string }) {
           chat={chat}
           isChat
           onSend={(message, images, mode) => {
+            // Sending always re-pins to the bottom — the user's own message
+            // and the pending/streaming rows belong in view.
+            stickRef.current = true
             void useChatStore.getState().send(chatId, message, images, mode).catch(() => {})
           }}
         />

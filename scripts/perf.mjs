@@ -7,6 +7,7 @@
 //   node scripts/perf.mjs              synthetic mode (fake pi, fake sessions)
 //   node scripts/perf.mjs --real       installed pi + real ~/.pi sessions
 //   node scripts/perf.mjs --out f.json write metrics JSON to a file
+//   node scripts/perf.mjs --userdata d reuse a userData dir (warm caches)
 //
 // Synthetic mode never touches ~/.pi. Real mode is read-only: it never
 // sends prompts, never writes to pi data, and prints numbers only.
@@ -23,6 +24,8 @@ const FAKE_PI = join(ROOT, 'test/fixtures/fake-pi.mjs')
 const REAL = process.argv.includes('--real')
 const OUT_INDEX = process.argv.indexOf('--out')
 const OUT_FILE = OUT_INDEX >= 0 ? process.argv[OUT_INDEX + 1] : null
+const UD_INDEX = process.argv.indexOf('--userdata')
+const USERDATA_DIR = UD_INDEX >= 0 ? process.argv[UD_INDEX + 1] : null
 
 // ---------------------------------------------------------------- helpers
 
@@ -144,11 +147,11 @@ try {
     delete env['PI_DESKTOP_PI_COMMAND']
     delete env['PI_CODING_AGENT_DIR']
     delete env['PI_CODING_AGENT_SESSION_DIR']
-    userDataDir = await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-'))
+    userDataDir = USERDATA_DIR ?? (await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-')))
   } else {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-perf-agent-'))
     await seedAgentDir(agentDir)
-    userDataDir = await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-'))
+    userDataDir = USERDATA_DIR ?? (await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-')))
     await writeFile(join(userDataDir, 'settings.json'), JSON.stringify({ displayName: 'Perf' }))
     env['PI_DESKTOP_PI_COMMAND'] = FAKE_PI
     env['PI_CODING_AGENT_DIR'] = agentDir
@@ -276,7 +279,10 @@ try {
 } finally {
   if (app) await app.close().catch(() => {})
   if (agentDir) await rm(agentDir, { recursive: true, force: true })
-  if (userDataDir) await rm(userDataDir, { recursive: true, force: true })
+  // A --userdata dir is reused across runs for warm-cache measurements.
+  if (userDataDir && !USERDATA_DIR) {
+    await rm(userDataDir, { recursive: true, force: true })
+  }
 }
 
 // ---------------------------------------------------------------- report

@@ -283,9 +283,22 @@ const SCRIPT_TEXT =
   '  return `Hello, ${name}!`\n' +
   '}\n' +
   '```\n\n' +
-  'And a quick `ls` below.'
+  'And a quick `ls` below.\n\n' +
+  '| Step | Status |\n' +
+  '| --- | --- |\n' +
+  '| Scan project | Done |\n' +
+  '| Patch router | Pending |\n\n' +
+  '> Synthetic blockquote for styling checks.\n\n' +
+  '- first item\n' +
+  '- second item\n\n' +
+  'See the [pi docs](https://pi.dev/docs/latest) for details.'
 
-async function scriptedReply(id, promptMessage) {
+/**
+ * Scripted assistant reply. `preDelayMs` pauses between the empty
+ * message_start and the first delta so e2e can capture the
+ * "Thinking…" pending state.
+ */
+async function scriptedReply(id, promptMessage, preDelayMs = 0) {
   streaming = true
   writeLine({ type: 'agent_start' })
   // Echo of the user message, like the real agent.
@@ -307,6 +320,10 @@ async function scriptedReply(id, promptMessage) {
       timestamp: Date.now()
     }
   })
+
+  if (preDelayMs > 0) {
+    await sleep(preDelayMs)
+  }
 
   // thinking deltas
   writeLine({
@@ -654,6 +671,10 @@ function handle(command) {
       writeLine({ id, type: 'response', command: command.type, success: true })
       if (/stream perf/i.test(String(command.message))) {
         void scriptedFastStream(command.message)
+      } else if (/\bslow\b/i.test(String(command.message))) {
+        // Long pause before the first delta so tests can capture the
+        // pre-token "Thinking…" state.
+        void scriptedReply(id, command.message, 2500)
       } else if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
         void scriptedBrowserReply(id, command.message)
       } else {
