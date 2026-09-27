@@ -161,7 +161,10 @@ async function summarizeFile(filePath: string): Promise<SessionSummary | null> {
 }
 
 /** List all sessions across projects, newest first. */
-export async function listSessions(env: NodeJS.ProcessEnv = process.env): Promise<SessionSummary[]> {
+export async function listSessions(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<SessionSummary[]> {
+  const perfStart = process.env['PI_DESKTOP_PERF'] ? performance.now() : 0
   const sessionsDir = getSessionsDir(env)
   let projectDirs: string[]
   try {
@@ -194,12 +197,15 @@ export async function listSessions(env: NodeJS.ProcessEnv = process.env): Promis
   // and unbounded parallel reads risk EMFILE.
   const summaries: (SessionSummary | null)[] = new Array(files.length).fill(null)
   let next = 0
-  const workers = Array.from({ length: Math.min(MAX_CONCURRENT_PARSES, files.length) }, async () => {
-    while (next < files.length) {
-      const index = next++
-      summaries[index] = await summarizeFile(files[index]!)
+  const workers = Array.from(
+    { length: Math.min(MAX_CONCURRENT_PARSES, files.length) },
+    async () => {
+      while (next < files.length) {
+        const index = next++
+        summaries[index] = await summarizeFile(files[index]!)
+      }
     }
-  })
+  )
   await Promise.all(workers)
 
   // Drop cache entries for files that disappeared since the last scan.
@@ -210,9 +216,15 @@ export async function listSessions(env: NodeJS.ProcessEnv = process.env): Promis
     }
   }
 
-  return summaries
+  const sorted = summaries
     .filter((s): s is SessionSummary => s !== null)
     .sort((a, b) => b.modified.localeCompare(a.modified))
+  if (perfStart) {
+    console.error(
+      `perf sessions-scan ms=${Math.round(performance.now() - perfStart)} files=${files.length}`
+    )
+  }
+  return sorted
 }
 
 /** Group sessions by working directory into project summaries. */

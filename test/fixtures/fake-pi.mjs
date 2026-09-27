@@ -37,7 +37,15 @@ const FAKE_MODELS = [
     provider: 'anthropic',
     baseUrl: 'https://example.invalid',
     reasoning: true,
-    thinkingLevelMap: { off: 'off', minimal: 'min', low: 'low', medium: 'med', high: 'high', xhigh: null, max: null },
+    thinkingLevelMap: {
+      off: 'off',
+      minimal: 'min',
+      low: 'low',
+      medium: 'med',
+      high: 'high',
+      xhigh: null,
+      max: null
+    },
     input: ['text', 'image'],
     contextWindow: 200000,
     maxTokens: 8192,
@@ -149,9 +157,7 @@ async function emitToolRun(callId, toolName, args, call) {
     details = result?.details
   } catch (error) {
     isError = true
-    content = [
-      { type: 'text', text: error instanceof Error ? error.message : String(error) }
-    ]
+    content = [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
   }
   writeLine({
     type: 'tool_execution_end',
@@ -274,7 +280,7 @@ const SCRIPT_TEXT =
   'Here is a synthetic reply with a code block.\n\n' +
   '```ts\n' +
   'export function greet(name: string): string {\n' +
-  "  return `Hello, ${name}!`\n" +
+  '  return `Hello, ${name}!`\n' +
   '}\n' +
   '```\n\n' +
   'And a quick `ls` below.'
@@ -319,7 +325,11 @@ async function scriptedReply(id, promptMessage) {
   writeLine({
     type: 'message_update',
     usage: USAGE,
-    assistantMessageEvent: { type: 'thinking_end', contentIndex: 0, content: 'Let me think about this briefly.' }
+    assistantMessageEvent: {
+      type: 'thinking_end',
+      contentIndex: 0,
+      content: 'Let me think about this briefly.'
+    }
   })
 
   // text deltas
@@ -346,7 +356,12 @@ async function scriptedReply(id, promptMessage) {
   writeLine({
     type: 'message_update',
     usage: USAGE,
-    assistantMessageEvent: { type: 'toolcall_start', contentIndex: 2, id: 'call_demo_1', toolName: 'bash' }
+    assistantMessageEvent: {
+      type: 'toolcall_start',
+      contentIndex: 2,
+      id: 'call_demo_1',
+      toolName: 'bash'
+    }
   })
   for (const delta of ['{"command":"ls ', '-la"}']) {
     await sleep(DELAY_MS)
@@ -362,7 +377,12 @@ async function scriptedReply(id, promptMessage) {
     assistantMessageEvent: {
       type: 'toolcall_end',
       contentIndex: 2,
-      toolCall: { type: 'toolCall', id: 'call_demo_1', name: 'bash', arguments: { command: 'ls -la' } }
+      toolCall: {
+        type: 'toolCall',
+        id: 'call_demo_1',
+        name: 'bash',
+        arguments: { command: 'ls -la' }
+      }
     }
   })
   const assistantMessage = {
@@ -448,6 +468,65 @@ async function scriptedReply(id, promptMessage) {
   writeLine({ type: 'message_end', message: finalMessage })
   writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
 
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
+ * Perf benchmark reply: ~2000 small text deltas written as fast as stdout
+ * drains, then a normal end sequence. Used by scripts/perf.mjs to measure
+ * main→renderer IPC throughput.
+ */
+async function scriptedFastStream(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({ type: 'turn_start' })
+  const base = {
+    role: 'assistant',
+    content: [],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'pending',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: base })
+  writeLine({
+    type: 'message_update',
+    usage: USAGE,
+    assistantMessageEvent: { type: 'text_start', contentIndex: 0 }
+  })
+  let text = ''
+  for (let i = 0; i < 2000; i++) {
+    const delta = `w${i % 10} `
+    text += delta
+    writeLine({
+      type: 'message_update',
+      usage: USAGE,
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta }
+    })
+    if (i % 200 === 0) {
+      await sleep(0) // let stdout flush
+    }
+  }
+  writeLine({
+    type: 'message_update',
+    usage: USAGE,
+    assistantMessageEvent: { type: 'text_end', contentIndex: 0, content: text }
+  })
+  const finalMessage = {
+    ...base,
+    content: [{ type: 'text', text }],
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
   writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
   streaming = false
   writeLine({ type: 'agent_settled' })
@@ -573,7 +652,9 @@ function handle(command) {
     case 'steer':
     case 'follow_up':
       writeLine({ id, type: 'response', command: command.type, success: true })
-      if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
+      if (/stream perf/i.test(String(command.message))) {
+        void scriptedFastStream(command.message)
+      } else if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
         void scriptedBrowserReply(id, command.message)
       } else {
         void scriptedReply(id, command.message)
@@ -586,7 +667,13 @@ function handle(command) {
       writeLine({ id, type: 'response', command: 'abort', success: true })
       break
     case 'new_session':
-      writeLine({ id, type: 'response', command: 'new_session', success: true, data: { cancelled: false } })
+      writeLine({
+        id,
+        type: 'response',
+        command: 'new_session',
+        success: true,
+        data: { cancelled: false }
+      })
       break
     case 'set_session_name':
       writeLine({ id, type: 'response', command: 'set_session_name', success: true })
@@ -642,7 +729,13 @@ function handle(command) {
       writeLine({ id, type: 'response', command: 'echo', success: true, data: command.data })
       break
     case 'fail':
-      writeLine({ id, type: 'response', command: 'fail', success: false, error: 'synthetic failure' })
+      writeLine({
+        id,
+        type: 'response',
+        command: 'fail',
+        success: false,
+        error: 'synthetic failure'
+      })
       break
     case 'hang':
       break
