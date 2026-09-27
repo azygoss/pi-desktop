@@ -123,7 +123,10 @@ keys or session contents into issues.
 ## Acknowledgements
 
 pi is built by Earendil / Mario Zechner. Pi Desktop is a community
-project and is not affiliated with or endorsed by pi.
+project and is not affiliated with or endorsed by pi. The pi logo used in
+the app icon and UI (build/pi-logo.svg, downloaded from
+[pi.dev](https://pi.dev/logo.svg)) belongs to Earendil / the pi project and
+is used solely to identify pi.
 
 ## License
 

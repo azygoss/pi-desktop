@@ -1,17 +1,24 @@
+/**
+ * The official pi mark (three shapes: coral, blue, amber) from
+ * https://pi.dev/logo.svg — the logo belongs to Earendil / the pi project
+ * and is used here to identify pi. viewBox is cropped to the mark bounds.
+ */
 export function PiLogo({ size = 20 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="165.29 165.29 469.43 469.43"
       fill="none"
       aria-hidden="true"
       style={{ display: 'block' }}
     >
+      <path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z" />
       <path
-        d="M4.5 7.2c0-.9.7-1.6 1.6-1.6h11.8c.9 0 1.6.7 1.6 1.6s-.7 1.6-1.6 1.6h-2.1l-1.4 9.2c-.2 1-.7 1.4-1.3 1.4-.8 0-1.5-.7-1.3-1.8l1.3-8.8h-2.3l-1.4 9.2c-.2 1-.7 1.4-1.3 1.4-.8 0-1.5-.7-1.3-1.8l1.3-8.8H6.1c-.9 0-1.6-.7-1.6-1.6Z"
-        fill="var(--accent)"
+        fill="#4D9ABF"
+        d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"
       />
+      <path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z" />
     </svg>
   )
 }

@@ -1,4 +1,8 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- App icon: official pi mark (pi.dev/logo.svg, © Earendil / the pi
+       project) centered on a warm-dark macOS-style rounded square.
+       Mark bounds: 165.29..634.72 in an 800 viewBox (469.43 units);
+       scaled x1.2215 -> ~573px (~56% of canvas), centered at (512,512). -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#232322"/>
@@ -6,7 +10,9 @@
     </linearGradient>
   </defs>
   <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
-  <g transform="translate(212,262) scale(25)" fill="#d97757">
-    <path d="M4.5 7.2c0-.9.7-1.6 1.6-1.6h11.8c.9 0 1.6.7 1.6 1.6s-.7 1.6-1.6 1.6h-2.1l-1.4 9.2c-.2 1-.7 1.4-1.3 1.4-.8 0-1.5-.7-1.3-1.8l1.3-8.8h-2.3l-1.4 9.2c-.2 1-.7 1.4-1.3 1.4-.8 0-1.5-.7-1.3-1.8l1.3-8.8H6.1c-.9 0-1.6-.7-1.6-1.6Z"/>
+  <g transform="translate(23.4,23.4) scale(1.2215)">
+    <path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/>
+    <path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/>
+    <path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/>
   </g>
 </svg>
