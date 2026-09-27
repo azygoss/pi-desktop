@@ -32,6 +32,7 @@ interface AppState {
   view: ViewState
   backStack: ViewState[]
   forwardStack: ViewState[]
+  settingsOpen: boolean
 
   init(): Promise<void>
   refreshSessions(): Promise<void>
@@ -44,6 +45,8 @@ interface AppState {
   setActiveProjectCwd(cwd: string | null): void
   setShowAllProjects(show: boolean): void
   renameSession(path: string, title: string): void
+  openSettings(): void
+  closeSettings(): void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -62,6 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   view: { kind: 'home' },
   backStack: [],
   forwardStack: [],
+  settingsOpen: false,
 
   async init() {
     try {
@@ -161,7 +165,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toggleSidebar() {
-    set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed }))
+    const sidebarCollapsed = !get().sidebarCollapsed
+    set({ sidebarCollapsed })
+    void window.piDesktop.appSettings.update({ sidebarCollapsed }).catch(() => {})
   },
 
   setChatFilter(filter) {
@@ -182,6 +188,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         session.path === path ? { ...session, name: title, title } : session
       )
     }))
+  },
+
+  openSettings() {
+    set({ settingsOpen: true })
+  },
+
+  closeSettings() {
+    set({ settingsOpen: false })
   }
 }))
 

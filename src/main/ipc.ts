@@ -1,11 +1,13 @@
 import { basename, isAbsolute } from 'node:path'
 import { execFile } from 'node:child_process'
-import { userInfo } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
 import type {
+  AppSettings,
   ChatMenuAction,
   ChatOpenInput,
   ChatSendInput,
+  MenuAction,
   ProjectMenuAction,
   SessionMenuAction
 } from '../shared/api'
@@ -16,6 +18,7 @@ import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { readSettings } from './config/settings'
+import { getAgentDir } from './sessions/paths'
 import { listProjects, listSessions, watchSessions } from './sessions/session-index'
 
 export const IPC_CHANNELS = {
@@ -29,6 +32,10 @@ export const IPC_CHANNELS = {
   appSaveFile: 'pi-desktop:app:save-file',
   appRevealPath: 'pi-desktop:app:reveal-path',
   appConfirmDialog: 'pi-desktop:app:confirm-dialog',
+  appInfo: 'pi-desktop:app:info',
+  appOpenAgentDir: 'pi-desktop:app:open-agent-dir',
+  menuAction: 'pi-desktop:menu:action',
+  runtimeRefresh: 'pi-desktop:runtime:refresh',
   appSettingsGet: 'pi-desktop:app-settings:get',
   appSettingsUpdate: 'pi-desktop:app-settings:update',
   sessionsChanged: 'pi-desktop:sessions:changed',
@@ -62,6 +69,28 @@ export interface IpcDeps {
   chat: ChatService
 }
 
+/**
+ * Map app settings to runtime resolution options. The
+ * PI_DESKTOP_PI_COMMAND env override (dev/test) always wins over the
+ * configured custom path.
+ */
+export function runtimeOptionsFromSettings(
+  settings: AppSettings,
+  envCommand = process.env['PI_DESKTOP_PI_COMMAND']
+): { customPath?: string; mode?: 'auto' | 'installed' | 'bundled' | 'custom' } {
+  const mode = settings.piRuntime.mode
+  return {
+    customPath: envCommand || (mode === 'custom' ? settings.piRuntime.customPath : undefined),
+    mode: mode === 'custom' ? 'auto' : mode
+  }
+}
+
+/** Apply the persisted runtime settings to the pool (drops the cached runtime). */
+async function applyRuntimeSettings(pool: PiProcessPool): Promise<void> {
+  const settings = await loadAppSettings()
+  pool.setRuntimeOptions(runtimeOptionsFromSettings(settings))
+}
+
 function usernameFallback(): string {
   try {
     return userInfo().username || 'there'
@@ -93,6 +122,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { kind: runtime.kind, version: runtime.version, command: basename(runtime.command) }
   })
 
+  ipcMain.handle(IPC_CHANNELS.runtimeRefresh, async (): Promise<PiRuntimeInfo> => {
+    await applyRuntimeSettings(deps.pool)
+    const runtime = await deps.pool.refreshRuntime()
+    return { kind: runtime.kind, version: runtime.version, command: basename(runtime.command) }
+  })
+
   ipcMain.handle(IPC_CHANNELS.sessionsList, async () => {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
     const hidden = new Set(settings.hiddenProjects)
@@ -110,7 +145,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => loadAppSettings())
 
   ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, async (_e, patch: unknown) => {
-    return updateAppSettings(patch)
+    const next = await updateAppSettings(patch)
+    if (
+      patch !== null &&
+      typeof patch === 'object' &&
+      'piRuntime' in (patch as Record<string, unknown>)
+    ) {
+      await applyRuntimeSettings(deps.pool)
+    }
+    return next
   })
 
   ipcMain.handle(IPC_CHANNELS.appUserFirstName, () => resolveUserFirstName())
@@ -198,6 +241,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       return result.response
     }
   )
+
+  ipcMain.handle(IPC_CHANNELS.appInfo, () => {
+    const agentDir = getAgentDir()
+    const home = homedir()
+    return {
+      version: app.getVersion(),
+      agentDir,
+      agentDirDisplay:
+        home !== '/' && agentDir.startsWith(home)
+          ? `~${agentDir.slice(home.length)}`
+          : agentDir
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.appOpenAgentDir, () => shell.openPath(getAgentDir()))
 
   ipcMain.handle(IPC_CHANNELS.chatOpen, (_e, input: ChatOpenInput) => deps.chat.open(input))
   ipcMain.handle(IPC_CHANNELS.chatSend, (_e, input: ChatSendInput) => deps.chat.send(input))
@@ -313,6 +371,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       ])
     }
   )
+}
+
+/** Dispatch a native-menu action to the focused renderer window. */
+export function sendMenuAction(action: MenuAction): void {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  win?.webContents.send(IPC_CHANNELS.menuAction, action)
 }
 
 type MenuItem = { id: string; label: string } | { type: 'separator' }

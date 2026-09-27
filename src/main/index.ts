@@ -3,10 +3,13 @@ import { BrowserWindow, app, shell } from 'electron'
 import {
   broadcastAll,
   registerIpcHandlers,
+  runtimeOptionsFromSettings,
   startSessionWatcher,
   wireAppLifecycle
 } from './ipc'
+import { loadAppSettings } from './config/app-settings'
 import { ChatService } from './chat/chat-service'
+import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
 
 const pool = new PiProcessPool({
@@ -70,10 +73,15 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const appSettings = await loadAppSettings().catch(() => null)
+  if (appSettings) {
+    pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))
+  }
   registerIpcHandlers({ pool, chat })
   startSessionWatcher()
   wireAppLifecycle({ pool, chat })
+  installAppMenu(isDev)
   createWindow()
 
   app.on('activate', () => {

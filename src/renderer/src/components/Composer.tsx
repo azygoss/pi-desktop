@@ -68,7 +68,8 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   const streaming = chat?.status === 'streaming'
   const canSend = text.trim().length > 0 || images.length > 0
-  const cwd = chat?.cwd ?? activeProjectCwd ?? ''
+  const defaultCwd = useAppStore((s) => s.appSettings.defaultCwd)
+  const cwd = chat?.cwd ?? activeProjectCwd ?? defaultCwd ?? ''
   const cwdBase = cwd ? (cwd.split('/').filter(Boolean).pop() ?? cwd) : 'Home'
 
   const autosize = useCallback(() => {

@@ -11,7 +11,8 @@ function subscribe(channel: string) {
 
 const api: PiDesktopApi = {
   runtime: {
-    info: () => ipcRenderer.invoke('pi-desktop:runtime:info')
+    info: () => ipcRenderer.invoke('pi-desktop:runtime:info'),
+    refresh: () => ipcRenderer.invoke('pi-desktop:runtime:refresh')
   },
   sessions: {
     list: () => ipcRenderer.invoke('pi-desktop:sessions:list'),
@@ -38,7 +39,10 @@ const api: PiDesktopApi = {
     pickFile: (filters) => ipcRenderer.invoke('pi-desktop:app:pick-file', { filters }),
     saveFile: (input) => ipcRenderer.invoke('pi-desktop:app:save-file', input),
     revealPath: (path) => ipcRenderer.invoke('pi-desktop:app:reveal-path', path),
-    confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input)
+    confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input),
+    getAppInfo: () => ipcRenderer.invoke('pi-desktop:app:info'),
+    openAgentDir: () => ipcRenderer.invoke('pi-desktop:app:open-agent-dir'),
+    onMenuAction: subscribe('pi-desktop:menu:action')
   },
   chat: {
     open: (input) => ipcRenderer.invoke('pi-desktop:chat:open', input),

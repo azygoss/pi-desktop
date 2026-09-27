@@ -104,10 +104,24 @@ export interface ForkMessage {
   text: string
 }
 
+/** Actions dispatched from the native application menu. */
+export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat'
+
+export interface AppInfo {
+  /** App version from the package manifest. */
+  version: string
+  /** Absolute path to the pi agent dir (~/.pi/agent or override). */
+  agentDir: string
+  /** agentDir with the home directory collapsed to '~' for display. */
+  agentDirDisplay: string
+}
+
 /** Typed API exposed on `window.piDesktop` by the preload script. */
 export interface PiDesktopApi {
   runtime: {
     info(): Promise<PiRuntimeInfo>
+    /** Re-run runtime detection (applies to newly opened chats). */
+    refresh(): Promise<PiRuntimeInfo>
   }
   sessions: {
     list(): Promise<SessionSummary[]>
@@ -152,6 +166,12 @@ export interface PiDesktopApi {
       buttons: string[]
       danger?: boolean
     }): Promise<number>
+    /** App version and pi agent directory info for the settings/about panes. */
+    getAppInfo(): Promise<AppInfo>
+    /** Open the pi agent directory in the OS file manager. */
+    openAgentDir(): Promise<void>
+    /** Native application menu actions; returns an unsubscribe function. */
+    onMenuAction(callback: (action: MenuAction) => void): () => void
   }
   chat: {
     open(input: ChatOpenInput): Promise<ChatOpenResult>

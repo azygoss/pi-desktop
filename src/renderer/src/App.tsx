@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { ChatView } from './components/ChatView'
 import { HomeView } from './components/HomeView'
+import { SettingsModal } from './components/SettingsModal'
 import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
 import { useAppStore } from './state/app-store'
@@ -11,6 +12,7 @@ export function App() {
   const view = useAppStore((s) => s.view)
   const ready = useAppStore((s) => s.ready)
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
+  const settingsOpen = useAppStore((s) => s.settingsOpen)
 
   useEffect(() => {
     initChatBridge()
@@ -18,7 +20,20 @@ export function App() {
     const unsubscribe = window.piDesktop.sessions.onChanged(() => {
       void useAppStore.getState().refreshSessions()
     })
-    return unsubscribe
+    const unsubscribeMenu = window.piDesktop.app.onMenuAction((action) => {
+      const store = useAppStore.getState()
+      if (action === 'open-settings') {
+        store.openSettings()
+      } else if (action === 'toggle-sidebar') {
+        store.toggleSidebar()
+      } else if (action === 'new-chat') {
+        store.navigate({ kind: 'home' })
+      }
+    })
+    return () => {
+      unsubscribe()
+      unsubscribeMenu()
+    }
   }, [])
 
   useEffect(() => {
@@ -52,6 +67,7 @@ export function App() {
         <MainTopBar />
         {ready && (view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />)}
       </main>
+      {settingsOpen && <SettingsModal />}
     </div>
   )
 }

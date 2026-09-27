@@ -11,6 +11,7 @@ export function HomeView() {
   const userName = useAppStore((s) => s.userName)
   const piAvailable = useAppStore((s) => s.piAvailable)
   const activeProjectCwd = useAppStore((s) => s.activeProjectCwd)
+  const defaultCwd = useAppStore((s) => s.appSettings.defaultCwd)
   const navigate = useAppStore((s) => s.navigate)
 
   const [draftId] = useState(() => crypto.randomUUID())
@@ -26,14 +27,14 @@ export function HomeView() {
     }
     void useChatStore
       .getState()
-      .ensureChat(draftId, { cwd: activeProjectCwd ?? undefined })
+      .ensureChat(draftId, { cwd: activeProjectCwd ?? defaultCwd ?? undefined })
       .catch(() => {})
     return () => {
       if (!sentRef.current) {
         void useChatStore.getState().closeChat(draftId)
       }
     }
-  }, [draftId, piAvailable, activeProjectCwd])
+  }, [draftId, piAvailable, activeProjectCwd, defaultCwd])
 
   const greeting = greetingFor(userName)
 

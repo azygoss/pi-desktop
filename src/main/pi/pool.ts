@@ -16,10 +16,20 @@ export class PiProcessPool {
   private readonly clients = new Map<string, PiRpcClient>()
   private runtime: PiRuntime | null = null
   private runtimePromise: Promise<PiRuntime> | null = null
-  private readonly runtimeOptions: ResolvePiRuntimeOptions
+  private runtimeOptions: ResolvePiRuntimeOptions
 
   constructor(runtimeOptions: ResolvePiRuntimeOptions = {}) {
     this.runtimeOptions = runtimeOptions
+  }
+
+  /**
+   * Replace the runtime resolution options and drop the cached runtime, so
+   * the next open()/refreshRuntime() resolves with the new settings.
+   */
+  setRuntimeOptions(options: ResolvePiRuntimeOptions): void {
+    this.runtimeOptions = options
+    this.runtime = null
+    this.runtimePromise = null
   }
 
   async getRuntime(): Promise<PiRuntime> {

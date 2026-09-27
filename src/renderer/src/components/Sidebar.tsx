@@ -428,7 +428,12 @@ export function Sidebar() {
             no pi
           </span>
         )}
-        <button type="button" className="icon-btn" title="Settings (⌘,)">
+        <button
+          type="button"
+          className="icon-btn"
+          title="Settings (⌘,)"
+          onClick={() => useAppStore.getState().openSettings()}
+        >
           <Settings size={14} />
         </button>
       </div>

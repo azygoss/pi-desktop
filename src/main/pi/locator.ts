@@ -16,6 +16,12 @@ export interface PiRuntime {
 export interface ResolvePiRuntimeOptions {
   /** Path to a user-configured pi executable. Wins over everything when valid. */
   customPath?: string
+  /**
+   * Runtime selection mode from app settings. 'installed'/'bundled' restrict
+   * resolution to that source only; 'auto' (default) tries installed then
+   * bundled; 'custom' behaves like auto but expects customPath to be set.
+   */
+  mode?: 'auto' | 'installed' | 'bundled' | 'custom'
   /** Prefer the bundled pi over an installed one. */
   preferBundled?: boolean
   /** App root used to locate the bundled dependency (defaults to cwd). */
@@ -295,7 +301,14 @@ export async function resolvePiRuntime(opts: ResolvePiRuntimeOptions = {}): Prom
     }
   }
 
-  const attempts = opts.preferBundled ? [bundled, installed] : [installed, bundled]
+  const attempts =
+    opts.mode === 'installed'
+      ? [installed]
+      : opts.mode === 'bundled'
+        ? [bundled]
+        : opts.preferBundled
+          ? [bundled, installed]
+          : [installed, bundled]
   for (const attempt of attempts) {
     const runtime = await attempt()
     if (runtime) {
@@ -303,7 +316,14 @@ export async function resolvePiRuntime(opts: ResolvePiRuntimeOptions = {}): Prom
     }
   }
 
+  const modeNote =
+    opts.mode === 'installed'
+      ? ' (runtime mode: installed — bundled fallback disabled)'
+      : opts.mode === 'bundled'
+        ? ' (runtime mode: bundled — installed fallback disabled)'
+        : ''
   throw new Error(
-    'No pi runtime found: no valid custom path, no pi executable on PATH, and the bundled @earendil-works/pi-coding-agent is unavailable'
+    'No pi runtime found: no valid custom path, no pi executable on PATH, and the bundled @earendil-works/pi-coding-agent is unavailable' +
+      modeNote
   )
 }
