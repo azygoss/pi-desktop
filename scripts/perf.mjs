@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global window, document, performance */
+/* global window, document, performance, PerformanceObserver, requestAnimationFrame */
 // Performance harness for Pi Desktop. Launches the built app
 // (out/main/index.js) through Playwright's Electron driver and reports
 // timing/memory metrics.
@@ -152,7 +152,18 @@ try {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-perf-agent-'))
     await seedAgentDir(agentDir)
     userDataDir = USERDATA_DIR ?? (await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-')))
-    await writeFile(join(userDataDir, 'settings.json'), JSON.stringify({ displayName: 'Perf' }))
+    await writeFile(
+      join(userDataDir, 'settings.json'),
+      JSON.stringify({
+        displayName: 'Perf',
+        // Projects are collapsed by default; expand the seeded ones so the
+        // session rows are clickable below.
+        expandedProjects: [
+          '/Users/example/synthetic-alpha',
+          '/Users/example/synthetic-beta'
+        ]
+      })
+    )
     env['PI_DESKTOP_PI_COMMAND'] = FAKE_PI
     env['PI_CODING_AGENT_DIR'] = agentDir
     env['PI_CODING_AGENT_SESSION_DIR'] = join(agentDir, 'sessions')
@@ -226,6 +237,17 @@ try {
     return Math.round(performance.now() - t)
   })
 
+  // --- expand collapsed projects so session rows are clickable --------------
+  if (REAL) {
+    // Real settings start collapsed; expand every project once.
+    const rows = page.locator('.sidebar-project-row')
+    const n = await rows.count()
+    for (let i = 0; i < n; i++) {
+      await rows.nth(i).click()
+    }
+    await page.waitForTimeout(300)
+  }
+
   // --- open a past session -> first message rendered ------------------------
   const hasSessions = await page.evaluate(
     () => document.querySelectorAll('.sidebar-session').length
@@ -240,7 +262,7 @@ try {
     results.session_open_ms = Date.now() - openStart
   }
 
-  // --- IPC throughput during a fast stream (synthetic only) ------------------
+  // --- IPC throughput + frame health during a fast stream (synthetic only) --
   if (!REAL) {
     await page.evaluate(() => {
       window.__perfCount = { events: 0, start: 0, end: 0, settled: false }
@@ -252,6 +274,25 @@ try {
         const events = payload?.events ?? (payload?.event ? [payload.event] : [])
         if (events.some((e) => e?.type === 'agent_settled')) c.settled = true
       })
+      // Frame health probes for the duration of the stream.
+      window.__longTasks = []
+      try {
+        new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) window.__longTasks.push(Math.round(e.duration))
+        }).observe({ type: 'longtask', buffered: false })
+      } catch {
+        // longtask unsupported — leave the list empty
+      }
+      window.__frames = []
+      window.__rafLive = true
+      let last
+      const loop = (t) => {
+        if (last !== undefined) window.__frames.push(t - last)
+        last = t
+        if (window.__rafLive) requestAnimationFrame(loop)
+      }
+      requestAnimationFrame(loop)
+      window.__piCommits = {}
     })
     const input = page.locator('.composer-input')
     await input.fill('stream perf')
@@ -259,10 +300,46 @@ try {
     await page.waitForFunction(() => window.__perfCount?.settled === true, {
       timeout: 60_000
     })
-    const c = await page.evaluate(() => window.__perfCount)
-    const seconds = (c.end - c.start) / 1000
-    results.ipc_messages = c.events
-    results.ipc_msgs_per_sec = seconds > 0 ? Math.round(c.events / seconds) : 0
+    const c = await page.evaluate(() => {
+      window.__rafLive = false
+      return {
+        count: window.__perfCount,
+        longTasks: window.__longTasks,
+        frames: window.__frames,
+        commits: window.__piCommits ?? {}
+      }
+    })
+    const seconds = (c.count.end - c.count.start) / 1000
+    results.ipc_messages = c.count.events
+    results.ipc_msgs_per_sec = seconds > 0 ? Math.round(c.count.events / seconds) : 0
+    const frames = c.frames.slice().sort((a, b) => a - b)
+    results.longtasks_over_50ms = c.longTasks.filter((d) => d > 50).length
+    results.longtasks_ms = c.longTasks
+    if (frames.length > 0) {
+      const p95 = frames[Math.min(frames.length - 1, Math.floor(frames.length * 0.95))]
+      results.frame_avg_ms = Math.round((frames.reduce((a, b) => a + b, 0) / frames.length) * 10) / 10
+      results.frame_p95_ms = Math.round(p95 * 10) / 10
+    }
+    results.react_commits = c.commits
+  }
+
+  // --- largest session: transcript read time (real mode, numbers only) ------
+  if (REAL) {
+    const biggest = await page.evaluate(async () => {
+      const list = await window.piDesktop.sessions.list()
+      return list.reduce(
+        (a, b) => ((a?.messageCount ?? 0) >= (b?.messageCount ?? 0) ? a : b),
+        null
+      )
+    })
+    if (biggest) {
+      results.largest_session_messages = biggest.messageCount
+      results.transcript_largest_ipc_ms = await page.evaluate(async (p) => {
+        const t = performance.now()
+        await window.piDesktop.chat.readTranscript({ sessionPath: p })
+        return Math.round(performance.now() - t)
+      }, biggest.path)
+    }
   }
 
   // --- RSS after opening several chats --------------------------------------

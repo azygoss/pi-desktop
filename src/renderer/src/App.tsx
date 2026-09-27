@@ -66,9 +66,11 @@ export function App() {
 
   // Keep the panel mounted briefly while its close animation plays out.
   const [panelMounted, setPanelMounted] = useState(panelOpen)
+  if (panelOpen && !panelMounted) {
+    setPanelMounted(true) // render-time adjust: opening mounts immediately
+  }
   useEffect(() => {
     if (panelOpen) {
-      setPanelMounted(true)
       return
     }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches

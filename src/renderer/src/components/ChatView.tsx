@@ -4,6 +4,7 @@ import { Suspense, lazy, memo, useCallback, useEffect, useRef, useState } from '
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
 import type { ImageContent } from '../../../shared/pi-types'
 import { parseSkillPrefix } from '../../../shared/skill-prefix'
+import { Perf } from '../lib/perf'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -479,16 +480,17 @@ export function ChatView({ chatId }: { chatId: string }) {
           {chat.messages.map((m) => {
             const idx = m.kind === 'user' ? ++userIndex : undefined
             return (
-              <MemoMessageRow
-                key={m.key}
-                message={m}
-                toolRuns={chat.toolRuns}
-                cwd={chat.cwd}
-                userIndex={idx}
-                onFork={
-                  chat.sessionPath && chat.status !== 'streaming' ? onForkMessage : undefined
-                }
-              />
+              <Perf key={m.key} id="MessageRow">
+                <MemoMessageRow
+                  message={m}
+                  toolRuns={chat.toolRuns}
+                  cwd={chat.cwd}
+                  userIndex={idx}
+                  onFork={
+                    chat.sessionPath && chat.status !== 'streaming' ? onForkMessage : undefined
+                  }
+                />
+              </Perf>
             )
           })}
           {awaitingFirstToken && (
@@ -550,16 +552,18 @@ export function ChatView({ chatId }: { chatId: string }) {
       <UiRequestDialog chat={chat} />
 
       <div className="chat-composer-dock">
-        <Composer
-          chat={chat}
-          isChat
-          onSend={(message, images, mode) => {
-            // Sending always re-pins to the bottom — the user's own message
-            // and the pending/streaming rows belong in view.
-            stickRef.current = true
-            void useChatStore.getState().send(chatId, message, images, mode).catch(() => {})
-          }}
-        />
+        <Perf id="Composer">
+          <Composer
+            chat={chat}
+            isChat
+            onSend={(message, images, mode) => {
+              // Sending always re-pins to the bottom — the user's own message
+              // and the pending/streaming rows belong in view.
+              stickRef.current = true
+              void useChatStore.getState().send(chatId, message, images, mode).catch(() => {})
+            }}
+          />
+        </Perf>
         {(footer || streaming) && (
           <div className="chat-stats">
             {footer}

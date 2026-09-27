@@ -10,6 +10,7 @@ function subscribe(channel: string) {
 }
 
 const api: PiDesktopApi = {
+  perfEnabled: process.env['PI_DESKTOP_PERF'] === '1',
   runtime: {
     info: () => ipcRenderer.invoke('pi-desktop:runtime:info'),
     refresh: () => ipcRenderer.invoke('pi-desktop:runtime:refresh'),

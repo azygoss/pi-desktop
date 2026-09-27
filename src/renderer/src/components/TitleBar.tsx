@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, MoreHorizontal, PanelLeft, PanelRight } from 'lucide-react'
 import { useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
@@ -59,7 +60,26 @@ export function MainTopBar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
-  const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
+  // Pick only the fields the strip renders — a whole-chat subscription would
+  // re-render the title bar on every streamed delta.
+  const chat = useChatStore(
+    useShallow((s) => {
+      if (view.kind !== 'chat') {
+        return undefined
+      }
+      const c = s.chats[view.chatId]
+      if (!c) {
+        return undefined
+      }
+      return {
+        chatId: c.chatId,
+        title: c.title,
+        cwd: c.cwd,
+        sessionPath: c.sessionPath,
+        hasMessages: c.messages.length > 0
+      }
+    })
+  )
   const navigate = useAppStore((s) => s.navigate)
   const panelOpen = usePanelStore((s) => s.open)
   const [renaming, setRenaming] = useState(false)
@@ -179,7 +199,7 @@ export function MainTopBar() {
           ) : (
             // A fresh draft has nothing to name yet — show no title rather
             // than the "New chat" placeholder.
-            chat.messages.length > 0 || chat.title !== 'New chat' ? (
+            chat.hasMessages || chat.title !== 'New chat' ? (
               <span className="chat-title">{chat.title}</span>
             ) : null
           )}

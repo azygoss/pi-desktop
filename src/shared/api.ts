@@ -261,6 +261,9 @@ export interface AppInfo {
 
 /** Typed API exposed on `window.piDesktop` by the preload script. */
 export interface PiDesktopApi {
+  /** True when the app was launched with PI_DESKTOP_PERF=1 — enables the
+   *  dev-only React commit counters read by scripts/perf.mjs. */
+  perfEnabled: boolean
   runtime: {
     info(): Promise<PiRuntimeInfo>
     /** Re-run runtime detection (applies to newly opened chats). */

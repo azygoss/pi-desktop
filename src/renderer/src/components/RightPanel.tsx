@@ -121,7 +121,9 @@ export function RightPanel({ closing }: { closing?: boolean }) {
   const activeTabId = usePanelStore((s) => s.activeTabId)
   const view = useAppStore((s) => s.view)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
-  const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
+  const chatCwd = useChatStore((s) =>
+    view.kind === 'chat' ? s.chats[view.chatId]?.cwd : undefined
+  )
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null)
 
   const onResizeStart = useCallback(
@@ -163,7 +165,7 @@ export function RightPanel({ closing }: { closing?: boolean }) {
   }
 
   const animated = closing || opening
-  const cwd = chat?.cwd || workspaceDir || '/'
+  const cwd = chatCwd || workspaceDir || '/'
   const store = usePanelStore.getState()
 
   return (

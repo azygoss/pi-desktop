@@ -9,11 +9,13 @@ import {
   X
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import clsx from 'clsx'
 
 import type { SessionSummary } from '../../../shared/session-types'
 import { groupByDate } from '../lib/date-groups'
 import { capitalizeName } from '../lib/greeting'
+import { Perf } from '../lib/perf'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { NavButtons } from './TitleBar'
@@ -72,12 +74,19 @@ function openSession(session: SessionSummary): void {
 
 function newChatInProject(cwd: string): void {
   const chatId = crypto.randomUUID()
-  void useChatStore.getState().ensureChat(chatId, { cwd }).catch(() => {})
+  void useChatStore
+    .getState()
+    .ensureChat(chatId, { cwd })
+    .catch(() => {})
   useAppStore.getState().navigate({ kind: 'chat', chatId })
 }
 
 async function exportSession(session: SessionSummary): Promise<void> {
-  const base = session.title.replace(/[^\w\s-]+/g, '').trim().slice(0, 60) || 'chat'
+  const base =
+    session.title
+      .replace(/[^\w\s-]+/g, '')
+      .trim()
+      .slice(0, 60) || 'chat'
   const outputPath = await window.piDesktop.app.saveFile({
     defaultPath: `${base}.html`,
     extension: 'html'
@@ -127,10 +136,12 @@ async function deleteSession(session: SessionSummary): Promise<void> {
   void useAppStore.getState().refreshSessions()
 }
 
-interface LiveStatus {
-  streaming: boolean
-  unread: boolean
-}
+/** Compact per-session code so the selector below stays shallow-equal while
+ *  a stream only changes deltas: 's' = streaming, 'u' = unread. */
+type LiveCode = string
+
+const LIVE_STREAMING = (code: LiveCode | undefined) => code?.includes('s') === true
+const LIVE_UNREAD = (code: LiveCode | undefined) => code?.includes('u') === true
 
 function SessionRow({
   session,
@@ -139,7 +150,7 @@ function SessionRow({
 }: {
   session: SessionSummary
   nested?: boolean
-  live?: LiveStatus
+  live?: LiveCode
 }) {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -156,9 +167,7 @@ function SessionRow({
     if (!name) {
       return
     }
-    await window.piDesktop.sessions
-      .rename({ sessionPath: session.path, name })
-      .catch(() => {})
+    await window.piDesktop.sessions.rename({ sessionPath: session.path, name }).catch(() => {})
     useAppStore.getState().renameSession(session.path, name)
     void useAppStore.getState().refreshSessions()
   }
@@ -227,8 +236,8 @@ function SessionRow({
       ) : (
         <span className="sidebar-item-label">{session.title}</span>
       )}
-      {live?.streaming && <span className="live-dot" title="Working…" />}
-      {!live?.streaming && live?.unread && (
+      {LIVE_STREAMING(live) && <span className="live-dot" title="Working…" />}
+      {!LIVE_STREAMING(live) && LIVE_UNREAD(live) && (
         <span className="unread-dot" title="New reply" />
       )}
       <button
@@ -255,7 +264,7 @@ function ProjectRow({
 }: {
   cwd: string
   name: string
-  liveByPath: Map<string, LiveStatus>
+  liveByPath: Record<string, LiveCode>
   /** True while the project holds the active chat — stays open regardless. */
   autoExpanded?: boolean
 }) {
@@ -265,10 +274,7 @@ function ProjectRow({
   const toggleExpanded = useAppStore((s) => s.toggleProjectExpanded)
   const [showAll, setShowAll] = useState(false)
 
-  const projectSessions = useMemo(
-    () => sessions.filter((s) => s.cwd === cwd),
-    [sessions, cwd]
-  )
+  const projectSessions = useMemo(() => sessions.filter((s) => s.cwd === cwd), [sessions, cwd])
   const visible = showAll ? projectSessions : projectSessions.slice(0, MAX_NESTED_CHATS)
 
   async function contextMenu(): Promise<void> {
@@ -282,9 +288,7 @@ function ProjectRow({
         break
       case 'hide': {
         const current = useAppStore.getState().appSettings.hiddenProjects
-        void useAppStore
-          .getState()
-          .updateAppSettings({ hiddenProjects: [...current, cwd] })
+        void useAppStore.getState().updateAppSettings({ hiddenProjects: [...current, cwd] })
         break
       }
     }
@@ -341,7 +345,7 @@ function ProjectRow({
               key={session.path}
               session={session}
               nested
-              live={liveByPath.get(session.path)}
+              live={liveByPath[session.path]}
             />
           ))}
           {projectSessions.length === 0 && (
@@ -376,28 +380,33 @@ export function Sidebar() {
   const runtimeInfo = useAppStore((s) => s.runtimeInfo)
   const userName = useAppStore((s) => s.userName)
   const sessionsLoaded = useAppStore((s) => s.sessionsLoaded)
-  const chats = useChatStore((s) => s.chats)
   const view = useAppStore((s) => s.view)
-  // Auto-expand the project holding the active chat even if the user
-  // collapsed it — the row they're looking at should stay visible.
-  const activeChatCwd = view.kind === 'chat' ? chats[view.chatId]?.cwd : undefined
+  const activeChatCwd = useChatStore((s) =>
+    view.kind === 'chat' ? s.chats[view.chatId]?.cwd : undefined
+  )
 
-  // sessionPath → live status of the open chat running that session, so the
-  // sidebar can show a pulsing dot while it streams and an unread dot once a
-  // background run settles.
-  const liveByPath = useMemo(() => {
-    const map = new Map<string, LiveStatus>()
-    for (const chat of Object.values(chats)) {
-      if (!chat.sessionPath) {
-        continue
+  // sessionPath → 's'/'u' code for open chats. The selector returns plain
+  // strings so useShallow keeps the sidebar quiet during stream flushes:
+  // deltas replace message objects but not status or unread flags.
+  const liveByPath = useChatStore(
+    useShallow((s) => {
+      const out: Record<string, LiveCode> = {}
+      for (const chat of Object.values(s.chats)) {
+        if (!chat.sessionPath) {
+          continue
+        }
+        let code = out[chat.sessionPath] ?? ''
+        if (chat.status === 'streaming' && !code.includes('s')) {
+          code += 's'
+        }
+        if (chat.unread === true && !code.includes('u')) {
+          code += 'u'
+        }
+        out[chat.sessionPath] = code
       }
-      const entry = map.get(chat.sessionPath) ?? { streaming: false, unread: false }
-      entry.streaming ||= chat.status === 'streaming'
-      entry.unread ||= chat.unread === true
-      map.set(chat.sessionPath, entry)
-    }
-    return map
-  }, [chats])
+      return out
+    })
+  )
 
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
 
@@ -440,146 +449,145 @@ export function Sidebar() {
   const chatGroups = filtering ? filteredGrouped : grouped
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-topbar drag-region">
-        <NavButtons />
-      </div>
+    <Perf id="Sidebar">
+      <aside className="sidebar">
+        <div className="sidebar-topbar drag-region">
+          <NavButtons />
+        </div>
 
-      <div className="sidebar-scroll">
-        <button type="button" className="sidebar-item new-chat" onClick={newChat}>
-          <Plus size={15} />
-          <span>New chat</span>
-          <kbd className="kbd">⌘N</kbd>
-        </button>
-        <button type="button" className="sidebar-item" onClick={toggleSearch}>
-          <Search size={15} />
-          <span>Search</span>
-          <kbd className="kbd">⌘K</kbd>
-        </button>
+        <div className="sidebar-scroll">
+          <button type="button" className="sidebar-item new-chat" onClick={newChat}>
+            <Plus size={15} />
+            <span>New chat</span>
+            <kbd className="kbd">⌘N</kbd>
+          </button>
+          <button type="button" className="sidebar-item" onClick={toggleSearch}>
+            <Search size={15} />
+            <span>Search</span>
+            <kbd className="kbd">⌘K</kbd>
+          </button>
 
-        {sidebarSearchOpen && (
-          <div className="sidebar-search">
-            <Search size={13} />
-            <input
-              autoFocus
-              value={chatFilter}
-              onChange={(e) => setChatFilter(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  toggleSearch()
-                }
-              }}
-              placeholder="Filter chats"
-              spellCheck={false}
-            />
-            <button
-              type="button"
-              className="icon-btn"
-              title="Close search"
-              onClick={toggleSearch}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )}
-
-        {!filtering && (
-          <>
-            <div className="sidebar-section">
+          {sidebarSearchOpen && (
+            <div className="sidebar-search">
+              <Search size={13} />
+              <input
+                autoFocus
+                value={chatFilter}
+                onChange={(e) => setChatFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    toggleSearch()
+                  }
+                }}
+                placeholder="Filter chats"
+                spellCheck={false}
+              />
               <button
                 type="button"
-                className="sidebar-section-header"
-                onClick={() => setProjectsCollapsed(!projectsCollapsed)}
+                className="icon-btn"
+                title="Close search"
+                onClick={toggleSearch}
               >
-                {projectsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                <span>Projects</span>
-              </button>
-              <button
-                type="button"
-                className="icon-btn sidebar-section-add"
-                onClick={() => void addProject()}
-                title="Add project"
-              >
-                <Plus size={13} />
+                <X size={12} />
               </button>
             </div>
-            {!projectsCollapsed &&
-              projects.map((project) => (
-                <ProjectRow
-                  key={project.cwd}
-                  cwd={project.cwd}
-                  name={project.name}
-                  liveByPath={liveByPath}
-                  autoExpanded={activeChatCwd === project.cwd}
-                />
-              ))}
-            {!projectsCollapsed && projects.length === 0 && (
-              <div className="sidebar-empty">No projects yet</div>
-            )}
+          )}
 
-            <div className="sidebar-section" style={{ marginTop: 8 }}>
-              <div className="sidebar-section-header" style={{ cursor: 'default' }}>
-                <span>Chats</span>
+          {!filtering && (
+            <>
+              <div className="sidebar-section">
+                <button
+                  type="button"
+                  className="sidebar-section-header"
+                  onClick={() => setProjectsCollapsed(!projectsCollapsed)}
+                >
+                  {projectsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                  <span>Projects</span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn sidebar-section-add"
+                  onClick={() => void addProject()}
+                  title="Add project"
+                >
+                  <Plus size={13} />
+                </button>
               </div>
-            </div>
-          </>
-        )}
+              {!projectsCollapsed &&
+                projects.map((project) => (
+                  <ProjectRow
+                    key={project.cwd}
+                    cwd={project.cwd}
+                    name={project.name}
+                    liveByPath={liveByPath}
+                    autoExpanded={activeChatCwd === project.cwd}
+                  />
+                ))}
+              {!projectsCollapsed && projects.length === 0 && (
+                <div className="sidebar-empty">No projects yet</div>
+              )}
 
-        {!sessionsLoaded &&
-          [0, 1, 2].map((i) => <div key={i} className="sidebar-skeleton" />)}
-        {sessionsLoaded &&
-          chatGroups.map(({ group, items }) => (
-            <div key={group}>
-              <div className="sidebar-date-group">{group}</div>
-              {items.map((session) => (
-                <SessionRow
-                  key={session.path}
-                  session={session}
-                  live={liveByPath.get(session.path)}
-                />
-              ))}
-            </div>
-          ))}
-        {sessionsLoaded && chatGroups.length === 0 && (
-          <div className="sidebar-empty">
-            {filtering ? 'No matching chats' : 'No chats yet'}
-          </div>
-        )}
-        <div className="sidebar-spacer" />
-      </div>
+              <div className="sidebar-section" style={{ marginTop: 8 }}>
+                <div className="sidebar-section-header" style={{ cursor: 'default' }}>
+                  <span>Chats</span>
+                </div>
+              </div>
+            </>
+          )}
 
-      <div className="sidebar-footer">
-        <div className="avatar">{capitalizeName(userName).charAt(0)}</div>
-        <span className="sidebar-footer-name">{capitalizeName(userName)}</span>
-        {runtimeInfo && (
-          <span
-            className="runtime-badge"
-            title={`pi ${runtimeInfo.version ?? '?'} (${runtimeInfo.kind}: ${runtimeInfo.command})`}
-          >
+          {!sessionsLoaded && [0, 1, 2].map((i) => <div key={i} className="sidebar-skeleton" />)}
+          {sessionsLoaded &&
+            chatGroups.map(({ group, items }) => (
+              <div key={group}>
+                <div className="sidebar-date-group">{group}</div>
+                {items.map((session) => (
+                  <SessionRow
+                    key={session.path}
+                    session={session}
+                    live={liveByPath[session.path]}
+                  />
+                ))}
+              </div>
+            ))}
+          {sessionsLoaded && chatGroups.length === 0 && (
+            <div className="sidebar-empty">{filtering ? 'No matching chats' : 'No chats yet'}</div>
+          )}
+          <div className="sidebar-spacer" />
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="avatar">{capitalizeName(userName).charAt(0)}</div>
+          <span className="sidebar-footer-name">{capitalizeName(userName)}</span>
+          {runtimeInfo && (
             <span
-              className={clsx('runtime-dot', {
-                bundled: runtimeInfo.kind === 'bundled',
-                offline: false
-              })}
-            />
-            pi {runtimeInfo.version ?? '?'}
-          </span>
-        )}
-        {!runtimeInfo && (
-          <span className="runtime-badge" title="pi not found">
-            <span className="runtime-dot offline" />
-            no pi
-          </span>
-        )}
-        <button
-          type="button"
-          className="icon-btn"
-          title="Settings (⌘,)"
-          onClick={() => useAppStore.getState().openSettings()}
-        >
-          <Settings size={14} />
-        </button>
-      </div>
-    </aside>
+              className="runtime-badge"
+              title={`pi ${runtimeInfo.version ?? '?'} (${runtimeInfo.kind}: ${runtimeInfo.command})`}
+            >
+              <span
+                className={clsx('runtime-dot', {
+                  bundled: runtimeInfo.kind === 'bundled',
+                  offline: false
+                })}
+              />
+              pi {runtimeInfo.version ?? '?'}
+            </span>
+          )}
+          {!runtimeInfo && (
+            <span className="runtime-badge" title="pi not found">
+              <span className="runtime-dot offline" />
+              no pi
+            </span>
+          )}
+          <button
+            type="button"
+            className="icon-btn"
+            title="Settings (⌘,)"
+            onClick={() => useAppStore.getState().openSettings()}
+          >
+            <Settings size={14} />
+          </button>
+        </div>
+      </aside>
+    </Perf>
   )
 }

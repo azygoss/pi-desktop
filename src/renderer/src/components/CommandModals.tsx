@@ -1,5 +1,6 @@
 import { Copy, ExternalLink, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import type { ChatSessionStats, ForkMessage } from '../../../shared/api'
 import type { AgentMessage, PiTreeNode, PiTreeResult } from '../../../shared/pi-types'
@@ -74,7 +75,14 @@ function ModalShell({
 
 /** /session — name, id, file path and stats for the current chat. */
 function SessionModal({ chatId, onClose }: { chatId: string; onClose(): void }) {
-  const chat = useChatStore((s) => s.chats[chatId])
+  // Only title + sessionPath are rendered here — subscribing to the whole
+  // chat would re-render the modal on every streamed delta.
+  const chat = useChatStore(
+    useShallow((s) => {
+      const c = s.chats[chatId]
+      return c ? { title: c.title, sessionPath: c.sessionPath } : undefined
+    })
+  )
   const [stats, setStats] = useState<ChatSessionStats | null>(null)
   const [error, setError] = useState<string | null>(null)
 

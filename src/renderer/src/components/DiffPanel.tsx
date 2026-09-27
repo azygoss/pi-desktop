@@ -10,7 +10,7 @@ import {
 } from '../../../shared/diff-parse'
 import type { ToolRun } from '../../../shared/chat-view'
 import { useAppStore } from '../state/app-store'
-import { useChatStore, type ChatState } from '../state/chat-store'
+import { useChatStore } from '../state/chat-store'
 
 const COLLAPSE_LINES = 400
 const REFRESH_DEBOUNCE_MS = 500
@@ -76,15 +76,16 @@ const DiffFileView = memo(function DiffFileView({
 })
 
 /** Fallback for non-git directories: the chat's own edit/write tool results. */
-function ToolResultFallback({ chat }: { chat: ChatState | undefined }) {
+function ToolResultFallback({ chatId }: { chatId: string | null }) {
+  // Subscribing to toolRuns only (not the whole chat) keeps this quiet while
+  // text deltas stream — toolRuns object identity survives stream flushes.
+  const toolRuns = useChatStore((s) => (chatId ? s.chats[chatId]?.toolRuns : undefined))
+  const cwd = useChatStore((s) => (chatId ? s.chats[chatId]?.cwd : undefined))
   const runs = useMemo(
-    () =>
-      Object.values(chat?.toolRuns ?? {}).filter((run) =>
-        WRITE_TOOLS.test(run.name)
-      ),
-    [chat?.toolRuns]
+    () => Object.values(toolRuns ?? {}).filter((run) => WRITE_TOOLS.test(run.name)),
+    [toolRuns]
   )
-  if (!chat) {
+  if (!chatId || !cwd) {
     return <div className="panel-empty">Not a git repository — open a chat to see changes.</div>
   }
   if (runs.length === 0) {
@@ -94,7 +95,7 @@ function ToolResultFallback({ chat }: { chat: ChatState | undefined }) {
     <div className="diff-fallback">
       <div className="diff-fallback-hint">Not a git repository — showing this chat's edits.</div>
       {runs.map((run) => (
-        <ToolRunDiff key={run.toolCallId} run={run} cwd={chat.cwd} />
+        <ToolRunDiff key={run.toolCallId} run={run} cwd={cwd} />
       ))}
     </div>
   )
@@ -169,9 +170,9 @@ function ToolRunDiff({ run, cwd }: { run: ToolRun; cwd: string }) {
 export function DiffPanel({ active }: { active: boolean }) {
   const view = useAppStore((s) => s.view)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
-  const chat = useChatStore((s) => (view.kind === 'chat' ? s.chats[view.chatId] : undefined))
   const chatId = view.kind === 'chat' ? view.chatId : null
-  const cwd = chat?.cwd || workspaceDir
+  const chatCwd = useChatStore((s) => (chatId ? s.chats[chatId]?.cwd : undefined))
+  const cwd = chatCwd || workspaceDir
 
   const [result, setResult] = useState<RepoDiffResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -283,7 +284,7 @@ export function DiffPanel({ active }: { active: boolean }) {
       </div>
       <div className="diff-body">
         {error && <div className="cmd-modal-error">{error}</div>}
-        {result && !result.isRepo && <ToolResultFallback chat={chat} />}
+        {result && !result.isRepo && <ToolResultFallback chatId={chatId} />}
         {result?.isRepo && files.length === 0 && (
           <div className="panel-empty">Working tree clean.</div>
         )}
