@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { BrowserWindow, app, shell } from 'electron'
+import { BrowserWindow, app, nativeTheme, shell } from 'electron'
 import {
   IPC_CHANNELS,
   broadcastAll,
@@ -175,6 +175,10 @@ app.whenReady().then(async () => {
   // Settings are a tiny file read needed for window bounds — keep this
   // before createWindow; every heavier subsystem is deferred past paint.
   lastSettings = await loadAppSettings().catch(() => null)
+
+  // The vibrancy material follows nativeTheme; keep it on the app theme
+  // even when that differs from the system appearance.
+  nativeTheme.themeSource = lastSettings?.theme ?? 'system'
 
   registerIpcHandlers({ pool, chat, pty, browser, bridge })
   wireAppLifecycle({ pool, chat, pty, browser, bridge })

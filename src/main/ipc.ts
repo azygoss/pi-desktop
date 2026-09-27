@@ -2,7 +2,7 @@ import { basename, isAbsolute, resolve } from 'node:path'
 import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import type {
   AppSettings,
   BrowserRect,
@@ -217,6 +217,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, async (_e, patch: unknown) => {
     const next = await updateAppSettings(patch)
+    nativeTheme.themeSource = next.theme
     if (
       patch !== null &&
       typeof patch === 'object' &&

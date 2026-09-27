@@ -1225,8 +1225,30 @@ body {
   margin: 8px 0;
   padding-left: 22px;
 }
+/* The preflight reset strips markers — restore them inside messages. */
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown ul ul {
+  list-style: circle;
+}
+.markdown ul ul ul {
+  list-style: square;
+}
 .markdown li {
   margin: 2px 0;
+}
+/* GFM task lists: checkbox sits in the marker gutter. */
+.markdown li.task-list-item {
+  list-style: none;
+}
+.markdown li.task-list-item > input[type='checkbox'] {
+  margin: 0 6px 1px -17px;
+  accent-color: var(--accent);
+  vertical-align: middle;
 }
 .markdown li > ul,
 .markdown li > ol {
@@ -2480,6 +2502,27 @@ body {
   outline: 1px solid var(--accent);
   outline-offset: 0;
 }
+/* Bare text inputs inside rounded containers must not draw the generic
+   rectangular ring; the container's border shows focus instead. */
+.composer-input:focus-visible,
+.sidebar-search input:focus-visible,
+.browser-address input:focus-visible {
+  outline: none;
+}
+.sidebar-search,
+.browser-address {
+  transition: border-color 150ms;
+}
+.sidebar-search:focus-within,
+.browser-address:focus-within {
+  border-color: color-mix(in srgb, var(--border) 60%, var(--text-2));
+}
+/* Search fields inside borderless popover rows get the ring rounded to
+   the control instead (outline follows border-radius). */
+.model-search input,
+.folder-popover-search input {
+  border-radius: 4px;
+}
 
 /* Modals and popovers settle in with a small scale-in. */
 @keyframes pop-in {
@@ -2541,11 +2584,12 @@ body {
 /* ---------- macOS vibrancy ---------- */
 
 /* With `vibrancy: 'sidebar'` the window material shows through wherever the
-   page is transparent: the body and the sidebar itself (kept slightly
-   tinted so text stays readable). Everything else paints `--bg`. */
+   page is transparent: the body and the sidebar itself. The tint is kept
+   heavy so text contrast stays correct over whatever desktop tint the
+   material picks up; everything else paints `--bg`. */
 :root[data-platform='darwin'] body {
   background: transparent;
 }
 :root[data-platform='darwin'] .sidebar {
-  background: color-mix(in srgb, var(--sidebar) 45%, transparent);
+  background: color-mix(in srgb, var(--sidebar) 85%, transparent);
 }

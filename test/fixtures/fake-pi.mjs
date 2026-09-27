@@ -290,7 +290,12 @@ const SCRIPT_TEXT =
   '| Patch router | Pending |\n\n' +
   '> Synthetic blockquote for styling checks.\n\n' +
   '- first item\n' +
+  '  - nested item\n' +
   '- second item\n\n' +
+  '1. ordered one\n' +
+  '2. ordered two\n\n' +
+  '- [ ] pending task\n' +
+  '- [x] done task\n\n' +
   'See the [pi docs](https://pi.dev/docs/latest) for details.'
 
 /**

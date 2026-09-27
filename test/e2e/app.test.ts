@@ -185,6 +185,23 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.composer-input', 30_000)
   }, 60_000)
 
+  /** Switch the app theme through the real settings IPC so main's
+   *  nativeTheme (which drives the vibrancy material) and the renderer's
+   *  data-theme move together. */
+  async function setTheme(theme: 'light' | 'dark'): Promise<void> {
+    await page.evaluate(`window.piDesktop.appSettings.update({ theme: '${theme}' })`)
+    await page.evaluate(`document.documentElement.dataset.theme = '${theme}'`)
+    await page.waitForTimeout(300)
+  }
+
+  /** nativeTheme as seen in the main process. */
+  async function nativeThemeState(): Promise<{ themeSource: string; dark: boolean }> {
+    return app.evaluate(({ nativeTheme }) => ({
+      themeSource: nativeTheme.themeSource,
+      dark: nativeTheme.shouldUseDarkColors
+    }))
+  }
+
   afterAll(async () => {
     await app?.close()
     server?.close()
@@ -200,9 +217,10 @@ describe('Pi Desktop e2e', () => {
   })
 
   it('shows the home screen with greeting and composer (dark)', async () => {
-    // Force dark regardless of the host's system appearance.
-    await page.evaluate("document.documentElement.dataset.theme = 'dark'")
-    await page.waitForTimeout(300)
+    // Force dark regardless of the host's system appearance; the setting
+    // must reach nativeTheme so the vibrancy material matches.
+    await setTheme('dark')
+    expect(await nativeThemeState()).toEqual({ themeSource: 'dark', dark: true })
     await visible(page, '.home-greeting h1')
     const greeting = await page.locator('.home-greeting h1').textContent()
     expect(greeting).toMatch(/Good|mind/)
@@ -216,10 +234,12 @@ describe('Pi Desktop e2e', () => {
   })
 
   it('shows the home screen in light theme', async () => {
-    await page.evaluate("document.documentElement.dataset.theme = 'light'")
-    await page.waitForTimeout(300)
+    // App-light while the host runs dark: themeSource must override the
+    // system appearance or the sidebar material renders as a dark wash.
+    await setTheme('light')
+    expect(await nativeThemeState()).toEqual({ themeSource: 'light', dark: false })
     await page.screenshot({ path: join(SHOTS, 'home-light.png') })
-    await page.evaluate("document.documentElement.dataset.theme = 'dark'")
+    await setTheme('dark')
   })
 
   it('opens the composer project picker', async () => {
@@ -312,10 +332,11 @@ describe('Pi Desktop e2e', () => {
     // Let the reply finish; the scripted answer includes a markdown table.
     await visible(page, '.markdown .table-scroll table', 30_000)
     await page.screenshot({ path: join(SHOTS, 'chat-markdown.png') })
-    await page.evaluate("document.documentElement.dataset.theme = 'light'")
-    await page.waitForTimeout(250)
+    // The host runs a dark system appearance, so app-light here exercises
+    // the opposite-appearance vibrancy case.
+    await setTheme('light')
     await page.screenshot({ path: join(SHOTS, 'chat-markdown-light.png') })
-    await page.evaluate("document.documentElement.dataset.theme = 'dark'")
+    await setTheme('dark')
   })
 
   it('drives the in-app browser via the pi browser tools', async () => {
