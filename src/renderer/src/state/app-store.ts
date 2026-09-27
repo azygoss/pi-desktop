@@ -36,6 +36,8 @@ interface AppState {
   backStack: ViewState[]
   forwardStack: ViewState[]
   settingsOpen: boolean
+  /** Slash-command modal open over the current chat (/session, /tree, …). */
+  chatModal: 'session' | 'tree' | 'fork' | 'hotkeys' | null
 
   init(): Promise<void>
   refreshSessions(): Promise<void>
@@ -53,6 +55,7 @@ interface AppState {
   renameSession(path: string, title: string): void
   openSettings(): void
   closeSettings(): void
+  setChatModal(modal: AppState['chatModal']): void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -72,6 +75,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   backStack: [],
   forwardStack: [],
   settingsOpen: false,
+  chatModal: null,
 
   async init() {
     try {
@@ -229,6 +233,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeSettings() {
     set({ settingsOpen: false })
+  },
+
+  setChatModal(modal) {
+    set({ chatModal: modal })
   }
 }))
 

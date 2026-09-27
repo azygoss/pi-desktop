@@ -12,13 +12,16 @@ function subscribe(channel: string) {
 const api: PiDesktopApi = {
   runtime: {
     info: () => ipcRenderer.invoke('pi-desktop:runtime:info'),
-    refresh: () => ipcRenderer.invoke('pi-desktop:runtime:refresh')
+    refresh: () => ipcRenderer.invoke('pi-desktop:runtime:refresh'),
+    command: () => ipcRenderer.invoke('pi-desktop:runtime:command')
   },
   sessions: {
     list: () => ipcRenderer.invoke('pi-desktop:sessions:list'),
     onChanged: subscribe('pi-desktop:sessions:changed'),
     rename: (input) => ipcRenderer.invoke('pi-desktop:sessions:rename', input),
     exportHtml: (input) => ipcRenderer.invoke('pi-desktop:sessions:export-html', input),
+    exportFile: (input) => ipcRenderer.invoke('pi-desktop:sessions:export-file', input),
+    import: (input) => ipcRenderer.invoke('pi-desktop:sessions:import', input),
     delete: (input) => ipcRenderer.invoke('pi-desktop:sessions:delete', input),
     showMenu: (input) => ipcRenderer.invoke('pi-desktop:sessions:menu', input)
   },
@@ -34,6 +37,14 @@ const api: PiDesktopApi = {
     get: () => ipcRenderer.invoke('pi-desktop:app-settings:get'),
     update: (patch) => ipcRenderer.invoke('pi-desktop:app-settings:update', patch)
   },
+  terminal: {
+    spawn: (input) => ipcRenderer.invoke('pi-desktop:terminal:spawn', input),
+    write: (input) => ipcRenderer.invoke('pi-desktop:terminal:write', input),
+    resize: (input) => ipcRenderer.invoke('pi-desktop:terminal:resize', input),
+    kill: (input) => ipcRenderer.invoke('pi-desktop:terminal:kill', input),
+    onData: subscribe('pi-desktop:terminal:data'),
+    onExit: subscribe('pi-desktop:terminal:exit')
+  },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
     pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder'),
@@ -43,6 +54,8 @@ const api: PiDesktopApi = {
     confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input),
     getAppInfo: () => ipcRenderer.invoke('pi-desktop:app:info'),
     openAgentDir: () => ipcRenderer.invoke('pi-desktop:app:open-agent-dir'),
+    openExternal: (url) => ipcRenderer.invoke('pi-desktop:app:open-external', url),
+    quit: () => ipcRenderer.invoke('pi-desktop:app:quit'),
     onMenuAction: subscribe('pi-desktop:menu:action')
   },
   chat: {
@@ -57,6 +70,10 @@ const api: PiDesktopApi = {
     setSessionName: (input) => ipcRenderer.invoke('pi-desktop:chat:set-session-name', input),
     exportHtml: (input) => ipcRenderer.invoke('pi-desktop:chat:export-html', input),
     refresh: (input) => ipcRenderer.invoke('pi-desktop:chat:refresh', input),
+    reload: (input) => ipcRenderer.invoke('pi-desktop:chat:reload', input),
+    getTree: (input) => ipcRenderer.invoke('pi-desktop:chat:get-tree', input),
+    getLastAssistantText: (input) =>
+      ipcRenderer.invoke('pi-desktop:chat:last-assistant-text', input),
     getForkMessages: (input) => ipcRenderer.invoke('pi-desktop:chat:get-fork-messages', input),
     fork: (input) => ipcRenderer.invoke('pi-desktop:chat:fork', input),
     clone: (input) => ipcRenderer.invoke('pi-desktop:chat:clone', input),

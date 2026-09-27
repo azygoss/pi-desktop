@@ -1,12 +1,16 @@
 import { useEffect } from 'react'
 
 import { ChatView } from './components/ChatView'
+import { CommandModals } from './components/CommandModals'
 import { HomeView } from './components/HomeView'
+import { RightPanel } from './components/RightPanel'
 import { SettingsModal } from './components/SettingsModal'
 import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
+import { Toasts } from './components/Toasts'
 import { useAppStore } from './state/app-store'
-import { initChatBridge } from './state/chat-store'
+import { initChatBridge, useChatStore } from './state/chat-store'
+import { initPanelBridge, usePanelStore } from './state/panel-store'
 
 export function App() {
   const view = useAppStore((s) => s.view)
@@ -16,6 +20,7 @@ export function App() {
 
   useEffect(() => {
     initChatBridge()
+    initPanelBridge()
     void useAppStore.getState().init()
     const unsubscribe = window.piDesktop.sessions.onChanged(() => {
       void useAppStore.getState().refreshSessions()
@@ -38,10 +43,20 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const store = useAppStore.getState()
+      // ⌃` toggles/creates a terminal (ctrl-only, no meta).
+      if (e.key === '`' && e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        const view = store.view
+        const chat =
+          view.kind === 'chat' ? useChatStore.getState().chats[view.chatId] : undefined
+        const cwd = chat?.cwd || store.appInfo?.workspaceDir || '/'
+        usePanelStore.getState().toggleTerminal(cwd)
+        return
+      }
       if (!e.metaKey && !e.ctrlKey) {
         return
       }
-      const store = useAppStore.getState()
       if (e.key === '[') {
         e.preventDefault()
         store.goBack()
@@ -73,7 +88,10 @@ export function App() {
         <MainTopBar />
         {ready && (view.kind === 'home' ? <HomeView /> : <ChatView chatId={view.chatId} />)}
       </main>
+      <RightPanel />
       {settingsOpen && <SettingsModal />}
+      <CommandModals />
+      <Toasts />
     </div>
   )
 }

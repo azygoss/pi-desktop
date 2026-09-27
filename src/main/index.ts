@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { BrowserWindow, app, shell } from 'electron'
 import {
+  IPC_CHANNELS,
   broadcastAll,
   registerIpcHandlers,
   runtimeOptionsFromSettings,
@@ -12,12 +13,18 @@ import { ensureWorkspaceDir } from './config/app-paths'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
+import { PtyManager } from './terminal/pty-manager'
 
 const pool = new PiProcessPool({
   // Test/dev override: point at a custom pi executable (e.g. a fixture).
   customPath: process.env['PI_DESKTOP_PI_COMMAND'] || undefined
 })
 const chat = new ChatService(pool, broadcastAll)
+const pty = new PtyManager({
+  onData: (id, data) => broadcastAll(IPC_CHANNELS.terminalData, { id, data }),
+  onExit: (id, exitCode, signal) =>
+    broadcastAll(IPC_CHANNELS.terminalExit, { id, exitCode, signal })
+})
 
 const isDev = !app.isPackaged && !!process.env['ELECTRON_RENDERER_URL']
 
@@ -80,9 +87,9 @@ app.whenReady().then(async () => {
   if (appSettings) {
     pool.setRuntimeOptions(runtimeOptionsFromSettings(appSettings))
   }
-  registerIpcHandlers({ pool, chat })
+  registerIpcHandlers({ pool, chat, pty })
   startSessionWatcher()
-  wireAppLifecycle({ pool, chat })
+  wireAppLifecycle({ pool, chat, pty })
   installAppMenu(isDev)
   createWindow()
 

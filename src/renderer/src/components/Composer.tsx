@@ -4,9 +4,11 @@ import clsx from 'clsx'
 
 import type { ChatSendMode } from '../../../shared/api'
 import type { ImageContent, ThinkingLevel } from '../../../shared/pi-types'
+import { executeAppCommand } from '../lib/app-commands'
 import {
   filterSlashCommands,
-  isAppCommand,
+  findAppCommand,
+  flattenSlashGroups,
   parseSlashSend,
   slashQuery
 } from '../lib/slash-commands'
@@ -60,10 +62,15 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   const inChat = isChat === true && chat !== null
   const query = slashQuery(text)
-  const slashItems = useMemo(
-    () => (query === null ? [] : filterSlashCommands(chat?.commands ?? [], query, inChat)),
-    [query, chat?.commands, inChat]
+  const isStreaming = chat?.status === 'streaming'
+  const slashGroups = useMemo(
+    () =>
+      query === null
+        ? []
+        : filterSlashCommands(chat?.commands ?? [], query, inChat, isStreaming),
+    [query, chat?.commands, inChat, isStreaming]
   )
+  const slashItems = useMemo(() => flattenSlashGroups(slashGroups), [slashGroups])
   const slashOpen = query !== null && !slashDismissed && slashItems.length > 0
 
   const streaming = chat?.status === 'streaming'
@@ -140,64 +147,15 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   }
 
   function runAppCommand(command: string, args: string): void {
-    const store = useChatStore.getState()
-    switch (command) {
-      case 'new':
-        useAppStore.getState().navigate({ kind: 'home' })
-        break
-      case 'name':
-        if (chat && args) {
-          void window.piDesktop.chat
-            .setSessionName({ chatId: chat.chatId, name: args })
-            .then(() => {
-              store.setChatTitle(chat.chatId, args)
-              if (chat.sessionPath) {
-                useAppStore.getState().renameSession(chat.sessionPath, args)
-              }
-            })
-            .catch(() => {})
-        }
-        break
-      case 'compact':
-        if (chat) {
-          void window.piDesktop.chat
-            .compact({ chatId: chat.chatId, customInstructions: args || undefined })
-            .catch(() => {})
-        }
-        break
-      case 'export':
-        void exportCurrentChat()
-        break
-      case 'model':
-      case 'thinking':
-        setModelSignal((s) => s + 1)
-        break
-    }
-  }
-
-  async function exportCurrentChat(): Promise<void> {
-    if (!chat) {
-      return
-    }
-    const safeTitle = chat.title.replace(/[^a-zA-Z0-9-_ ]+/g, '').trim() || 'chat'
-    const out = await window.piDesktop.app.saveFile({
-      defaultPath: `${safeTitle}.html`,
-      extension: 'html'
-    })
-    if (!out) {
-      return
-    }
-    await window.piDesktop.chat
-      .exportHtml({ chatId: chat.chatId, outputPath: out })
-      .catch(() => {})
-    const choice = await window.piDesktop.app.confirmDialog({
-      title: 'Chat exported',
-      message: `Saved to ${out}`,
-      buttons: ['Reveal in Finder', 'OK']
-    })
-    if (choice === 0) {
-      await window.piDesktop.app.revealPath(out)
-    }
+    void executeAppCommand(
+      {
+        chat,
+        openModelPicker: () => setModelSignal((s) => s + 1),
+        setModal: (modal) => useAppStore.getState().setChatModal(modal)
+      },
+      command,
+      args
+    )
   }
 
   /** Insert `/name ` for the highlighted item and keep typing args. */
@@ -222,6 +180,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     }
     setSlashDismissed(true)
     if (item.source === 'app') {
+      if (item.idleOnly && streaming) {
+        return
+      }
       runAppCommand(item.name, '')
       setText('')
       setImages([])
@@ -237,8 +198,12 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
       return
     }
     const parsed = parseSlashSend(value)
-    if (parsed && isAppCommand(parsed.command)) {
-      runAppCommand(parsed.command, parsed.args)
+    const appCommand = parsed && findAppCommand(parsed.command)
+    if (appCommand) {
+      if (appCommand.idleOnly && streaming) {
+        return
+      }
+      runAppCommand(parsed!.command, parsed!.args)
     } else {
       onSend(value, images.length > 0 ? images : [], mode)
     }
@@ -348,19 +313,36 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
       {slashOpen && (
         <div className="slash-popover" data-testid="slash-popover">
-          {slashItems.map((item, i) => (
-            <button
-              key={`${item.source}:${item.name}`}
-              type="button"
-              className={clsx('slash-row', { 'is-highlight': i === slashHighlight })}
-              onMouseEnter={() => setSlashHighlight(i)}
-              onClick={() => executeSlash(i)}
-            >
-              <span className="slash-name">/{item.name}</span>
-              {item.description && <span className="slash-desc">{item.description}</span>}
-              <span className="slash-badge">{item.source}</span>
-            </button>
-          ))}
+          {(() => {
+            let flatIndex = -1
+            return slashGroups.map((group) => (
+              <div key={group.label}>
+                <div className="slash-group-label">{group.label}</div>
+                {group.items.map((item) => {
+                  flatIndex += 1
+                  const i = flatIndex
+                  return (
+                    <button
+                      key={`${item.source}:${item.name}`}
+                      type="button"
+                      className={clsx('slash-row', { 'is-highlight': i === slashHighlight })}
+                      onMouseEnter={() => setSlashHighlight(i)}
+                      onClick={() => executeSlash(i)}
+                    >
+                      <span className="slash-name">/{item.name}</span>
+                      {item.description && (
+                        <span className="slash-desc">{item.description}</span>
+                      )}
+                      {item.hint && <span className="slash-hint">{item.hint}</span>}
+                      {item.source !== 'app' && (
+                        <span className="slash-badge">{item.source}</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ))
+          })()}
         </div>
       )}
 

@@ -10,21 +10,152 @@ export interface SlashCommandItem {
   takesArgs?: boolean
   /** Only meaningful for an open chat with content. */
   chatOnly?: boolean
+  /** Only runnable while the chat is not streaming. */
+  idleOnly?: boolean
+  /** Runs pi's interactive TUI in a terminal tab instead of the RPC client. */
+  terminal?: boolean
+  /** Extra muted hint shown on the palette row (e.g. 'opens in terminal'). */
+  hint?: string
 }
 
+const TERMINAL_HINT = 'opens in terminal'
+
+/**
+ * Every pi built-in slash command (docs/slash-commands.md), surfaced as an
+ * app command. Commands pi only implements in its TUI run in a terminal tab.
+ */
 export const APP_COMMANDS: SlashCommandItem[] = [
-  { name: 'new', description: 'New chat', source: 'app' },
-  { name: 'name', description: 'Rename this chat', source: 'app', takesArgs: true, chatOnly: true },
+  // Models and settings
+  { name: 'settings', description: 'Open app settings', source: 'app' },
+  { name: 'model', description: 'Select a model', source: 'app', takesArgs: true },
   {
-    name: 'compact',
-    description: 'Compact context now (optional instructions)',
+    name: 'thinking',
+    description: 'Set the thinking level',
     source: 'app',
     takesArgs: true,
     chatOnly: true
   },
-  { name: 'export', description: 'Export chat as HTML', source: 'app', chatOnly: true },
-  { name: 'model', description: 'Pick a model', source: 'app' },
-  { name: 'thinking', description: 'Set thinking level', source: 'app' }
+  {
+    name: 'scoped-models',
+    description: 'Configure models used by interactive cycling',
+    source: 'app',
+    terminal: true,
+    hint: TERMINAL_HINT
+  },
+  {
+    name: 'login',
+    description: 'Add provider authentication',
+    source: 'app',
+    terminal: true,
+    takesArgs: true,
+    hint: TERMINAL_HINT
+  },
+  {
+    name: 'logout',
+    description: 'Remove provider authentication',
+    source: 'app',
+    terminal: true,
+    hint: TERMINAL_HINT
+  },
+  {
+    name: 'llama',
+    description: 'Manage models on the llama.cpp router',
+    source: 'app',
+    terminal: true,
+    hint: TERMINAL_HINT
+  },
+
+  // Sessions and context
+  { name: 'new', description: 'New chat', source: 'app' },
+  { name: 'resume', description: 'Search chats', source: 'app' },
+  {
+    name: 'name',
+    description: 'Set the chat name, or show it when omitted',
+    source: 'app',
+    takesArgs: true,
+    chatOnly: true
+  },
+  {
+    name: 'session',
+    description: 'Session info and stats',
+    source: 'app',
+    chatOnly: true
+  },
+  { name: 'tree', description: 'Show the session tree', source: 'app', chatOnly: true },
+  {
+    name: 'fork',
+    description: 'Fork from an earlier message',
+    source: 'app',
+    chatOnly: true,
+    idleOnly: true
+  },
+  {
+    name: 'clone',
+    description: 'Duplicate the current chat',
+    source: 'app',
+    chatOnly: true,
+    idleOnly: true
+  },
+  {
+    name: 'compact',
+    description: 'Compact context (optional instructions)',
+    source: 'app',
+    takesArgs: true,
+    chatOnly: true
+  },
+  {
+    name: 'import',
+    description: 'Import a .jsonl session',
+    source: 'app',
+    takesArgs: true
+  },
+
+  // Export and share
+  { name: 'copy', description: 'Copy the last reply', source: 'app', chatOnly: true },
+  {
+    name: 'export',
+    description: 'Export as HTML (or .jsonl with a path)',
+    source: 'app',
+    takesArgs: true,
+    chatOnly: true
+  },
+  {
+    name: 'share',
+    description: 'Upload the session and get a viewer link',
+    source: 'app',
+    terminal: true,
+    chatOnly: true,
+    idleOnly: true,
+    hint: TERMINAL_HINT
+  },
+  {
+    name: 'bug',
+    description: 'Prepare a bug report for the pi developers',
+    source: 'app',
+    terminal: true,
+    takesArgs: true,
+    chatOnly: true,
+    idleOnly: true,
+    hint: TERMINAL_HINT
+  },
+
+  // Runtime and project
+  {
+    name: 'trust',
+    description: 'Save a project trust decision',
+    source: 'app',
+    terminal: true,
+    hint: TERMINAL_HINT
+  },
+  {
+    name: 'reload',
+    description: 'Restart pi and reload resources',
+    source: 'app',
+    chatOnly: true
+  },
+  { name: 'hotkeys', description: 'Show keyboard shortcuts', source: 'app' },
+  { name: 'changelog', description: 'Open the pi changelog', source: 'app' },
+  { name: 'quit', description: 'Quit Pi Desktop', source: 'app' }
 ]
 
 /**
@@ -53,27 +184,58 @@ function toItem(command: PiCommandInfo): SlashCommandItem {
   }
 }
 
+const GROUP_ORDER: SlashCommandItem['source'][] = ['app', 'skill', 'prompt', 'extension']
+
+export const GROUP_LABELS: Record<SlashCommandItem['source'], string> = {
+  app: 'App',
+  skill: 'Skills',
+  prompt: 'Prompts',
+  extension: 'Extensions'
+}
+
 /**
- * Merge app commands with pi's catalog and filter by the typed token.
- * App commands sort first, then pi commands alphabetically.
+ * Merge app commands with pi's catalog, filter by the typed token (matching
+ * name AND description), and return items grouped: App, Skills, Prompts,
+ * Extensions. Groups are returned in order with each group sorted by name.
  */
 export function filterSlashCommands(
   piCommands: PiCommandInfo[],
   query: string,
-  inChat: boolean
-): SlashCommandItem[] {
+  inChat: boolean,
+  streaming = false
+): { label: string; items: SlashCommandItem[] }[] {
   const needle = query.toLowerCase()
   const matches = (item: SlashCommandItem) =>
-    needle === '' || item.name.toLowerCase().includes(needle)
+    needle === '' ||
+    item.name.toLowerCase().includes(needle) ||
+    (item.description?.toLowerCase().includes(needle) ?? false)
 
-  const app = APP_COMMANDS.filter((c) => (inChat || !c.chatOnly) && matches(c))
-  const pi = piCommands
-    .map(toItem)
-    .filter(matches)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return [...app, ...pi]
+  const items: SlashCommandItem[] = [
+    ...APP_COMMANDS.filter(
+      (c) => (inChat || !c.chatOnly) && (!streaming || !c.idleOnly) && matches(c)
+    ),
+    ...piCommands.map(toItem).filter(matches)
+  ]
+
+  const groups: { label: string; items: SlashCommandItem[] }[] = []
+  for (const source of GROUP_ORDER) {
+    const group = items
+      .filter((i) => i.source === source)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    if (group.length > 0) {
+      groups.push({ label: GROUP_LABELS[source], items: group })
+    }
+  }
+  return groups
 }
 
-export function isAppCommand(name: string): boolean {
-  return APP_COMMANDS.some((c) => c.name === name)
+/** Flatten grouped slash items into a single navigable list. */
+export function flattenSlashGroups(
+  groups: { label: string; items: SlashCommandItem[] }[]
+): SlashCommandItem[] {
+  return groups.flatMap((g) => g.items)
+}
+
+export function findAppCommand(name: string): SlashCommandItem | undefined {
+  return APP_COMMANDS.find((c) => c.name === name)
 }

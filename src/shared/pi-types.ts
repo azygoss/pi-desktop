@@ -426,6 +426,27 @@ export type PiEvent =
   | { type: 'extension_error'; extensionPath: string; event?: string; error: string }
   | ExtensionUiRequest
 
+/** One node of the `get_tree` response: an entry plus its child branches. */
+export interface PiTreeNode {
+  entry: {
+    type: string
+    id: string
+    parentId?: string | null
+    label?: string
+    timestamp?: string
+    message?: AgentMessage
+    [key: string]: unknown
+  }
+  children: PiTreeNode[]
+  label?: string
+  labelTimestamp?: string
+}
+
+export interface PiTreeResult {
+  tree: PiTreeNode[]
+  leafId: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Session file entries (session-format.md)
 // ---------------------------------------------------------------------------

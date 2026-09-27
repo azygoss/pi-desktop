@@ -278,6 +278,33 @@ async function buildRuntime(
   return { kind, command, args, env, version }
 }
 
+let cachedLoginShellEnv: Promise<Record<string, string>> | null = null
+
+/**
+ * Environment for terminal tabs and spawned tools: the process env plus the
+ * login-shell merged PATH (so GUI-launched apps find user tools). Strips
+ * ELECTRON_RUN_AS_NODE — terminals must never inherit the Electron-as-Node
+ * switch the bundled pi runtime uses.
+ */
+export function loginShellEnv(): Promise<Record<string, string>> {
+  if (!cachedLoginShellEnv) {
+    cachedLoginShellEnv = (async () => {
+      const deps = defaultDeps(process.cwd())
+      const loginPath = await deps.readLoginShellPath()
+      const env = { ...process.env } as Record<string, string>
+      delete env['ELECTRON_RUN_AS_NODE']
+      env['PATH'] = mergePathEntries(
+        deps.platform,
+        deps.homeDir,
+        loginPath,
+        deps.env['PATH'] ?? deps.env['Path']
+      )
+      return env
+    })()
+  }
+  return cachedLoginShellEnv
+}
+
 export async function resolvePiRuntime(opts: ResolvePiRuntimeOptions = {}): Promise<PiRuntime> {
   const deps: LocatorDeps = { ...defaultDeps(opts.appPath ?? process.cwd()), ...opts.deps }
 

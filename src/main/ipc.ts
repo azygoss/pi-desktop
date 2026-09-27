@@ -1,5 +1,5 @@
 import { basename, isAbsolute, resolve } from 'node:path'
-import { stat } from 'node:fs/promises'
+import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron'
@@ -10,19 +10,23 @@ import type {
   ChatSendInput,
   MenuAction,
   ProjectMenuAction,
-  SessionMenuAction
+  SessionMenuAction,
+  TerminalSpawnInput
 } from '../shared/api'
 import type { PiRuntimeInfo } from '../shared/session-types'
 import type { ThinkingLevel } from '../shared/pi-types'
 import type { PiProcessPool } from './pi/pool'
 import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
-import { validateChatId, validateSessionPath } from './chat/validation'
+import { validateChatId, validateCwd, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { workspaceDir } from './config/app-paths'
 import { readSettings } from './config/settings'
+import { loginShellEnv } from './pi/locator'
+import { importSessionFile } from './sessions/import-session'
 import { getAgentDir } from './sessions/paths'
 import { listSessions, watchSessions } from './sessions/session-index'
 import { mergeProjects } from './sessions/projects'
+import { PtyManager } from './terminal/pty-manager'
 
 export const IPC_CHANNELS = {
   runtimeInfo: 'pi-desktop:runtime:info',
@@ -65,12 +69,27 @@ export const IPC_CHANNELS = {
   chatIdForSession: 'pi-desktop:chat:id-for-session',
   chatMenu: 'pi-desktop:chat:menu',
   chatRespondUi: 'pi-desktop:chat:respond-ui',
-  chatClose: 'pi-desktop:chat:close'
+  chatClose: 'pi-desktop:chat:close',
+  chatReload: 'pi-desktop:chat:reload',
+  chatGetTree: 'pi-desktop:chat:get-tree',
+  chatLastAssistantText: 'pi-desktop:chat:last-assistant-text',
+  sessionsImport: 'pi-desktop:sessions:import',
+  sessionsExportFile: 'pi-desktop:sessions:export-file',
+  runtimeCommand: 'pi-desktop:runtime:command',
+  terminalSpawn: 'pi-desktop:terminal:spawn',
+  terminalWrite: 'pi-desktop:terminal:write',
+  terminalResize: 'pi-desktop:terminal:resize',
+  terminalKill: 'pi-desktop:terminal:kill',
+  terminalData: 'pi-desktop:terminal:data',
+  terminalExit: 'pi-desktop:terminal:exit',
+  appQuit: 'pi-desktop:app:quit',
+  appOpenExternal: 'pi-desktop:app:open-external'
 } as const
 
 export interface IpcDeps {
   pool: PiProcessPool
   chat: ChatService
+  pty: PtyManager
 }
 
 /**
@@ -400,6 +419,117 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       ])
     }
   )
+
+  ipcMain.handle(IPC_CHANNELS.chatReload, (_e, input: { chatId: string }) =>
+    deps.chat.reload(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatGetTree, (_e, input: { chatId: string }) =>
+    deps.chat.getTree(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatLastAssistantText, (_e, input: { chatId: string }) =>
+    deps.chat.getLastAssistantText(input)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.sessionsImport, async (_e, input: { path: string }) => {
+    if (typeof input?.path !== 'string' || !isAbsolute(input.path)) {
+      throw new Error('Invalid import path')
+    }
+    return importSessionFile(input.path)
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.sessionsExportFile,
+    async (_e, input: { sessionPath: string; outputPath: string }) => {
+      const sessionPath = validateSessionPath(input.sessionPath)
+      if (typeof input?.outputPath !== 'string' || !isAbsolute(input.outputPath)) {
+        throw new Error('Invalid output path')
+      }
+      if (input.outputPath.endsWith('.jsonl')) {
+        await copyFile(sessionPath, input.outputPath)
+        return { path: input.outputPath }
+      }
+      return deps.chat.exportSession(input)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.runtimeCommand, async () => {
+    const runtime = await deps.pool.getRuntime()
+    return { command: runtime.command, args: runtime.args }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.terminalSpawn, async (_e, input: TerminalSpawnInput) => {
+    if (typeof input?.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.id)) {
+      throw new Error('Invalid terminal id')
+    }
+    const cwd = await validateCwd(input.cwd)
+    const argv =
+      input.argv === undefined
+        ? undefined
+        : (() => {
+            if (
+              !Array.isArray(input.argv) ||
+              input.argv.length === 0 ||
+              input.argv.length > 64 ||
+              !input.argv.every((a) => typeof a === 'string' && a.length < 4096)
+            ) {
+              throw new Error('Invalid terminal argv')
+            }
+            return input.argv
+          })()
+    const profile = input.profile === 'pi' ? 'pi' : 'shell'
+    const env =
+      profile === 'pi'
+        ? { ...(await loginShellEnv()), ...(await deps.pool.getRuntime()).env }
+        : await loginShellEnv()
+    return deps.pty.spawn({
+      id: input.id,
+      cwd,
+      argv,
+      env,
+      initialInput:
+        typeof input.initialInput === 'string' && input.initialInput.length < 4096
+          ? input.initialInput
+          : undefined,
+      cols: input.cols,
+      rows: input.rows
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.terminalWrite, (_e, input: { id: string; data: string }) => {
+    if (typeof input?.id !== 'string' || typeof input.data !== 'string') {
+      throw new Error('Invalid terminal write')
+    }
+    deps.pty.write(input.id, input.data)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.terminalResize,
+    (_e, input: { id: string; cols: number; rows: number }) => {
+      if (typeof input?.id !== 'string') {
+        throw new Error('Invalid terminal resize')
+      }
+      deps.pty.resize(input.id, input.cols, input.rows)
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.terminalKill, (_e, input: { id: string }) => {
+    if (typeof input?.id !== 'string') {
+      throw new Error('Invalid terminal id')
+    }
+    return deps.pty.kill(input.id)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.appQuit, () => {
+    app.quit()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.appOpenExternal, (_e, url: string) => {
+    if (
+      typeof url !== 'string' ||
+      url.length > 2048 ||
+      (!/^https:\/\//.test(url) && !/^http:\/\/localhost(:\d+)?(\/|$)/.test(url))
+    ) {
+      throw new Error('Only https:// (or http://localhost) URLs can be opened externally')
+    }
+    return shell.openExternal(url)
+  })
 }
 
 /** Dispatch a native-menu action to the focused renderer window. */
@@ -451,6 +581,7 @@ export function startSessionWatcher(): () => void {
 export function wireAppLifecycle(deps: IpcDeps): void {
   app.on('before-quit', () => {
     void deps.chat.closeAll()
+    void deps.pty.killAll()
   })
 }
 

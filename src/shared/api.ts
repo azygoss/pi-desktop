@@ -7,6 +7,7 @@ import type {
   PiCommandInfo,
   PiEvent,
   PiSessionState,
+  PiTreeResult,
   ThinkingLevel
 } from './pi-types'
 import type { PiRuntimeInfo, PiSettings, ProjectSummary, SessionSummary } from './session-types'
@@ -120,6 +121,38 @@ export interface ForkMessage {
   text: string
 }
 
+/** How a terminal tab's child env is assembled in the main process. */
+export type TerminalProfile = 'shell' | 'pi'
+
+export interface TerminalSpawnInput {
+  id: string
+  cwd: string
+  /** Empty/omitted argv spawns the login shell. */
+  argv?: string[]
+  profile?: TerminalProfile
+  /** Text written to the pty once spawned (e.g. '/login\n'). */
+  initialInput?: string
+  cols?: number
+  rows?: number
+}
+
+export interface TerminalDataPayload {
+  id: string
+  data: string
+}
+
+export interface TerminalExitPayload {
+  id: string
+  exitCode: number
+  signal?: number
+}
+
+/** Spawn info for the resolved pi runtime, for interactive TUI terminals. */
+export interface RuntimeCommand {
+  command: string
+  args: string[]
+}
+
 /** Actions dispatched from the native application menu. */
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat'
 
@@ -140,6 +173,8 @@ export interface PiDesktopApi {
     info(): Promise<PiRuntimeInfo>
     /** Re-run runtime detection (applies to newly opened chats). */
     refresh(): Promise<PiRuntimeInfo>
+    /** Spawn info (command + args) for interactive pi TUI terminals. */
+    command(): Promise<RuntimeCommand>
   }
   sessions: {
     list(): Promise<SessionSummary[]>
@@ -149,10 +184,22 @@ export interface PiDesktopApi {
     rename(input: { sessionPath: string; name: string }): Promise<void>
     /** Export a session to an HTML file at outputPath. */
     exportHtml(input: { sessionPath: string; outputPath: string }): Promise<{ path?: string }>
+    /** Export a session: '.jsonl' output copies the file, otherwise HTML. */
+    exportFile(input: { sessionPath: string; outputPath: string }): Promise<{ path?: string }>
+    /** Import a .jsonl session file into pi's session dir; returns its path. */
+    import(input: { path: string }): Promise<{ sessionPath: string }>
     /** Move a session file to the OS trash (never unlink). */
     delete(input: { sessionPath: string }): Promise<void>
     /** Native context menu for a session row; resolves to the action or null. */
     showMenu(input: { sessionPath: string }): Promise<SessionMenuAction | null>
+  }
+  terminal: {
+    spawn(input: TerminalSpawnInput): Promise<{ id: string }>
+    write(input: { id: string; data: string }): Promise<void>
+    resize(input: { id: string; cols: number; rows: number }): Promise<void>
+    kill(input: { id: string }): Promise<void>
+    onData(callback: (payload: TerminalDataPayload) => void): () => void
+    onExit(callback: (payload: TerminalExitPayload) => void): () => void
   }
   projects: {
     list(): Promise<ProjectSummary[]>
@@ -190,6 +237,10 @@ export interface PiDesktopApi {
     getAppInfo(): Promise<AppInfo>
     /** Open the pi agent directory in the OS file manager. */
     openAgentDir(): Promise<void>
+    /** Open an http(s) URL in the system browser. */
+    openExternal(url: string): Promise<void>
+    /** Quit the app (renderer confirms with the user first when needed). */
+    quit(): Promise<void>
     /** Native application menu actions; returns an unsubscribe function. */
     onMenuAction(callback: (action: MenuAction) => void): () => void
   }
@@ -209,6 +260,12 @@ export interface PiDesktopApi {
     getForkMessages(input: { chatId: string }): Promise<{ messages: ForkMessage[] }>
     fork(input: { chatId: string; entryId: string }): Promise<{ text?: string; cancelled?: boolean }>
     clone(input: { chatId: string }): Promise<{ cancelled?: boolean }>
+    /** Restart the chat's pi process on the same session (reloads resources). */
+    reload(input: { chatId: string }): Promise<ChatOpenResult>
+    /** Session entry tree for the /tree modal. */
+    getTree(input: { chatId: string }): Promise<PiTreeResult>
+    /** Text of the last assistant message (for /copy). */
+    getLastAssistantText(input: { chatId: string }): Promise<{ text: string | null }>
     /** chatId of the open chat viewing a session path, if any. */
     chatIdForSession(input: { sessionPath: string }): Promise<string | undefined>
     /** Native context menu for the chat header; resolves to the action or null. */

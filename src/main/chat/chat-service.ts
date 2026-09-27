@@ -16,6 +16,7 @@ import type {
   PiCommandInfo,
   PiEvent,
   PiSessionState,
+  PiTreeResult,
   ThinkingLevel
 } from '../../shared/pi-types'
 import type { PiRpcClient } from '../pi/rpc-client'
@@ -263,6 +264,37 @@ export class ChatService {
     const cwd = await validateCwd(input.cwd)
     await this.close({ chatId })
     return this.open({ chatId, cwd })
+  }
+
+  /**
+   * Restart the chat's pi process on the same session — reloads extensions,
+   * skills, prompt templates and keybindings (/reload).
+   */
+  async reload(input: { chatId: string }): Promise<ChatOpenResult> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const { chatId, cwd, sessionPath } = record
+    await this.close({ chatId })
+    return this.open({ chatId, cwd, sessionPath })
+  }
+
+  /** Session entry tree for the /tree modal. */
+  async getTree(input: { chatId: string }): Promise<PiTreeResult> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    return (
+      (await record.client.request<PiTreeResult>({ type: 'get_tree' })) ?? {
+        tree: [],
+        leafId: null
+      }
+    )
+  }
+
+  /** Last assistant text for /copy. */
+  async getLastAssistantText(input: { chatId: string }): Promise<{ text: string | null }> {
+    const record = this.requireChat(validateChatId(input.chatId))
+    const result = await record.client.request<{ text?: string | null }>({
+      type: 'get_last_assistant_text'
+    })
+    return { text: result?.text ?? null }
   }
 
   async getForkMessages(input: {

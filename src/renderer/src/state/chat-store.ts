@@ -55,6 +55,10 @@ interface ChatStoreState {
    * messages). Returns the message text pi hands back for editing.
    */
   forkFromUserMessage(chatId: string, userIndex: number): Promise<string | undefined>
+  /** Fork at a specific entry id (e.g. picked in the /fork or /tree modal). */
+  forkAtEntry(chatId: string, entryId: string): Promise<string | undefined>
+  /** Restart the chat's pi process on the same session and refresh state. */
+  reloadChat(chatId: string): Promise<void>
   /** Clone the current session branch; the chat continues on the new session. */
   cloneChat(chatId: string): Promise<void>
   setChatTitle(chatId: string, title: string): void
@@ -386,7 +390,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     if (!entry) {
       return undefined
     }
-    const result = await window.piDesktop.chat.fork({ chatId, entryId: entry.entryId })
+    return get().forkAtEntry(chatId, entry.entryId)
+  },
+
+  async forkAtEntry(chatId, entryId) {
+    const result = await window.piDesktop.chat.fork({ chatId, entryId })
     if (result.cancelled) {
       return undefined
     }
@@ -397,6 +405,33 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       publish(chatId)
     }
     return result.text
+  },
+
+  async reloadChat(chatId) {
+    const draft = drafts.get(chatId)
+    if (!draft) {
+      return
+    }
+    const result = await window.piDesktop.chat.reload({ chatId })
+    const current = drafts.get(chatId)
+    if (!current) {
+      return
+    }
+    const view = buildChatViewState(result.messages)
+    Object.assign(current, view, {
+      cwd: result.cwd || current.cwd,
+      sessionPath: result.sessionPath ?? current.sessionPath,
+      model: result.state.model,
+      thinkingLevel: result.state.thinkingLevel,
+      availableThinkingLevels: result.thinkingLevels,
+      models: result.models,
+      commands: result.commands,
+      error: undefined,
+      stats: undefined,
+      uiRequest: undefined
+    })
+    current.status = result.state.isStreaming ? 'streaming' : 'idle'
+    publish(chatId)
   },
 
   async cloneChat(chatId) {
