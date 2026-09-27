@@ -81,6 +81,14 @@ export interface ChatSessionStats {
 
 export type ChatUiResponseInput = Omit<ExtensionUiResponse, 'type'> & { chatId: string }
 
+/** Result of switching models: pi may clamp the thinking level, so the
+ *  post-switch state and the new model's level list come back together. */
+export interface SetModelResult {
+  model: Model | null
+  thinkingLevel: ThinkingLevel | null
+  thinkingLevels: ThinkingLevel[]
+}
+
 /** Pi Desktop's own settings (stored in Electron userData, not ~/.pi). */
 export interface AppSettings {
   theme: 'system' | 'light' | 'dark'
@@ -177,7 +185,7 @@ export interface PiDesktopApi {
     open(input: ChatOpenInput): Promise<ChatOpenResult>
     send(input: ChatSendInput): Promise<void>
     abort(input: { chatId: string }): Promise<void>
-    setModel(input: { chatId: string; provider: string; modelId: string }): Promise<void>
+    setModel(input: { chatId: string; provider: string; modelId: string }): Promise<SetModelResult>
     setThinkingLevel(input: { chatId: string; level: ThinkingLevel }): Promise<void>
     getStats(input: { chatId: string }): Promise<ChatSessionStats | undefined>
     setCwd(input: { chatId: string; cwd: string }): Promise<ChatOpenResult>

@@ -3,15 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
-
-const THINKING_LABELS: Record<string, string> = {
-  off: 'Off',
-  minimal: 'Min',
-  low: 'Low',
-  medium: 'Med',
-  high: 'High',
-  xhigh: 'Max'
-}
+import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
 
 interface ModelPickerProps {
   models: Model[]
@@ -23,6 +15,15 @@ interface ModelPickerProps {
   openSignal?: number
   onSelect(provider: string, modelId: string): void
   onThinkingChange(level: ThinkingLevel): void
+}
+
+/** Tooltip for a non-active model row: its levels from thinkingLevelMap. */
+function levelHint(model: Model): string {
+  if (!model.reasoning) {
+    return 'No reasoning'
+  }
+  const levels = supportedThinkingLevels(model).filter((l) => l !== 'off')
+  return levels.length > 0 ? `Levels: ${levels.map(thinkingLevelLabel).join(', ')}` : ''
 }
 
 export function ModelPicker({
@@ -111,8 +112,19 @@ export function ModelPicker({
     }
   }
 
+  // Levels come from pi's get_available_thinking_levels for the active model.
+  // A model without reasoning (or one exposing only 'off') shows a muted hint
+  // instead of the segment, and no level text in the trigger.
+  const noReasoning =
+    current?.reasoning === false ||
+    (thinkingLevels.length <= 1 && thinkingLevels[0] !== undefined && thinkingLevels[0] === 'off') ||
+    thinkingLevels.length === 0
+  const thinkingLabel =
+    !noReasoning && thinkingLevel && thinkingLevel !== 'off'
+      ? thinkingLevelLabel(thinkingLevel)
+      : null
+
   const currentLabel = current?.name ?? (models.length ? 'Select model' : 'No models')
-  const thinkingLabel = thinkingLevel ? (THINKING_LABELS[thinkingLevel] ?? thinkingLevel) : null
 
   let flatIndex = -1
 
@@ -156,11 +168,13 @@ export function ModelPicker({
                   const idx = flatIndex
                   const selected =
                     current?.provider === model.provider && current?.id === model.id
+                  const hint = levelHint(model)
                   return (
                     <button
                       key={`${model.provider}:${model.id}`}
                       type="button"
                       className={clsx('model-row', { 'is-highlight': idx === highlight })}
+                      title={hint || undefined}
                       onMouseEnter={() => setHighlight(idx)}
                       onClick={() => {
                         onSelect(model.provider, model.id)
@@ -171,6 +185,7 @@ export function ModelPicker({
                         {selected && <Check size={13} />}
                       </span>
                       <span className="model-row-name">{model.name}</span>
+                      {!model.reasoning && <span className="model-row-hint">no reasoning</span>}
                     </button>
                   )
                 })}
@@ -178,7 +193,9 @@ export function ModelPicker({
             ))}
             {flat.length === 0 && <div className="model-empty">No models match</div>}
           </div>
-          {thinkingLevels.length > 0 && (
+          {noReasoning ? (
+            <div className="thinking-none">No reasoning</div>
+          ) : (
             <div className="thinking-segment">
               {thinkingLevels.map((level) => (
                 <button
@@ -189,7 +206,7 @@ export function ModelPicker({
                   })}
                   onClick={() => onThinkingChange(level)}
                 >
-                  {THINKING_LABELS[level] ?? level}
+                  {thinkingLevelLabel(level)}
                 </button>
               ))}
             </div>

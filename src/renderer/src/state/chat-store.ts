@@ -285,14 +285,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   async setModel(chatId, provider, modelId) {
-    await window.piDesktop.chat.setModel({ chatId, provider, modelId })
+    const result = await window.piDesktop.chat.setModel({ chatId, provider, modelId })
     const draft = drafts.get(chatId)
     if (draft) {
-      const model = draft.models.find((m) => m.provider === provider && m.id === modelId)
-      if (model) {
-        draft.model = model
-        publish(chatId)
-      }
+      // The RPC result is authoritative: pi may clamp the thinking level for
+      // the new model and the level list is model-specific.
+      draft.model =
+        result.model ??
+        draft.models.find((m) => m.provider === provider && m.id === modelId) ??
+        draft.model
+      draft.thinkingLevel = result.thinkingLevel ?? draft.thinkingLevel
+      draft.availableThinkingLevels = result.thinkingLevels
+      publish(chatId)
     }
   },
 

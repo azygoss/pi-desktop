@@ -153,6 +153,12 @@ export interface ModelCost {
   cacheWrite: number
 }
 
+/**
+ * Maps pi thinking levels to provider/model-specific values. Missing keys
+ * use provider defaults; null marks a level as unsupported.
+ */
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>
+
 export interface Model {
   id: string
   name: string
@@ -160,6 +166,7 @@ export interface Model {
   provider: string
   baseUrl: string
   reasoning: boolean
+  thinkingLevelMap?: ThinkingLevelMap
   input: string[]
   contextWindow: number
   maxTokens: number

@@ -33,6 +33,7 @@ const FAKE_MODELS = [
     provider: 'anthropic',
     baseUrl: 'https://example.invalid',
     reasoning: true,
+    thinkingLevelMap: { off: 'off', minimal: 'min', low: 'low', medium: 'med', high: 'high', xhigh: null, max: null },
     input: ['text', 'image'],
     contextWindow: 200000,
     maxTokens: 8192,
@@ -75,6 +76,22 @@ const FAKE_MODELS = [
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   }
 ]
+
+const ALL_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+function levelsFor(model) {
+  if (!model.reasoning) {
+    return ['off']
+  }
+  const map = model.thinkingLevelMap
+  if (!map) {
+    return ALL_LEVELS
+  }
+  return ALL_LEVELS.filter((l) => map[l] !== null)
+}
+
+let currentModel = FAKE_MODELS[0]
+let thinkingLevel = 'medium'
 
 const USAGE = {
   input: 100,
@@ -292,8 +309,8 @@ function handle(command) {
         command: 'get_state',
         success: true,
         data: {
-          model: FAKE_MODELS[0],
-          thinkingLevel: 'medium',
+          model: currentModel,
+          thinkingLevel,
           isStreaming: streaming,
           isCompacting: false,
           steeringMode: 'one-at-a-time',
@@ -330,7 +347,7 @@ function handle(command) {
         type: 'response',
         command: 'get_available_thinking_levels',
         success: true,
-        data: { levels: ['off', 'minimal', 'low', 'medium', 'high'] }
+        data: { levels: levelsFor(currentModel) }
       })
       break
     case 'get_commands':
@@ -367,10 +384,23 @@ function handle(command) {
         }
       })
       break
-    case 'set_model':
-      writeLine({ id, type: 'response', command: 'set_model', success: true, data: FAKE_MODELS[1] })
+    case 'set_model': {
+      const next =
+        FAKE_MODELS.find((m) => m.provider === command.provider && m.id === command.modelId) ??
+        currentModel
+      currentModel = next
+      // Clamp the level like the real agent does for a model with fewer levels.
+      const levels = levelsFor(next)
+      if (!levels.includes(thinkingLevel)) {
+        thinkingLevel = levels[levels.length - 1]
+      }
+      writeLine({ id, type: 'response', command: 'set_model', success: true, data: next })
       break
+    }
     case 'set_thinking_level':
+      if (levelsFor(currentModel).includes(command.level)) {
+        thinkingLevel = command.level
+      }
       writeLine({ id, type: 'response', command: 'set_thinking_level', success: true })
       break
     case 'prompt':

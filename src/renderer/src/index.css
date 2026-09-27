@@ -830,6 +830,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+.model-row-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 .model-empty {
   padding: 12px;
@@ -858,6 +865,13 @@ body {
 .thinking-segment-btn.is-active {
   background: var(--active);
   color: var(--text);
+}
+.thinking-none {
+  padding: 9px 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: center;
 }
 
 /* ---------- Chat view ---------- */

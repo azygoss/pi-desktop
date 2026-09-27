@@ -7,7 +7,8 @@ import type {
   ChatOpenInput,
   ChatOpenResult,
   ChatSendInput,
-  ChatSessionStats
+  ChatSessionStats,
+  SetModelResult
 } from '../../shared/api'
 import type {
   AgentMessage,
@@ -186,11 +187,28 @@ export class ChatService {
     await record.client.request({ type: 'abort' }, { timeoutMs: 15000 })
   }
 
-  async setModel(input: { chatId: string; provider: string; modelId: string }): Promise<void> {
+  async setModel(input: {
+    chatId: string
+    provider: string
+    modelId: string
+  }): Promise<SetModelResult> {
     const record = this.requireChat(validateChatId(input.chatId))
     const provider = requireString(input.provider, 'provider', 128)
     const modelId = requireString(input.modelId, 'modelId', 256)
     await record.client.request({ type: 'set_model', provider, modelId })
+    // Thinking levels are per-model and pi may clamp the current level, so
+    // fetch the post-switch levels and state in one round trip.
+    const [levelsResult, state] = await Promise.all([
+      record.client.request<{ levels: ThinkingLevel[] }>({
+        type: 'get_available_thinking_levels'
+      }),
+      record.client.request<PiSessionState>({ type: 'get_state' })
+    ])
+    return {
+      model: state?.model ?? null,
+      thinkingLevel: state?.thinkingLevel ?? null,
+      thinkingLevels: levelsResult?.levels ?? ['off']
+    }
   }
 
   async setThinkingLevel(input: { chatId: string; level: ThinkingLevel }): Promise<void> {
