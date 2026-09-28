@@ -82,6 +82,17 @@ describe('titleFromUserText', () => {
     ).toBe('Image')
   })
 
+  it('renders @path tokens as basenames in derived titles', () => {
+    expect(titleFromUserText('check this file @"attach me.txt"')).toBe(
+      'check this file attach me.txt'
+    )
+    expect(titleFromUserText('look at @src/app/main.ts now')).toBe('look at main.ts now')
+    expect(titleFromUserText('review @notes.md')).toBe('review notes.md')
+    // Plain mentions and emails are not paths.
+    expect(titleFromUserText('thanks @alice')).toBe('thanks @alice')
+    expect(titleFromUserText('mail me@example.com')).toBe('mail me@example.com')
+  })
+
   it('keeps non-image paths and mid-text image mentions', () => {
     expect(titleFromUserText('/opt/synthetic/project fix the build')).toBe(
       '/opt/synthetic/project fix the build'

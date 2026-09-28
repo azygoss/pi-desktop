@@ -3198,6 +3198,196 @@ body {
 .live-dot {
   animation: composer-status-pulse 1.2s ease-in-out infinite;
 }
+.input-dot,
+.error-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.input-dot {
+  background: var(--warning);
+  animation: input-dot-ring 1.6s ease-out infinite;
+}
+@keyframes input-dot-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .input-dot {
+    animation: none;
+  }
+}
+.error-dot {
+  background: var(--danger);
+}
+.pin-glyph {
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+/* The suffix (project name, "Archived" tag) gives room to the title first. */
+.sidebar-item-suffix {
+  flex: 0 2 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-archived {
+  width: 100%;
+  text-align: left;
+}
+
+/* Archived-chats modal */
+.archived-search {
+  margin-bottom: 8px;
+}
+.archived-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+.archived-row:hover {
+  background: var(--surface-hover);
+}
+.archived-row-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.archived-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archived-row-project {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.archived-row-btn {
+  flex-shrink: 0;
+}
+
+/* Thin banner above an archived chat's transcript. */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.archived-banner-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+/* @path chips inside user bubbles. */
+.msg-path-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.14);
+  border: 1px solid rgb(255 255 255 / 0.18);
+  font-size: 0.92em;
+  vertical-align: baseline;
+}
+.msg-path-chip svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* Non-image attachments in the composer. */
+.file-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.file-chip-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-chip-size {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.file-chip .attachment-remove {
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+}
+
+/* @-mention popover rows. */
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mention-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.mention-dir {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  max-width: 55%;
+}
+.mention-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Skeleton rows while the session index hasn't answered yet. */
 .sidebar-skeleton {

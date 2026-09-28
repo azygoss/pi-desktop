@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppInfo, AppSettings } from '../../../shared/api'
+import type { AppInfo, AppSettings, SessionMetaMap, SessionMetaPatch } from '../../../shared/api'
 import type {
   PiRuntimeInfo,
   PiSettings,
@@ -34,6 +34,8 @@ interface AppState {
   sessions: SessionSummary[]
   /** False until the first session index answer arrives (skeleton rows). */
   sessionsLoaded: boolean
+  /** Pin/archive flags keyed by session file path (session-meta.json). */
+  sessionMeta: SessionMetaMap
   projects: ProjectSummary[]
   sidebarCollapsed: boolean
   chatFilter: string
@@ -63,6 +65,8 @@ interface AppState {
   setSidebarSearchOpen(open: boolean): void
   setPaletteOpen(open: boolean): void
   renameSession(path: string, title: string): void
+  /** Set/unset pin/archive flags; updates local state, then main persists. */
+  setSessionMeta(sessionPath: string, patch: SessionMetaPatch): Promise<void>
   openSettings(): void
   closeSettings(): void
   setChatModal(modal: AppState['chatModal']): void
@@ -78,6 +82,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   userName: 'there',
   sessions: [],
   sessionsLoaded: false,
+  sessionMeta: {},
   projects: [],
   sidebarCollapsed: false,
   chatFilter: '',
@@ -91,7 +96,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async init() {
     try {
-      const [runtimeInfo, settings, appSettings, userName, sessions, projects, appInfo] =
+      const [runtimeInfo, settings, appSettings, userName, sessions, projects, appInfo, sessionMeta] =
         await Promise.all([
           window.piDesktop.runtime.info().catch(() => null),
           window.piDesktop.settings.get().catch(() => ({})),
@@ -99,7 +104,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           window.piDesktop.app.getUserFirstName().catch(() => 'there'),
           window.piDesktop.sessions.list().catch(() => []),
           window.piDesktop.projects.list().catch(() => []),
-          window.piDesktop.app.getAppInfo().catch(() => null)
+          window.piDesktop.app.getAppInfo().catch(() => null),
+          window.piDesktop.sessionMeta.get().catch(() => ({}))
         ])
       set({
         ready: true,
@@ -112,10 +118,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarCollapsed: appSettings.sidebarCollapsed,
         sessions,
         sessionsLoaded: true,
-        projects
+        projects,
+        sessionMeta
       })
       applyTheme(appSettings.theme)
       applyPlatform(appInfo?.platform)
+      // Another window (or a session delete in main) may change the map.
+      window.piDesktop.sessionMeta.onChanged((map) => set({ sessionMeta: map }))
     } catch {
       set({ ready: true, piAvailable: false })
       applyPlatform()
@@ -244,6 +253,40 @@ export const useAppStore = create<AppState>((set, get) => ({
         session.path === path ? { ...session, name: title, title } : session
       )
     }))
+  },
+
+  async setSessionMeta(sessionPath, patch) {
+    // Optimistic update so the sidebar reacts instantly; the broadcast from
+    // main's sessionMeta.set brings every window to the same map.
+    set((s) => {
+      const current = s.sessionMeta[sessionPath] ?? {}
+      const next = { ...current }
+      if (patch.pinned !== undefined) {
+        if (patch.pinned) {
+          next.pinned = Date.now()
+        } else {
+          delete next.pinned
+        }
+      }
+      if (patch.archived !== undefined) {
+        if (patch.archived) {
+          next.archived = Date.now()
+        } else {
+          delete next.archived
+        }
+      }
+      const sessionMeta = { ...s.sessionMeta }
+      if (next.pinned === undefined && next.archived === undefined) {
+        delete sessionMeta[sessionPath]
+      } else {
+        sessionMeta[sessionPath] = next
+      }
+      return { sessionMeta }
+    })
+    const map = await window.piDesktop.sessionMeta.set({ sessionPath, patch }).catch(() => null)
+    if (map) {
+      set({ sessionMeta: map })
+    }
   },
 
   openSettings() {

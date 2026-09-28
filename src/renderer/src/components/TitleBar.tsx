@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
+import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
 
 /**
  * Navigation buttons that live in the 44px window drag strip: sidebar toggle
@@ -123,11 +124,36 @@ export function MainTopBar() {
     if (!chat) {
       return
     }
-    const action = await window.piDesktop.chat
-      .showMenu({ chatId: chat.chatId })
-      .catch(() => null)
     const sessionPath = chat.sessionPath
+    const meta = sessionPath ? useAppStore.getState().sessionMeta[sessionPath] : undefined
+    const action = await window.piDesktop.chat
+      .showMenu({
+        chatId: chat.chatId,
+        pinned: meta?.pinned !== undefined,
+        archived: meta?.archived !== undefined
+      })
+      .catch(() => null)
     switch (action) {
+      case 'pin':
+        if (sessionPath) {
+          void setSessionPinned(sessionPath, true)
+        }
+        break
+      case 'unpin':
+        if (sessionPath) {
+          void setSessionPinned(sessionPath, false)
+        }
+        break
+      case 'archive':
+        if (sessionPath) {
+          void archiveSessionPath(sessionPath)
+        }
+        break
+      case 'unarchive':
+        if (sessionPath) {
+          void setSessionArchived(sessionPath, false)
+        }
+        break
       case 'rename':
         startRename()
         break

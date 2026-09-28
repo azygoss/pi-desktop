@@ -2,11 +2,15 @@ import {
   ArrowUp,
   Check,
   ClipboardPaste,
+  File as FileIcon,
+  FileCode,
+  FileText,
   Folder,
   FolderPlus,
   Globe,
-  ImagePlus,
+  Image as ImageIcon,
   MousePointerClick,
+  Paperclip,
   Plus,
   Search,
   Square,
@@ -19,6 +23,13 @@ import clsx from 'clsx'
 import type { ChatSendMode, CuaPermissions } from '../../../shared/api'
 import type { ImageContent, ThinkingLevel } from '../../../shared/pi-types'
 import { executeAppCommand } from '../lib/app-commands'
+import { contextRingVisible } from '../lib/context-ring'
+import { fuzzyFilter } from '../lib/fuzzy'
+import {
+  appendAttachmentRefs,
+  formatMention,
+  mentionTrigger
+} from '../lib/mentions'
 import {
   filterSlashCommands,
   findAppCommand,
@@ -36,6 +47,46 @@ import { ModelPicker } from './ModelPicker'
 const MAX_IMAGES = 8
 const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const MAX_MENTION_RESULTS = 50
+
+/** A non-image attachment — sent as an @path reference appended to the text. */
+interface FileChip {
+  path: string
+  name: string
+  size: number
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const CODE_EXT = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'rb', 'go', 'rs', 'swift',
+  'c', 'h', 'cpp', 'hpp', 'java', 'kt', 'cs', 'php', 'sh', 'zsh', 'bash',
+  'css', 'scss', 'html', 'vue', 'svelte', 'sql', 'lua', 'r', 'scala', 'pl',
+  'json', 'yaml', 'yml', 'toml', 'xml', 'mjs'
+])
+const TEXT_EXT = new Set(['md', 'txt', 'markdown', 'rst', 'csv', 'log', 'tex'])
+
+function fileIconFor(name: string): typeof FileIcon {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'heic', 'bmp'].includes(ext)) {
+    return ImageIcon
+  }
+  if (CODE_EXT.has(ext)) {
+    return FileCode
+  }
+  if (TEXT_EXT.has(ext)) {
+    return FileText
+  }
+  return FileIcon
+}
 
 interface ComposerProps {
   chat: ChatState | null
@@ -118,10 +169,10 @@ function ContextRing({ chat }: { chat: ChatState }) {
   }, [open])
 
   const stats = chat.stats
-  const pct = stats?.contextUsage?.percent
-  if (typeof pct !== 'number') {
+  if (!contextRingVisible(stats)) {
     return null
   }
+  const pct = stats!.contextUsage!.percent!
   const clamped = Math.max(0, Math.min(100, pct))
   const tone = clamped >= 90 ? 'danger' : clamped >= 75 ? 'warning' : 'muted'
   const used = stats?.contextUsage?.tokens
@@ -224,6 +275,7 @@ function ContextRing({ chat }: { chat: ChatState }) {
 export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: ComposerProps) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<ImageContent[]>([])
+  const [chips, setChips] = useState<FileChip[]>([])
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const [folderOpen, setFolderOpen] = useState(false)
@@ -234,8 +286,11 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [modelSignal, setModelSignal] = useState(0)
+  const [cursor, setCursor] = useState(0)
+  const [projectFiles, setProjectFiles] = useState<string[]>([])
+  const [mentionHighlight, setMentionHighlight] = useState(0)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLDivElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
 
@@ -262,10 +317,24 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const slashOpen = query !== null && !slashDismissed && slashItems.length > 0
 
   const streaming = chat?.status === 'streaming'
-  const canSend = text.trim().length > 0 || images.length > 0
+  const canSend = text.trim().length > 0 || images.length > 0 || chips.length > 0
   const cwd = chat?.cwd ?? workspaceDir
   const projectless =
     cwd === '' || cwd === workspaceDir || (homeDir !== '' && cwd === homeDir)
+
+  // `@` mention detection at the caret — only meaningful with a project cwd.
+  const mention = mentionDismissed ? null : mentionTrigger(text, cursor)
+  const mentionOpen = mention !== null
+  const mentionItems = useMemo(
+    () =>
+      mention === null || projectless
+        ? []
+        : fuzzyFilter(mention.query, projectFiles, (f) => f).slice(
+            0,
+            MAX_MENTION_RESULTS
+          ),
+    [mention, projectFiles, projectless]
+  )
   const cwdBase = projectless
     ? 'Without project'
     : (cwd.split('/').filter(Boolean).pop() ?? cwd)
@@ -374,11 +443,100 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     return () => document.removeEventListener('pointerdown', close)
   }, [plusOpen])
 
+  // Prefetch the project's file list for @-mentions whenever the cwd changes
+  // or the composer regains focus — the picker then opens instantly.
+  useEffect(() => {
+    if (projectless) {
+      return
+    }
+    let cancelled = false
+    void window.piDesktop.files
+      .list({ cwd })
+      .then((r) => {
+        if (!cancelled) {
+          setProjectFiles(r.files)
+        }
+      })
+      .catch(() => setProjectFiles([]))
+    return () => {
+      cancelled = true
+    }
+  }, [cwd, projectless])
+
+  /** Resolve absolute picker/drop paths into images + file chips. */
+  async function addPaths(paths: string[]): Promise<void> {
+    const results = await window.piDesktop.files
+      .readAttachments({ paths })
+      .catch(() => [])
+    const newImages: ImageContent[] = []
+    const newChips: FileChip[] = []
+    for (const r of results) {
+      if (r.kind === 'image') {
+        newImages.push({ type: 'image', data: r.data, mimeType: r.mimeType })
+      } else {
+        newChips.push({ path: r.path, name: r.name, size: r.size })
+      }
+    }
+    if (newImages.length > 0) {
+      setImages((prev) => [...prev, ...newImages].slice(0, MAX_IMAGES))
+    }
+    if (newChips.length > 0) {
+      setChips((prev) => {
+        const seen = new Set(prev.map((c) => c.path))
+        return [...prev, ...newChips.filter((c) => !seen.has(c.path))]
+      })
+    }
+  }
+
+  /** Drag&drop / paste paths: real paths go through readAttachments, while
+   *  pathless clipboard images fall back to inline base64. */
   async function addFiles(files: Iterable<File>): Promise<void> {
-    const results = await Promise.all([...files].map(fileToImage))
-    setImages((prev) =>
-      [...prev, ...results.filter((i): i is ImageContent => i !== null)].slice(0, MAX_IMAGES)
-    )
+    const paths: string[] = []
+    const inline: File[] = []
+    for (const file of files) {
+      const p = window.piDesktop.app.pathForFile?.(file) ?? ''
+      if (p) {
+        paths.push(p)
+      } else {
+        inline.push(file)
+      }
+    }
+    if (paths.length > 0) {
+      await addPaths(paths)
+    }
+    if (inline.length > 0) {
+      const results = await Promise.all(inline.map(fileToImage))
+      setImages((prev) =>
+        [...prev, ...results.filter((i): i is ImageContent => i !== null)].slice(
+          0,
+          MAX_IMAGES
+        )
+      )
+    }
+  }
+
+  async function pickFiles(): Promise<void> {
+    const paths = await window.piDesktop.app.pickFiles().catch(() => [])
+    if (paths.length > 0) {
+      await addPaths(paths)
+    }
+  }
+
+  /** Replace the `@query` token with the selected path, pi-TUI style. */
+  function completeMention(path: string): void {
+    if (!mention) {
+      return
+    }
+    const inserted = `${formatMention(path)} `
+    const next = text.slice(0, mention.start) + inserted + text.slice(mention.end)
+    const caret = mention.start + inserted.length
+    setText(next)
+    setCursor(caret)
+    setMentionHighlight(0)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(caret, caret)
+    })
   }
 
   async function pasteClipboardImage(): Promise<void> {
@@ -430,7 +588,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   /** Selectable rows of the plus menu, in display order (divider excluded). */
   const plusItems = useMemo(() => {
     const items: { key: string; run: () => void; disabled?: boolean }[] = [
-      { key: 'photos', run: () => fileRef.current?.click() },
+      { key: 'photos', run: () => void pickFiles() },
       ...(clipHasImage
         ? [{ key: 'paste', run: () => void pasteClipboardImage() }]
         : []),
@@ -550,19 +708,49 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
       }
       runAppCommand(parsed!.command, parsed!.args)
     } else {
-      onSend(value, images.length > 0 ? images : [], mode)
+      onSend(
+        appendAttachmentRefs(value, chips.map((c) => c.path), cwd),
+        images.length > 0 ? images : [],
+        mode
+      )
     }
     setText('')
     setImages([])
+    setChips([])
     requestAnimationFrame(autosize)
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    // ⌘U opens the image picker directly (also reachable via the + menu).
+    // ⌘U opens the file picker directly (also reachable via the + menu).
     if (e.metaKey && (e.key === 'u' || e.key === 'U')) {
       e.preventDefault()
-      fileRef.current?.click()
+      void pickFiles()
       return
+    }
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionHighlight((h) => Math.min(h + 1, mentionItems.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionHighlight((h) => Math.max(h - 1, 0))
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionDismissed(true)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && mentionItems.length > 0)) {
+        e.preventDefault()
+        const item = mentionItems[mentionHighlight]
+        if (item) {
+          completeMention(item)
+        }
+        return
+      }
     }
     if (slashOpen) {
       const items = slashItems
@@ -658,7 +846,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         }
       }}
     >
-      {images.length > 0 && (
+      {(images.length > 0 || chips.length > 0) && (
         <div className="composer-attachments">
           {images.map((img, i) => (
             <div key={i} className="attachment-thumb">
@@ -673,6 +861,58 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               </button>
             </div>
           ))}
+          {chips.map((chip) => {
+            const Icon = fileIconFor(chip.name)
+            return (
+              <div key={chip.path} className="file-chip" title={chip.path}>
+                <Icon size={13} className="file-chip-icon" />
+                <span className="file-chip-name">{chip.name}</span>
+                <span className="file-chip-size">{formatSize(chip.size)}</span>
+                <button
+                  type="button"
+                  className="attachment-remove"
+                  onClick={() =>
+                    setChips((prev) => prev.filter((c) => c.path !== chip.path))
+                  }
+                  aria-label={`Remove ${chip.name}`}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {mentionOpen && (
+        <div className="slash-popover mention-popover" data-testid="mention-popover">
+          {projectless ? (
+            <div className="folder-popover-empty">Pick a project to mention files</div>
+          ) : mentionItems.length === 0 ? (
+            <div className="folder-popover-empty">No matching files</div>
+          ) : (
+            mentionItems.map((path, i) => {
+              const slash = path.lastIndexOf('/')
+              const dir = slash === -1 ? '' : path.slice(0, slash + 1)
+              const base = slash === -1 ? path : path.slice(slash + 1)
+              const Icon = fileIconFor(base)
+              return (
+                <button
+                  key={path}
+                  type="button"
+                  className={clsx('slash-row mention-row', {
+                    'is-highlight': i === mentionHighlight
+                  })}
+                  onMouseEnter={() => setMentionHighlight(i)}
+                  onClick={() => completeMention(path)}
+                >
+                  <Icon size={13} className="mention-icon" />
+                  <span className="mention-dir">{dir}</span>
+                  <span className="mention-name">{base}</span>
+                </button>
+              )
+            })
+          )}
         </div>
       )}
 
@@ -717,8 +957,21 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         value={text}
         onChange={(e) => {
           setText(e.target.value)
+          setCursor(e.target.selectionStart ?? e.target.value.length)
           setSlashDismissed(false)
           setSlashHighlight(0)
+          setMentionDismissed(false)
+          setMentionHighlight(0)
+        }}
+        onSelect={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
+        onFocus={() => {
+          // Refresh the cached file list when the composer regains focus.
+          if (!projectless) {
+            void window.piDesktop.files
+              .list({ cwd })
+              .then((r) => setProjectFiles(r.files))
+              .catch(() => {})
+          }
         }}
         onKeyDown={onKeyDown}
         placeholder={placeholder ?? 'How can I help you today?'}
@@ -755,8 +1008,8 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                   onMouseEnter={() => setPlusHighlight(0)}
                   onClick={() => runPlusItem(0)}
                 >
-                  <ImagePlus size={14} />
-                  <span className="plus-row-label">Add photos & images</span>
+                  <Paperclip size={14} />
+                  <span className="plus-row-label">Add photos & files</span>
                   <span className="plus-row-hint">⌘U</span>
                 </button>
                 {clipHasImage &&
@@ -882,19 +1135,6 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               <MousePointerClick size={13} />
             </button>
           )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            multiple
-            hidden
-            onChange={(e) => {
-              if (e.target.files) {
-                void addFiles(e.target.files)
-              }
-              e.target.value = ''
-            }}
-          />
           <div className="folder-chip-wrap" ref={folderRef}>
             {cwdReadOnly ? (
               <span className="folder-chip folder-chip-readonly" title={cwd}>

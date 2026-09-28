@@ -119,6 +119,8 @@ const USAGE = {
 }
 
 let streaming = false
+/** Counts completed prompt runs — stats stay zeroed until the first one. */
+let promptsRun = 0
 
 const BRIDGE_URL = process.env['PI_DESKTOP_BRIDGE_URL']
 const BRIDGE_TOKEN = process.env['PI_DESKTOP_BRIDGE_TOKEN']
@@ -500,6 +502,44 @@ async function scriptedReply(id, promptMessage, preDelayMs = 0) {
 }
 
 /**
+ * Scripted "needs input" turn: echoes the user message, then emits an
+ * extension_ui_request and leaves the turn open until the response arrives.
+ */
+function scriptedAskReply(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({
+    type: 'extension_ui_request',
+    id: 'ui-ask-1',
+    method: 'confirm',
+    title: 'Proceed with the change?'
+  })
+}
+
+/** Close the turn left open by scriptedAskReply once the user answers. */
+function settleAskedTurn() {
+  const finalMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Proceeding as confirmed.' }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...finalMessage, content: [] } })
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
  * Scripted reply that runs three consecutive tool calls — an edit, a write and
  * a failing bash — so e2e can cover grouped tool summaries, diff stats and the
  * failed-tool counter.
@@ -761,28 +801,35 @@ function handle(command) {
         type: 'response',
         command: 'get_session_stats',
         success: true,
-        data: {
-          sessionFile: null,
-          sessionId: 'fake-session',
-          userMessages: 2,
-          assistantMessages: 2,
-          toolCalls: 1,
-          toolResults: 1,
-          totalMessages: 5,
-          tokens: {
-            input: 120000,
-            output: 32000,
-            cacheRead: 4000,
-            cacheWrite: 600,
-            total: 156600
-          },
-          cost: 0.42,
-          contextUsage: {
-            tokens: Math.round(200000 * (statsPct / 100)),
-            contextWindow: 200000,
-            percent: statsPct
+        data: (() => {
+          // A session with no turns yet reports zeros, like real pi.
+          const hasTurns = promptsRun > 0 || getMessages().length > 0
+          const pct = hasTurns ? statsPct : 0
+          return {
+            sessionFile: null,
+            sessionId: 'fake-session',
+            userMessages: hasTurns ? 2 : 0,
+            assistantMessages: hasTurns ? 2 : 0,
+            toolCalls: hasTurns ? 1 : 0,
+            toolResults: hasTurns ? 1 : 0,
+            totalMessages: hasTurns ? 5 : 0,
+            tokens: hasTurns
+              ? {
+                  input: 120000,
+                  output: 32000,
+                  cacheRead: 4000,
+                  cacheWrite: 600,
+                  total: 156600
+                }
+              : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            cost: hasTurns ? 0.42 : 0,
+            contextUsage: {
+              tokens: Math.round(200000 * (pct / 100)),
+              contextWindow: 200000,
+              percent: pct
+            }
           }
-        }
+        })()
       })
       break
     case 'set_model': {
@@ -807,12 +854,26 @@ function handle(command) {
     case 'prompt':
     case 'steer':
     case 'follow_up': {
+      // A prompt-level failure exercises the sidebar error dot.
+      if (/\bfail please\b/i.test(String(command.message))) {
+        writeLine({
+          id,
+          type: 'response',
+          command: command.type,
+          success: false,
+          error: 'synthetic failure'
+        })
+        break
+      }
       writeLine({ id, type: 'response', command: command.type, success: true })
+      promptsRun += 1
       const ctxMatch = /\bctx(\d+)\b/i.exec(String(command.message))
       if (ctxMatch) {
         statsPct = Number(ctxMatch[1])
       }
-      if (/stream perf/i.test(String(command.message))) {
+      if (/\bask me\b/i.test(String(command.message))) {
+        void scriptedAskReply(command.message)
+      } else if (/stream perf/i.test(String(command.message))) {
         void scriptedFastStream(command.message)
       } else if (/\bslow\b/i.test(String(command.message))) {
         // Long pause before the first delta so tests can capture the
@@ -932,6 +993,9 @@ function handle(command) {
       break
     case 'extension_ui_response':
       writeLine({ type: 'ui_response_seen', response: command })
+      if (streaming) {
+        settleAskedTurn()
+      }
       break
     default:
       writeLine({ id, type: 'response', command: command.type, success: true, data: null })

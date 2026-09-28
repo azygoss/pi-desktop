@@ -1,7 +1,9 @@
 import {
+  Archive,
   FileDiff,
   Folder,
   MessageSquare,
+  Pin,
   PanelLeft,
   PanelRight,
   Plus,
@@ -18,6 +20,7 @@ import clsx from 'clsx'
 
 import type { SessionSummary } from '../../../shared/session-types'
 import { fuzzyScore } from '../lib/fuzzy'
+import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
@@ -45,7 +48,7 @@ function buildItems(
   sessions: SessionSummary[],
   projects: { cwd: string; name: string }[],
   chatId: string | null,
-  chat: Pick<ChatState, 'models' | 'commands' | 'model' | 'status'> | undefined,
+  chat: Pick<ChatState, 'models' | 'commands' | 'model' | 'status' | 'sessionPath'> | undefined,
   workspaceDir: string
 ): PaletteItem[] {
   const app = useAppStore.getState()
@@ -101,6 +104,28 @@ function buildItems(
       () => window.dispatchEvent(new CustomEvent('pi-desktop:find-in-chat')),
       '⌘F'
     )
+  }
+  if (chatId && chat?.sessionPath) {
+    const sessionPath = chat.sessionPath
+    const meta = useAppStore.getState().sessionMeta[sessionPath]
+    if (meta?.pinned === undefined) {
+      add('Actions', <Pin size={13} />, 'Pin chat', () =>
+        void setSessionPinned(sessionPath, true)
+      )
+    } else {
+      add('Actions', <Pin size={13} />, 'Unpin chat', () =>
+        void setSessionPinned(sessionPath, false)
+      )
+    }
+    if (meta?.archived === undefined) {
+      add('Actions', <Archive size={13} />, 'Archive chat', () =>
+        void archiveSessionPath(sessionPath)
+      )
+    } else {
+      add('Actions', <Archive size={13} />, 'Unarchive chat', () =>
+        void setSessionArchived(sessionPath, false)
+      )
+    }
   }
   add('Actions', <Settings size={13} />, 'Open settings', () => app.openSettings(), '⌘,')
   for (const theme of ['light', 'dark', 'system'] as const) {
@@ -209,7 +234,13 @@ export function CommandPalette() {
     useShallow((s) => {
       const c = chatId ? s.chats[chatId] : undefined
       return c
-        ? { models: c.models, commands: c.commands, model: c.model, status: c.status }
+        ? {
+            models: c.models,
+            commands: c.commands,
+            model: c.model,
+            status: c.status,
+            sessionPath: c.sessionPath
+          }
         : undefined
     })
   )

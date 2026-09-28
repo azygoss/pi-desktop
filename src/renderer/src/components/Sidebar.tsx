@@ -1,11 +1,14 @@
 import {
+  Archive,
   ChevronDown,
   ChevronRight,
   Folder,
   MoreHorizontal,
+  Pin,
   Plus,
   Search,
   Settings,
+  Trash2,
   X
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -15,10 +18,12 @@ import clsx from 'clsx'
 import type { SessionSummary } from '../../../shared/session-types'
 import { groupByDate } from '../lib/date-groups'
 import { capitalizeName } from '../lib/greeting'
+import { runSessionMenuAction } from '../lib/session-actions'
 import { warmProjectSoon } from '../lib/warm'
 import { Perf } from '../lib/perf'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
+import { ModalShell } from './CommandModals'
 import { NavButtons } from './TitleBar'
 
 const MAX_NESTED_CHATS = 3
@@ -27,6 +32,14 @@ const MAX_NESTED_CHATS = 3
  *  "project-less" and live in the Chats section, not under a project. */
 export function isProjectless(cwd: string, workspaceDir: string): boolean {
   return cwd === workspaceDir || cwd === ''
+}
+
+/** Muted project label for a session row; null when the chat is project-less. */
+function projectSuffix(cwd: string, workspaceDir: string): string | undefined {
+  if (!cwd || cwd === workspaceDir) {
+    return undefined
+  }
+  return cwd.split('/').filter(Boolean).pop() ?? undefined
 }
 
 function relativeTime(iso: string): string {
@@ -140,24 +153,44 @@ async function deleteSession(session: SessionSummary): Promise<void> {
 }
 
 /** Compact per-session code so the selector below stays shallow-equal while
- *  a stream only changes deltas: 's' = streaming, 'u' = unread. */
+ *  a stream only changes deltas: 'i' = needs input, 's' = streaming,
+ *  'e' = errored, 'u' = unread. */
 type LiveCode = string
 
+const LIVE_INPUT = (code: LiveCode | undefined) => code?.includes('i') === true
 const LIVE_STREAMING = (code: LiveCode | undefined) => code?.includes('s') === true
+const LIVE_ERROR = (code: LiveCode | undefined) => code?.includes('e') === true
 const LIVE_UNREAD = (code: LiveCode | undefined) => code?.includes('u') === true
+
+/** A pending interactive ui-request (auto-acked display methods don't count). */
+function needsInput(uiRequest: { method: string } | undefined): boolean {
+  return (
+    uiRequest !== undefined &&
+    (uiRequest.method === 'confirm' ||
+      uiRequest.method === 'select' ||
+      uiRequest.method === 'input' ||
+      uiRequest.method === 'editor')
+  )
+}
 
 function SessionRow({
   session,
   nested,
-  live
+  live,
+  suffix,
+  pinned
 }: {
   session: SessionSummary
   nested?: boolean
   live?: LiveCode
+  /** Muted trailing label — the project name in Pinned, "Archived" in search. */
+  suffix?: string
+  pinned?: boolean
 }) {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const active = isSessionActive(session)
+  const archived = useAppStore((s) => s.sessionMeta[session.path]?.archived !== undefined)
 
   function startRename(): void {
     setRenameValue(session.name ?? session.title)
@@ -177,9 +210,15 @@ function SessionRow({
 
   async function contextMenu(): Promise<void> {
     const action = await window.piDesktop.sessions
-      .showMenu({ sessionPath: session.path })
+      .showMenu({ sessionPath: session.path, pinned, archived })
       .catch(() => null)
     switch (action) {
+      case 'pin':
+      case 'unpin':
+      case 'archive':
+      case 'unarchive':
+        void runSessionMenuAction(session, action)
+        break
       case 'rename':
         startRename()
         break
@@ -240,10 +279,19 @@ function SessionRow({
       ) : (
         <span className="sidebar-item-label">{session.title}</span>
       )}
-      {LIVE_STREAMING(live) && <span className="live-dot" title="Working…" />}
-      {!LIVE_STREAMING(live) && LIVE_UNREAD(live) && (
-        <span className="unread-dot" title="New reply" />
+      {pinned && <Pin size={10} className="pin-glyph" aria-hidden="true" />}
+      {suffix && <span className="sidebar-item-suffix">{suffix}</span>}
+      {LIVE_INPUT(live) && <span className="input-dot" title="Needs your input" />}
+      {!LIVE_INPUT(live) && LIVE_STREAMING(live) && (
+        <span className="live-dot" title="Working…" />
       )}
+      {!LIVE_INPUT(live) && !LIVE_STREAMING(live) && LIVE_ERROR(live) && (
+        <span className="error-dot" title="Stopped with an error" />
+      )}
+      {!LIVE_INPUT(live) &&
+        !LIVE_STREAMING(live) &&
+        !LIVE_ERROR(live) &&
+        LIVE_UNREAD(live) && <span className="unread-dot" title="New reply" />}
       <button
         type="button"
         className="icon-btn sidebar-item-more"
@@ -255,7 +303,8 @@ function SessionRow({
       >
         <MoreHorizontal size={14} />
       </button>
-      <span className="sidebar-item-meta">{relativeTime(session.modified)}</span>
+      {/* While a status dot is showing it stands in for the timestamp. */}
+      {!live && <span className="sidebar-item-meta">{relativeTime(session.modified)}</span>}
     </div>
   )
 }
@@ -273,12 +322,19 @@ function ProjectRow({
   autoExpanded?: boolean
 }) {
   const sessions = useAppStore((s) => s.sessions)
+  const sessionMeta = useAppStore((s) => s.sessionMeta)
   const expanded =
     useAppStore((s) => s.appSettings.expandedProjects.includes(cwd)) || autoExpanded === true
   const toggleExpanded = useAppStore((s) => s.toggleProjectExpanded)
   const [showAll, setShowAll] = useState(false)
 
-  const projectSessions = useMemo(() => sessions.filter((s) => s.cwd === cwd), [sessions, cwd])
+  // Archived chats drop out of every section; pinned keep their place here
+  // and additionally appear in the Pinned section (like ChatGPT).
+  const projectSessions = useMemo(
+    () =>
+      sessions.filter((s) => s.cwd === cwd && sessionMeta[s.path]?.archived === undefined),
+    [sessions, cwd, sessionMeta]
+  )
   const visible = showAll ? projectSessions : projectSessions.slice(0, MAX_NESTED_CHATS)
 
   async function contextMenu(): Promise<void> {
@@ -351,6 +407,7 @@ function ProjectRow({
               session={session}
               nested
               live={liveByPath[session.path]}
+              pinned={sessionMeta[session.path]?.pinned !== undefined}
             />
           ))}
           {projectSessions.length === 0 && (
@@ -370,6 +427,94 @@ function ProjectRow({
         </div>
       )}
     </div>
+  )
+}
+
+/** Archived-chat list: searchable, click to open, per-row Unarchive/Delete. */
+function ArchivedModal({
+  sessions,
+  onClose
+}: {
+  sessions: SessionSummary[]
+  onClose(): void
+}) {
+  const [query, setQuery] = useState('')
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const sessionMeta = useAppStore((s) => s.sessionMeta)
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const sorted = [...sessions].sort(
+      (a, b) =>
+        (sessionMeta[b.path]?.archived ?? 0) - (sessionMeta[a.path]?.archived ?? 0)
+    )
+    return needle ? sorted.filter((s) => s.title.toLowerCase().includes(needle)) : sorted
+  }, [sessions, sessionMeta, query])
+
+  return (
+    <ModalShell title="Archived chats" onClose={onClose}>
+      <div className="folder-popover-search archived-search">
+        <Search size={12} />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search archived chats"
+          spellCheck={false}
+        />
+      </div>
+      <div className="archived-list">
+        {filtered.map((session) => (
+          <div
+            key={session.path}
+            className="archived-row"
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              onClose()
+              openSession(session)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onClose()
+                openSession(session)
+              }
+            }}
+          >
+            <Archive size={13} className="archived-row-icon" />
+            <span className="archived-row-title">{session.title}</span>
+            {projectSuffix(session.cwd, workspaceDir) && (
+              <span className="archived-row-project">
+                {projectSuffix(session.cwd, workspaceDir)}
+              </span>
+            )}
+            <button
+              type="button"
+              className="ui-btn archived-row-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                void useAppStore
+                  .getState()
+                  .setSessionMeta(session.path, { archived: false })
+              }}
+            >
+              Unarchive
+            </button>
+            <button
+              type="button"
+              className="icon-btn archived-row-btn"
+              title="Move to Trash…"
+              onClick={(e) => {
+                e.stopPropagation()
+                void deleteSession(session)
+              }}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        {filtered.length === 0 && <div className="cmd-modal-hint">No archived chats.</div>}
+      </div>
+    </ModalShell>
   )
 }
 
@@ -401,8 +546,14 @@ export function Sidebar() {
           continue
         }
         let code = out[chat.sessionPath] ?? ''
+        if (needsInput(chat.uiRequest) && !code.includes('i')) {
+          code += 'i'
+        }
         if (chat.status === 'streaming' && !code.includes('s')) {
           code += 's'
+        }
+        if ((chat.status === 'error' || chat.error !== undefined) && !code.includes('e')) {
+          code += 'e'
         }
         if (chat.unread === true && !code.includes('u')) {
           code += 'u'
@@ -414,8 +565,11 @@ export function Sidebar() {
   )
 
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const sessionMeta = useAppStore((s) => s.sessionMeta)
 
   const filtering = chatFilter.trim().length > 0
+  // Search spans everything — archived rows get an "Archived" suffix tag.
   const filteredSessions = useMemo(() => {
     const needle = chatFilter.trim().toLowerCase()
     if (!needle) {
@@ -424,9 +578,25 @@ export function Sidebar() {
     return sessions.filter((s) => s.title.toLowerCase().includes(needle))
   }, [sessions, chatFilter])
 
+  const activeSessions = useMemo(
+    () => sessions.filter((s) => sessionMeta[s.path]?.archived === undefined),
+    [sessions, sessionMeta]
+  )
+  const pinnedSessions = useMemo(
+    () =>
+      activeSessions
+        .filter((s) => sessionMeta[s.path]?.pinned !== undefined)
+        .sort(
+          (a, b) =>
+            (sessionMeta[b.path]!.pinned ?? 0) - (sessionMeta[a.path]!.pinned ?? 0)
+        ),
+    [activeSessions, sessionMeta]
+  )
+  const archivedCount = sessions.length - activeSessions.length
+
   const projectLessSessions = useMemo(
-    () => sessions.filter((s) => isProjectless(s.cwd, workspaceDir)),
-    [sessions, workspaceDir]
+    () => activeSessions.filter((s) => isProjectless(s.cwd, workspaceDir)),
+    [activeSessions, workspaceDir]
   )
   const grouped = useMemo(() => groupByDate(projectLessSessions), [projectLessSessions])
   const filteredGrouped = useMemo(() => groupByDate(filteredSessions), [filteredSessions])
@@ -498,6 +668,24 @@ export function Sidebar() {
             </div>
           )}
 
+          {!filtering && pinnedSessions.length > 0 && (
+            <div className="sidebar-section">
+              <div className="sidebar-section-header" style={{ cursor: 'default' }}>
+                <Pin size={11} />
+                <span>Pinned</span>
+              </div>
+            </div>
+          )}
+          {!filtering &&
+            pinnedSessions.map((session) => (
+              <SessionRow
+                key={session.path}
+                session={session}
+                live={liveByPath[session.path]}
+                suffix={projectSuffix(session.cwd, workspaceDir)}
+              />
+            ))}
+
           {!filtering && (
             <>
               <div className="sidebar-section">
@@ -550,6 +738,12 @@ export function Sidebar() {
                     key={session.path}
                     session={session}
                     live={liveByPath[session.path]}
+                    pinned={sessionMeta[session.path]?.pinned !== undefined}
+                    suffix={
+                      filtering && sessionMeta[session.path]?.archived !== undefined
+                        ? 'Archived'
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -558,6 +752,17 @@ export function Sidebar() {
             <div className="sidebar-empty">{filtering ? 'No matching chats' : 'No chats yet'}</div>
           )}
           <div className="sidebar-spacer" />
+          {!filtering && archivedCount > 0 && (
+            <button
+              type="button"
+              className="sidebar-item sidebar-item-muted sidebar-archived"
+              onClick={() => setArchivedOpen(true)}
+            >
+              <Archive size={13} />
+              <span>Archived</span>
+              <span className="sidebar-item-meta">{archivedCount}</span>
+            </button>
+          )}
         </div>
 
         <div className="sidebar-footer">
@@ -593,6 +798,12 @@ export function Sidebar() {
           </button>
         </div>
       </aside>
+      {archivedOpen && (
+        <ArchivedModal
+          sessions={sessions.filter((s) => sessionMeta[s.path]?.archived !== undefined)}
+          onClose={() => setArchivedOpen(false)}
+        />
+      )}
     </Perf>
   )
 }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { PiDesktopApi } from '../shared/api'
 
 function subscribe(channel: string) {
@@ -25,6 +25,16 @@ const api: PiDesktopApi = {
     import: (input) => ipcRenderer.invoke('pi-desktop:sessions:import', input),
     delete: (input) => ipcRenderer.invoke('pi-desktop:sessions:delete', input),
     showMenu: (input) => ipcRenderer.invoke('pi-desktop:sessions:menu', input)
+  },
+  sessionMeta: {
+    get: () => ipcRenderer.invoke('pi-desktop:session-meta:get'),
+    set: (input) => ipcRenderer.invoke('pi-desktop:session-meta:set', input),
+    onChanged: subscribe('pi-desktop:session-meta:changed')
+  },
+  files: {
+    list: (input) => ipcRenderer.invoke('pi-desktop:files:list', input),
+    readAttachments: (input) =>
+      ipcRenderer.invoke('pi-desktop:files:read-attachments', input)
   },
   projects: {
     list: () => ipcRenderer.invoke('pi-desktop:projects:list'),
@@ -67,6 +77,11 @@ const api: PiDesktopApi = {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
     pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder'),
     pickFile: (filters) => ipcRenderer.invoke('pi-desktop:app:pick-file', { filters }),
+    pickFiles: () =>
+      ipcRenderer
+        .invoke('pi-desktop:dialog:pick-files')
+        .then((r: { paths: string[] }) => r.paths),
+    pathForFile: (file) => webUtils.getPathForFile(file),
     saveFile: (input) => ipcRenderer.invoke('pi-desktop:app:save-file', input),
     revealPath: (path) => ipcRenderer.invoke('pi-desktop:app:reveal-path', path),
     confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input),

@@ -34,7 +34,7 @@ function messageSnippet(message: AgentMessage | undefined): string {
   return `[${message.role}]`
 }
 
-function ModalShell({
+export function ModalShell({
   title,
   onClose,
   children

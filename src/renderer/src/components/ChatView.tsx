@@ -6,6 +6,7 @@ import {
   ChevronUp,
   CircleAlert,
   Copy,
+  File,
   Loader2,
   Pause,
   Pencil,
@@ -38,6 +39,8 @@ import {
   totalOccurrences,
   type FindMatch
 } from '../lib/find'
+import { splitMentions } from '../lib/mentions'
+import { setSessionArchived } from '../lib/session-actions'
 import { Perf } from '../lib/perf'
 import { computerGroupApp, summarizeToolRuns } from '../lib/tool-summary'
 import { useAppStore } from '../state/app-store'
@@ -327,6 +330,34 @@ function messageMeta(message: DisplayMessage, models: Model[]): string {
   return parts.join(' · ')
 }
 
+/** Render user text with `@path` tokens as inline file chips. */
+function UserText({ text }: { text: string }) {
+  const segments = splitMentions(text)
+  if (segments.length === 1 && segments[0]!.type === 'text') {
+    return <>{text}</>
+  }
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'text' ? (
+          <span key={i}>{seg.text}</span>
+        ) : (
+          <span key={i} className="msg-path-chip" title={seg.path}>
+            <File size={11} />
+            {basename(seg.path)}
+          </span>
+        )
+      )}
+    </>
+  )
+}
+
+function basename(path: string): string {
+  const clean = path.replace(/\/+$/, '')
+  const slash = clean.lastIndexOf('/')
+  return slash === -1 ? clean : clean.slice(slash + 1)
+}
+
 function MessageRow({
   message,
   toolRuns,
@@ -384,7 +415,11 @@ function MessageRow({
               alt=""
             />
           ))}
-          {rest && <span className="msg-user-text">{rest}</span>}
+          {rest && (
+            <span className="msg-user-text">
+              <UserText text={rest} />
+            </span>
+          )}
           {skills.some((s) => s.body) && (
             <details className="skill-details">
               <summary>Show skill instructions</summary>
@@ -816,6 +851,9 @@ export function ChatView({ chatId }: { chatId: string }) {
   const renderRows =
     rowsWindow.chatId === chatId ? rowsWindow.rows : INITIAL_RENDER_ROWS
   const navigate = useAppStore((s) => s.navigate)
+  const archived = useAppStore((s) =>
+    chat?.sessionPath ? s.sessionMeta[chat.sessionPath]?.archived !== undefined : false
+  )
 
   // Find-in-chat (⌘F): query is debounced so highlighting doesn't churn per
   // keystroke; findOrdinal is the global occurrence index across messages.
@@ -1146,6 +1184,20 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div className="chat-view">
+      {archived && (
+        <div className="archived-banner" role="status">
+          <span>This chat is archived</span>
+          <button
+            type="button"
+            className="ui-btn archived-banner-btn"
+            onClick={() =>
+              void setSessionArchived(chat.sessionPath!, false)
+            }
+          >
+            Unarchive
+          </button>
+        </div>
+      )}
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-column">
           {chat.hasEarlier && (

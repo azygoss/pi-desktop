@@ -1,4 +1,4 @@
-import { basename, isAbsolute, resolve } from 'node:path'
+import { basename, delimiter, isAbsolute, resolve } from 'node:path'
 import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
@@ -28,11 +28,18 @@ import { BrowserManager } from './browser/browser-manager'
 import { getRepoDiff } from './diff/git-diff'
 import { importSessionFile } from './sessions/import-session'
 import { getAgentDir } from './sessions/paths'
+import {
+  getSessionMeta,
+  removeSessionMeta,
+  setSessionMeta
+} from './sessions/session-meta'
 import { listSessions, watchSessions } from './sessions/session-index'
 import { readSessionTranscript } from './sessions/transcript'
 import { getCatalogCache } from './config/catalog-cache'
 import { mergeProjects } from './sessions/projects'
 import { PtyManager } from './terminal/pty-manager'
+import { listProjectFiles } from './files/file-list'
+import { readAttachments } from './files/attachments'
 
 export const IPC_CHANNELS = {
   runtimeInfo: 'pi-desktop:runtime:info',
@@ -56,6 +63,12 @@ export const IPC_CHANNELS = {
   sessionsExportHtml: 'pi-desktop:sessions:export-html',
   sessionsDelete: 'pi-desktop:sessions:delete',
   sessionsMenu: 'pi-desktop:sessions:menu',
+  sessionMetaGet: 'pi-desktop:session-meta:get',
+  sessionMetaSet: 'pi-desktop:session-meta:set',
+  sessionMetaChanged: 'pi-desktop:session-meta:changed',
+  filesList: 'pi-desktop:files:list',
+  filesReadAttachments: 'pi-desktop:files:read-attachments',
+  dialogPickFiles: 'pi-desktop:dialog:pick-files',
   projectsMenu: 'pi-desktop:projects:menu',
   projectsAdd: 'pi-desktop:projects:add',
   chatOpen: 'pi-desktop:chat:open',
@@ -542,13 +555,78 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const sessionPath = validateSessionPath(input.sessionPath)
     await deps.chat.closeChatForSession(sessionPath)
     await shell.trashItem(sessionPath)
+    await removeSessionMeta(sessionPath)
+    broadcastAll(IPC_CHANNELS.sessionMetaChanged, await getSessionMeta())
+  })
+
+  ipcMain.handle(IPC_CHANNELS.sessionMetaGet, () => getSessionMeta())
+
+  ipcMain.handle(
+    IPC_CHANNELS.sessionMetaSet,
+    async (_e, input: { sessionPath: string; patch: unknown }) => {
+      const sessionPath = validateSessionPath(input.sessionPath)
+      const patch = input?.patch as { pinned?: unknown; archived?: unknown } | null
+      const next: { pinned?: boolean; archived?: boolean } = {}
+      if (patch?.pinned !== undefined) {
+        if (typeof patch.pinned !== 'boolean') {
+          throw new Error('Invalid patch')
+        }
+        next.pinned = patch.pinned
+      }
+      if (patch?.archived !== undefined) {
+        if (typeof patch.archived !== 'boolean') {
+          throw new Error('Invalid patch')
+        }
+        next.archived = patch.archived
+      }
+      const map = await setSessionMeta(sessionPath, next)
+      broadcastAll(IPC_CHANNELS.sessionMetaChanged, map)
+      return map
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.filesList, async (_e, input: { cwd: string }) => {
+    const cwd = await validateCwd(input?.cwd)
+    return { files: await listProjectFiles(cwd) }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.filesReadAttachments, (_e, input: { paths: unknown }) => {
+    const paths = Array.isArray(input?.paths)
+      ? input.paths.filter(
+          (p): p is string => typeof p === 'string' && isAbsolute(p) && p.length < 4096
+        )
+      : []
+    return readAttachments(paths.slice(0, 16))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.dialogPickFiles, async (event) => {
+    // E2E hook: deterministic paths instead of the native dialog.
+    const stub = process.env['PI_DESKTOP_PICK_FILES']
+    if (process.env['PI_DESKTOP_E2E'] === '1' && stub) {
+      return { paths: stub.split(delimiter).filter(Boolean) }
+    }
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(win ?? BrowserWindow.getAllWindows()[0]!, {
+      properties: ['openFile', 'multiSelections']
+    })
+    return { paths: result.canceled ? [] : result.filePaths }
   })
 
   ipcMain.handle(
     IPC_CHANNELS.sessionsMenu,
-    (event, input: { sessionPath: string }): Promise<SessionMenuAction | null> => {
+    (
+      event,
+      input: { sessionPath: string; pinned?: boolean; archived?: boolean }
+    ): Promise<SessionMenuAction | null> => {
       validateSessionPath(input.sessionPath)
       return popupMenu<SessionMenuAction>(event, [
+        input.pinned === true
+          ? { id: 'unpin', label: 'Unpin' }
+          : { id: 'pin', label: 'Pin' },
+        input.archived === true
+          ? { id: 'unarchive', label: 'Unarchive' }
+          : { id: 'archive', label: 'Archive' },
+        { type: 'separator' },
         { id: 'rename', label: 'Rename…' },
         { id: 'export', label: 'Export as HTML…' },
         { id: 'reveal', label: 'Reveal in Finder' },
@@ -576,9 +654,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(
     IPC_CHANNELS.chatMenu,
-    (event, input: { chatId: string }): Promise<ChatMenuAction | null> => {
+    (
+      event,
+      input: { chatId: string; pinned?: boolean; archived?: boolean }
+    ): Promise<ChatMenuAction | null> => {
       validateChatId(input.chatId)
       return popupMenu<ChatMenuAction>(event, [
+        input.pinned === true
+          ? { id: 'unpin', label: 'Unpin' }
+          : { id: 'pin', label: 'Pin' },
+        input.archived === true
+          ? { id: 'unarchive', label: 'Unarchive' }
+          : { id: 'archive', label: 'Archive' },
+        { type: 'separator' },
         { id: 'rename', label: 'Rename…' },
         { id: 'export', label: 'Export as HTML…' },
         { id: 'clone', label: 'Fork Chat' },

@@ -18,6 +18,7 @@ const FAKE_CUA = join(ROOT, 'src/main/cua/__fixtures__/fake-helper.mjs')
 const SHOTS = process.env['PI_DESKTOP_SHOT_DIR'] ?? '/tmp/pi-desktop-shots'
 const CUA_SHOTS = '/tmp/pi-cua-shots'
 const WAVE1_SHOTS = '/tmp/pi-wave1'
+const WAVE2_SHOTS = '/tmp/pi-wave2'
 
 const PROJECT_A = '/Users/example/synthetic-alpha'
 const PROJECT_B = '/Users/example/synthetic-beta'
@@ -143,6 +144,7 @@ describe('Pi Desktop e2e', () => {
     await mkdir(SHOTS, { recursive: true })
     await mkdir(CUA_SHOTS, { recursive: true })
     await mkdir(WAVE1_SHOTS, { recursive: true })
+    await mkdir(WAVE2_SHOTS, { recursive: true })
 
     // The helper override must be an executable file; wrap the .mjs fixture.
     const cuaHelper = join(agentDir, 'fake-cua-helper.sh')
@@ -155,6 +157,8 @@ describe('Pi Desktop e2e', () => {
     // Synthetic git repo for the diff panel (basename shows in the UI).
     repoDir = join(await mkdtemp(join(tmpdir(), 'pi-e2e-repo-')), 'synthetic-repo')
     await seedGitRepo(repoDir)
+    // A spaced filename exercises the @"…" quoting path for attachments.
+    await writeFile(join(repoDir, 'attach me.txt'), 'synthetic attachment\n')
 
     // Local static page for the browser panel.
     server = createServer((_req, res) => {
@@ -203,6 +207,7 @@ describe('Pi Desktop e2e', () => {
         PI_DESKTOP_E2E: '1',
         PI_CODING_AGENT_DIR: agentDir,
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, 'sessions'),
+        PI_DESKTOP_PICK_FILES: join(repoDir, 'attach me.txt'),
         PI_DESKTOP_USER_DATA_DIR: userDataDir,
         NODE_ENV: 'production'
       }
@@ -641,7 +646,7 @@ describe('Pi Desktop e2e', () => {
     await plusBtn.click()
     await visible(page, '.plus-popover')
     const labels = await page.locator('.plus-popover .plus-row-label').allTextContents()
-    expect(labels.some((l) => l.includes('Add photos & images'))).toBe(true)
+    expect(labels.some((l) => l.includes('Add photos & files'))).toBe(true)
     expect(labels.some((l) => l.includes('Computer use'))).toBe(true)
     expect(labels.some((l) => l.includes('Browser'))).toBe(true)
     expect(labels.some((l) => l.includes('Terminal'))).toBe(true)
@@ -964,5 +969,232 @@ describe('Pi Desktop e2e', () => {
     await page.screenshot({ path: join(WAVE1_SHOTS, 'settings-notifications.png') })
     await page.keyboard.press('Escape')
     await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
+  })
+
+  // --- Wave 2: sessions organization ----------------------------------------
+
+  /** Absolute paths of the seeded sessions, via the real sessions index IPC. */
+  async function sessionPaths(): Promise<string[]> {
+    return page.evaluate(
+      'window.piDesktop.sessions.list().then(list => list.map(s => s.path))'
+    )
+  }
+
+  async function setMeta(path: string, patch: string): Promise<void> {
+    await page.evaluate(
+      `window.piDesktop.sessionMeta.set({ sessionPath: ${JSON.stringify(path)}, patch: ${patch} })`
+    )
+  }
+
+  it('pins sessions into a Pinned section and hides archived ones', async () => {
+    const paths = await sessionPaths()
+    const a1 = paths.find((p) => p.endsWith('/a1.jsonl'))!
+    const a2 = paths.find((p) => p.endsWith('/a2.jsonl'))!
+    const b2 = paths.find((p) => p.endsWith('/b2.jsonl'))!
+    await setMeta(a1, '{ pinned: true }')
+    await setMeta(a2, '{ pinned: true }')
+    await visible(page, '.sidebar-section-header:has-text("Pinned")')
+    // Two pinned rows, each carrying the muted project suffix.
+    await expect
+      .poll(() => page.locator('.sidebar-item-suffix').allTextContents())
+      .toEqual(['synthetic-alpha', 'synthetic-alpha'])
+    // The pin glyph marks them inside the project list too. Alpha caps at
+    // three rows — expand its overflow so both pinned rows are mounted.
+    await page
+      .locator('.sidebar-item-muted', { hasText: 'Show ' })
+      .first()
+      .click()
+    await expect
+      .poll(() => page.locator('.pin-glyph').count())
+      .toBeGreaterThanOrEqual(2)
+    // Archive an old beta chat: it leaves every section and lands in Archived.
+    const rowsBefore = await page.locator('.sidebar-session').count()
+    await setMeta(b2, '{ archived: true }')
+    await visible(page, '.sidebar-archived')
+    await expect
+      .poll(() => page.locator('.sidebar-session').count())
+      .toBe(rowsBefore - 1)
+    expect(await page.locator('.sidebar-archived').textContent()).toContain('Archived')
+    // Sidebar search surfaces archived chats with an "Archived" tag.
+    await page
+      .locator('.sidebar-item', { hasText: 'Search' })
+      .first()
+      .click()
+    await visible(page, '.sidebar-search input')
+    await page.locator('.sidebar-search input').fill('Bump dependencies')
+    await visible(page, '.sidebar-item-suffix:has-text("Archived")')
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'sidebar-archived-search.png') })
+    await page.locator('.sidebar-search input').press('Escape')
+    await page.waitForSelector('.sidebar-search input', { state: 'detached' })
+  })
+
+  it('lists archived chats in a searchable modal and unarchives them', async () => {
+    await page.locator('.sidebar-archived').click()
+    await visible(page, '.archived-list')
+    await visible(page, '.archived-row')
+    await page.waitForTimeout(350) // let the modal animation settle
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'archived-modal.png') })
+    // Search narrows the list.
+    await page.locator('.archived-search input').fill('no such chat')
+    await expect.poll(() => page.locator('.archived-row').count()).toBe(0)
+    await page.locator('.archived-search input').fill('')
+    await expect.poll(() => page.locator('.archived-row').count()).toBe(1)
+    // Unarchive restores the chat to its project.
+    await page.locator('.archived-row .ui-btn', { hasText: 'Unarchive' }).click()
+    await expect.poll(() => page.locator('.archived-row').count()).toBe(0)
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.archived-list', { state: 'detached' })
+    await page.waitForSelector('.sidebar-archived', { state: 'detached' })
+  })
+
+  it('opens an archived chat behind a banner without auto-unarchiving', async () => {
+    const paths = await sessionPaths()
+    const b2 = paths.find((p) => p.endsWith('/b2.jsonl'))!
+    await setMeta(b2, '{ archived: true }')
+    await page.locator('.sidebar-archived').click()
+    await page.locator('.archived-row').first().click()
+    await visible(page, '.archived-banner')
+    expect(await page.locator('.archived-banner').textContent()).toContain(
+      'This chat is archived'
+    )
+    // Opening did not unarchive — the Archived row is still there.
+    await visible(page, '.sidebar-archived')
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'archived-banner.png') })
+    // Archiving the open chat via the palette navigates home + Undo toast.
+    await page.keyboard.press('Meta+k')
+    await visible(page, '.palette-input')
+    await page.locator('.palette-input').fill('Unarchive chat')
+    await page.locator('.palette-row', { hasText: 'Unarchive chat' }).first().click()
+    await page.waitForSelector('.archived-banner', { state: 'detached' })
+    await page.waitForSelector('.sidebar-archived', { state: 'detached' })
+    // Now archive it again through the palette → toast with Undo.
+    await page.keyboard.press('Meta+k')
+    await visible(page, '.palette-input')
+    await page.locator('.palette-input').fill('Archive chat')
+    await page.locator('.palette-row', { hasText: 'Archive chat' }).first().click()
+    await visible(page, '.toast:has-text("Chat archived")')
+    await visible(page, '.home-greeting')
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'undo-toast.png') })
+    await page.locator('.toast-action', { hasText: 'Undo' }).click()
+    await page.waitForSelector('.sidebar-archived', { state: 'detached' })
+  })
+
+  it('shows needs-input, streaming, error and unread status dots', async () => {
+    const openSession = async (title: string) => {
+      await page.locator('.sidebar-session', { hasText: title }).first().click()
+      await visible(page, '.composer-input')
+    }
+    const home = async () => {
+      await page.keyboard.press('Meta+n')
+      await visible(page, '.home-greeting')
+    }
+    // Error: 'fail please' rejects the prompt response.
+    await openSession('Refactor session parser')
+    await page.locator('.composer-input').fill('fail please')
+    await page.keyboard.press('Enter')
+    await visible(
+      page,
+      '.sidebar-session:has-text("Refactor session parser") .error-dot'
+    )
+    await home()
+    // Unread: a run that settles while another chat is on screen.
+    await openSession('Explain the fixture')
+    await page.locator('.composer-input').fill('slow reply please')
+    await page.keyboard.press('Enter')
+    await home()
+    await visible(
+      page,
+      '.sidebar-session:has-text("Explain the fixture") .unread-dot',
+      15_000
+    )
+    // Needs input: 'ask me please' leaves a pending confirm request.
+    await openSession('Fix flaky router test')
+    await page.locator('.composer-input').fill('ask me please')
+    await page.keyboard.press('Enter')
+    await visible(page, '.ui-dialog')
+    await visible(
+      page,
+      '.sidebar-session:has-text("Fix flaky router test") .input-dot'
+    )
+    // Streaming: a fresh 'slow' run while the others keep their dots.
+    await openSession('Add retry to fetch client')
+    await page.locator('.composer-input').fill('slow reply please')
+    await page.keyboard.press('Enter')
+    await visible(
+      page,
+      '.sidebar-session:has-text("Add retry to fetch client") .live-dot'
+    )
+    // All four states visible at once; the pinned section sits on top.
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'sidebar-status.png') })
+    await setTheme('light')
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'sidebar-status-light.png') })
+    await setTheme('dark')
+    // Clean up: answer the pending request and let runs settle.
+    await openSession('Fix flaky router test')
+    await page.locator('.ui-dialog .ui-btn-primary').click()
+    await page.waitForSelector('.ui-dialog', { state: 'detached', timeout: 10_000 })
+    await home()
+    await page.waitForTimeout(3500)
+  })
+
+  // --- Wave 3: composer power -----------------------------------------------
+
+  it('completes @file mentions inside a project chat', async () => {
+    // New chat, then attach it to the synthetic-repo project.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.composer-input')
+    await page.locator('.folder-chip').click()
+    await visible(page, '.folder-popover')
+    await page.locator('.folder-row', { hasText: 'synthetic-repo' }).click()
+    await expect
+      .poll(() => page.locator('.folder-chip').textContent())
+      .toContain('synthetic-repo')
+    // '@' opens the mention popover over the real repo file list.
+    await page.locator('.composer-input').fill('look at @not')
+    await visible(page, '.mention-popover')
+    await expect
+      .poll(() => page.locator('.mention-row').allTextContents())
+      .toEqual(expect.arrayContaining([expect.stringContaining('notes.txt')]))
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'mention-popover.png') })
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(() => page.locator('.composer-input').inputValue())
+      .toBe('look at @notes.txt ')
+    // Escape path: another mention then dismiss.
+    await page.locator('.composer-input').fill('@x')
+    await visible(page, '.mention-popover')
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.mention-popover', { state: 'detached' })
+    await page.locator('.composer-input').fill('')
+  })
+
+  it('attaches files via the plus menu and renders @path chips in the bubble', async () => {
+    const plusBtn = page.locator('button[title="Add files and more"]')
+    await plusBtn.click()
+    await visible(page, '.plus-popover')
+    await page
+      .locator('.plus-popover .folder-row', { hasText: 'Add photos & files' })
+      .click()
+    // The stubbed dialog returns 'attach me.txt' inside the repo cwd.
+    await visible(page, '.file-chip')
+    expect(await page.locator('.file-chip-name').textContent()).toBe('attach me.txt')
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'file-chips-composer.png') })
+    await page.locator('.composer-input').fill('check this file')
+    await page.keyboard.press('Enter')
+    await waitForSettled()
+    // The bubble carries an inline chip for the quoted relative path.
+    const chip = page.locator('.msg-path-chip').last()
+    await visible(page, '.msg-path-chip')
+    expect(await chip.textContent()).toContain('attach me.txt')
+    expect(await chip.getAttribute('title')).toBe('attach me.txt')
+    await chip.scrollIntoViewIfNeeded()
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: join(WAVE2_SHOTS, 'msg-file-chips.png') })
+    // No chip for a plain @name mention.
+    await page.locator('.composer-input').fill('thanks @reviewer')
+    await page.keyboard.press('Enter')
+    await waitForSettled()
+    const lastUser = page.locator('.msg-user-row').last()
+    expect(await lastUser.locator('.msg-path-chip').count()).toBe(0)
   })
 })

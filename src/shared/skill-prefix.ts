@@ -71,6 +71,29 @@ function stripLeadingImagePaths(text: string): { rest: string; hadImage: boolean
   return { rest: rest.trim(), hadImage }
 }
 
+/** `@path` / `@"quoted path"` tokens collapse to the basename in derived
+ *  titles — `@username` stays untouched. Mirrors the bubble chip rules. */
+const MENTION_TOKEN_RE = /@"([^"\n]+)"|@([^\s"'@=]+)/g
+
+function titleMentionsToBasenames(text: string): string {
+  return text.replace(
+    MENTION_TOKEN_RE,
+    (raw, quoted: string | undefined, plain: string | undefined, offset: number, whole: string) => {
+      const prev = whole[offset - 1]
+      if (prev !== undefined && prev !== ' ' && prev !== '\t' && prev !== '\n') {
+        return raw // mid-word, e.g. an email address
+      }
+      const path = quoted ?? plain!
+      if (!path.includes('/') && !/\.[A-Za-z0-9]{1,10}$/.test(path)) {
+        return raw
+      }
+      const clean = path.replace(/\/+$/, '')
+      const slash = clean.lastIndexOf('/')
+      return slash === -1 ? clean : clean.slice(slash + 1)
+    }
+  )
+}
+
 /** Title for a chat from its first user message: the typed text, or a
  *  `/skill:name` label when the message was only a skill invocation, or
  *  "Image" when it was only pasted images. */
@@ -81,7 +104,7 @@ export function titleFromUserText(text: string | undefined): string | undefined 
   const { skills, rest: afterSkills } = parseSkillPrefix(text)
   const { rest, hadImage } = stripLeadingImagePaths(afterSkills)
   if (rest) {
-    return rest
+    return titleMentionsToBasenames(rest)
   }
   if (hadImage) {
     return 'Image'

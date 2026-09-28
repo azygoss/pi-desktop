@@ -202,9 +202,52 @@ export interface LocalServer {
 }
 
 /** Identifiers returned by the native context menu. */
-export type SessionMenuAction = 'rename' | 'export' | 'reveal' | 'copy-path' | 'delete'
+export type SessionMenuAction =
+  | 'pin'
+  | 'unpin'
+  | 'archive'
+  | 'unarchive'
+  | 'rename'
+  | 'export'
+  | 'reveal'
+  | 'copy-path'
+  | 'delete'
 export type ProjectMenuAction = 'reveal' | 'new-chat' | 'hide'
-export type ChatMenuAction = 'rename' | 'export' | 'clone' | 'reveal' | 'delete'
+export type ChatMenuAction =
+  | 'pin'
+  | 'unpin'
+  | 'archive'
+  | 'unarchive'
+  | 'rename'
+  | 'export'
+  | 'clone'
+  | 'reveal'
+  | 'delete'
+
+/** App-side per-session metadata (pin/archive) — never written to pi files. */
+export interface SessionMetaEntry {
+  /** pinnedAt epoch ms. */
+  pinned?: number
+  /** archivedAt epoch ms. */
+  archived?: number
+}
+export type SessionMetaMap = Record<string, SessionMetaEntry>
+export interface SessionMetaPatch {
+  pinned?: boolean
+  archived?: boolean
+}
+
+/** One entry of `files.readAttachments` — an inlined image or a path chip. */
+export type AttachmentReadResult =
+  | {
+      kind: 'image'
+      path: string
+      name: string
+      size: number
+      mimeType: string
+      data: string
+    }
+  | { kind: 'file'; path: string; name: string; size: number }
 
 export interface ForkMessage {
   entryId: string
@@ -325,7 +368,24 @@ export interface PiDesktopApi {
     /** Move a session file to the OS trash (never unlink). */
     delete(input: { sessionPath: string }): Promise<void>
     /** Native context menu for a session row; resolves to the action or null. */
-    showMenu(input: { sessionPath: string }): Promise<SessionMenuAction | null>
+    showMenu(input: {
+      sessionPath: string
+      pinned?: boolean
+      archived?: boolean
+    }): Promise<SessionMenuAction | null>
+  }
+  /** App-side pin/archive flags keyed by session file path. */
+  sessionMeta: {
+    get(): Promise<SessionMetaMap>
+    set(input: { sessionPath: string; patch: SessionMetaPatch }): Promise<SessionMetaMap>
+    /** Fired in every window when the map changes; carries the full map. */
+    onChanged(callback: (map: SessionMetaMap) => void): () => void
+  }
+  files: {
+    /** Relative file paths under a project cwd (for @-mentions). */
+    list(input: { cwd: string }): Promise<{ files: string[] }>
+    /** Read picked/dropped paths into image payloads or file chips. */
+    readAttachments(input: { paths: string[] }): Promise<AttachmentReadResult[]>
   }
   terminal: {
     spawn(input: TerminalSpawnInput): Promise<{ id: string }>
@@ -386,6 +446,10 @@ export interface PiDesktopApi {
     pickFolder(): Promise<string | null>
     /** Native file picker for a single existing file (used for custom paths). */
     pickFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>
+    /** Native multi-select picker for any file type (composer attachments). */
+    pickFiles(): Promise<string[]>
+    /** Absolute path of a dropped/pasted File (empty when none, e.g. clipboard). */
+    pathForFile(file: File): string
     /** Native save dialog; resolves to the chosen path or null. */
     saveFile(input: { defaultPath?: string; extension: string }): Promise<string | null>
     /** Reveal a path in the OS file manager. */
@@ -441,7 +505,11 @@ export interface PiDesktopApi {
     /** chatId of the open chat viewing a session path, if any. */
     chatIdForSession(input: { sessionPath: string }): Promise<string | undefined>
     /** Native context menu for the chat header; resolves to the action or null. */
-    showMenu(input: { chatId: string }): Promise<ChatMenuAction | null>
+    showMenu(input: {
+      chatId: string
+      pinned?: boolean
+      archived?: boolean
+    }): Promise<ChatMenuAction | null>
     respondUi(input: ChatUiResponseInput): Promise<void>
     close(input: { chatId: string }): Promise<void>
     /** Mark a chat as currently visible (idle eviction bookkeeping). */
