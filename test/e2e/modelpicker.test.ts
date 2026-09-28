@@ -51,7 +51,8 @@ async function launch(): Promise<Ctx> {
 
 async function resize(ctx: Ctx, width: number, height: number): Promise<void> {
   await ctx.app.evaluate(({ BrowserWindow }, size) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(size[0], size[1])
+    const [w, h] = size as [number, number]
+    BrowserWindow.getAllWindows()[0]?.setSize(w, h)
   }, [width, height])
   await ctx.page.waitForTimeout(400)
 }

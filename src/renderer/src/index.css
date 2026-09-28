@@ -1816,12 +1816,40 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  gap: 6px;
+  min-width: 24px;
   height: 24px;
   border: none;
   background: transparent;
-  padding: 0;
+  padding: 0 2px;
   cursor: pointer;
+}
+/* pi footer-style stats next to the ring: ↑in ↓out Rread Wwrite · $cost · ctx%/window */
+.ctx-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ctx-extra {
+  color: color-mix(in srgb, var(--muted) 85%, transparent);
+}
+.ctx-pct-muted {
+  color: var(--muted);
+}
+.ctx-pct-warning {
+  color: var(--warning);
+}
+.ctx-pct-danger {
+  color: var(--danger);
+}
+@media (max-width: 1150px) {
+  .ctx-extra {
+    display: none;
+  }
 }
 .ctx-track {
   fill: none;

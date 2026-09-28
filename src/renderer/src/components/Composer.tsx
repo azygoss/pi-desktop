@@ -181,6 +181,22 @@ function ContextRing({ chat }: { chat: ChatState }) {
   const tokens = stats?.tokens
   const cost = stats?.cost
   const streaming = chat.status === 'streaming'
+  // Session token totals, pi footer style: ↑in ↓out Rread Wwrite.
+  const tokenParts: string[] = []
+  if (tokens) {
+    if (tokens.input > 0) {
+      tokenParts.push(`↑${formatTokens(tokens.input)}`)
+    }
+    if (tokens.output > 0) {
+      tokenParts.push(`↓${formatTokens(tokens.output)}`)
+    }
+    if (tokens.cacheRead > 0) {
+      tokenParts.push(`R${formatTokens(tokens.cacheRead)}`)
+    }
+    if (tokens.cacheWrite > 0) {
+      tokenParts.push(`W${formatTokens(tokens.cacheWrite)}`)
+    }
+  }
   // r=7 circle in an 18px box.
   const radius = 7
   const circumference = 2 * Math.PI * radius
@@ -193,7 +209,7 @@ function ContextRing({ chat }: { chat: ChatState }) {
       <button
         type="button"
         className={`ctx-ring ctx-${tone}`}
-        title={`${Math.round(clamped)}% of context used`}
+        title={`${clamped.toFixed(1)}% of context used`}
         aria-label={`${Math.round(clamped)}% of context used`}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -211,6 +227,17 @@ function ContextRing({ chat }: { chat: ChatState }) {
             transform="rotate(-90 9 9)"
           />
         </svg>
+        <span className="ctx-readout" aria-hidden="true">
+          {tokenParts.length > 0 && (
+            <span className="ctx-extra">{tokenParts.join(' ')}</span>
+          )}
+          {typeof cost === 'number' && cost > 0 && (
+            <span className="ctx-cost">${cost.toFixed(3)}</span>
+          )}
+          <span className={`ctx-pct ctx-pct-${tone}`}>
+            {clamped.toFixed(1)}%{window_ ? `/${formatTokens(window_)}` : ''}
+          </span>
+        </span>
       </button>
       {open && (
         <div className="folder-popover ctx-popover" role="dialog">
