@@ -1,9 +1,15 @@
 import { Check, ChevronDown, Search } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
 import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
+
+const POPOVER_MAX_HEIGHT = 420
+const POPOVER_MIN_HEIGHT = 220
+/** Title bar (44px) plus breathing room above the popover. */
+const TOP_RESERVE = 56
+const BOTTOM_RESERVE = 12
 
 interface ModelPickerProps {
   models: Model[]
@@ -77,12 +83,43 @@ export function ModelPicker({
   // An "openSignal" bump requests the picker to open (e.g. the /model slash
   // command); derived state during render avoids a setState-in-effect cascade.
   const [seenSignal, setSeenSignal] = useState(openSignal ?? 0)
+  const [placement, setPlacement] = useState<{ maxHeight: number; below: boolean }>({
+    maxHeight: POPOVER_MAX_HEIGHT,
+    below: false
+  })
+
+  // The popover opens upward from the composer; when the composer sits mid-
+  // screen (home view) there may not be 420px above it, so fit the height to
+  // the room available — and open downward if there's clearly more room there.
+  function measurePlacement(): void {
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (!rect) {
+      return
+    }
+    const above = rect.top - TOP_RESERVE
+    const below = window.innerHeight - rect.bottom - BOTTOM_RESERVE
+    const openBelow = above < POPOVER_MIN_HEIGHT && below > above
+    setPlacement({
+      below: openBelow,
+      maxHeight: Math.max(
+        POPOVER_MIN_HEIGHT,
+        Math.min(POPOVER_MAX_HEIGHT, openBelow ? below : above)
+      )
+    })
+  }
+
   if (openSignal !== undefined && openSignal > seenSignal) {
     setSeenSignal(openSignal)
     setQuery('')
     setHighlight(0)
     setOpen(true)
   }
+
+  useLayoutEffect(() => {
+    if (open) {
+      measurePlacement()
+    }
+  }, [open])
 
   function toggleOpen(): void {
     if (!open) {
@@ -143,7 +180,11 @@ export function ModelPicker({
       </button>
 
       {open && (
-        <div className="model-popover" data-testid="model-popover">
+        <div
+          className={clsx('model-popover', { 'model-popover-below': placement.below })}
+          style={{ maxHeight: placement.maxHeight }}
+          data-testid="model-popover"
+        >
           <div className="model-search">
             <Search size={13} />
             <input
