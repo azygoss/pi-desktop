@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CuaService } from './cua-service'
 import { ComputerToolBridge } from './cua-tools'
 
+// Requiring the real electron package can trigger a binary download that
+// races across parallel test workers on CI.
+vi.mock('electron', () => ({
+  systemPreferences: { isTrustedAccessibilityClient: () => false }
+}))
+
 type CallArgs = [cmd: string, args: Record<string, unknown>, opts?: unknown]
 
 function makeBridge({

@@ -96,6 +96,25 @@ async function waitForText(
   }
 }
 
+/** Poll a form control's value until it matches or the deadline passes. */
+async function waitForValue(
+  input: ReturnType<Page['locator']>,
+  re: RegExp,
+  timeout = 15_000
+): Promise<void> {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const value = await input.inputValue()
+    if (re.test(value)) {
+      return
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`input did not match ${re} within ${timeout}ms; got "${value}"`)
+    }
+    await input.page().waitForTimeout(150)
+  }
+}
+
 async function openSettings(page: Page): Promise<void> {
   await page.locator('.sidebar-footer .icon-btn').last().click()
   await visible(page, '.settings-modal')
@@ -191,13 +210,7 @@ describe('wave 4: update check + dictation + welcome checklist', () => {
     await shot(page, 'dictation-recording.png')
     // Stop → the final transcript commits at the caret.
     await mic.click()
-    await page.waitForFunction(
-      () =>
-        (document.querySelector('.composer-input') as HTMLTextAreaElement)?.value ===
-        'hello pi desktop',
-      undefined,
-      { timeout: 5_000 }
-    )
+    await waitForValue(input, /^hello pi desktop$/, 5_000)
     // Ghost after existing text: partial lands after the caret.
     await input.fill('fix the ')
     await mic.click()
@@ -206,13 +219,7 @@ describe('wave 4: update check + dictation + welcome checklist', () => {
       .locator('.composer')
       .screenshot({ path: join(SHOTS, 'dictation-ghost-with-text.png') })
     await mic.click()
-    await page.waitForFunction(
-      () =>
-        (document.querySelector('.composer-input') as HTMLTextAreaElement)?.value ===
-        'fix the hello pi desktop',
-      undefined,
-      { timeout: 5_000 }
-    )
+    await waitForValue(input, /^fix the hello pi desktop$/, 5_000)
     // Wrapped case: long text puts the ghost on the second line.
     await input.fill(
       'this is a fairly long first line of text that should definitely wrap onto a second line '
@@ -223,14 +230,7 @@ describe('wave 4: update check + dictation + welcome checklist', () => {
       .locator('.composer')
       .screenshot({ path: join(SHOTS, 'dictation-ghost-wrapped.png') })
     await mic.click()
-    await page.waitForFunction(
-      () =>
-        (document.querySelector('.composer-input') as HTMLTextAreaElement)?.value.endsWith(
-          'hello pi desktop'
-        ),
-      undefined,
-      { timeout: 5_000 }
-    )
+    await waitForValue(input, /hello pi desktop$/, 5_000)
     await input.fill('')
   })
 
@@ -245,7 +245,7 @@ describe('wave 4: update check + dictation + welcome checklist', () => {
     await page.waitForSelector('.composer-ghost', { state: 'detached', timeout: 5_000 })
     // Small wait to be sure no late final lands.
     await page.waitForTimeout(300)
-    expect(await input.evaluate((el) => (el as HTMLTextAreaElement).value)).toBe('draft ')
+    expect(await input.inputValue()).toBe('draft ')
   })
 
   it('shows the dictation locale row in General settings', async () => {
