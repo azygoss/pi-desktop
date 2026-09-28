@@ -19,6 +19,13 @@ if (process.argv.includes('--version')) {
   process.exit(0)
 }
 
+// PI_FAKE_PI_DIE=1: the process exits immediately, like a broken pi install —
+// the app should surface a "pi could not start" card.
+if (process.env['PI_FAKE_PI_DIE'] === '1') {
+  process.stderr.write('synthetic pi startup failure\n')
+  process.exit(1)
+}
+
 const DELAY_MS = Number(process.env['PI_FAKE_PI_DELAY_MS'] ?? 40)
 
 const decoder = new StringDecoder('utf8')
@@ -769,7 +776,8 @@ function handle(command) {
         type: 'response',
         command: 'get_available_models',
         success: true,
-        data: { models: FAKE_MODELS }
+        // PI_FAKE_NO_MODELS=1: a fresh pi with no provider configured.
+        data: { models: process.env['PI_FAKE_NO_MODELS'] === '1' ? [] : FAKE_MODELS }
       })
       break
     case 'get_available_thinking_levels':

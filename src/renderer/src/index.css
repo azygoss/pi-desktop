@@ -488,7 +488,9 @@ body {
 .sidebar-footer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid var(--border);
 }
@@ -532,6 +534,38 @@ body {
 }
 .runtime-dot.offline {
   background: var(--danger);
+}
+
+/* New-release pill in the sidebar footer. */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.update-pill-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 2px 4px 2px 8px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.update-pill-dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 2px 6px 2px 2px;
+  display: inline-flex;
+  cursor: pointer;
+}
+.update-pill-dismiss:hover {
+  color: var(--text-2);
 }
 
 /* ---------- Home ---------- */
@@ -584,6 +618,94 @@ body {
 .install-card .ui-btn {
   align-self: flex-start;
 }
+.install-card h1 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.install-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.install-card-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.install-card-details pre {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--active);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.runtime-line {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* First-run checklist under the composer. */
+.onboarding-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.onboarding-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.onboarding-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.onboarding-check {
+  color: var(--success, #5da663);
+  flex-shrink: 0;
+}
+.onboarding-dot {
+  width: 12px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.onboarding-dot::after {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.onboarding-label {
+  color: var(--text-2);
+  min-width: 90px;
+}
+.onboarding-value {
+  color: var(--muted);
+}
+.onboarding-grant {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.onboarding-done {
+  align-self: flex-end;
+}
 
 /* ---------- Composer ---------- */
 
@@ -620,6 +742,53 @@ body {
 }
 .composer-input::placeholder {
   color: var(--muted);
+}
+
+/* Dictation ghost layer: mirrors the textarea metrics so the muted partial
+ * transcript lands exactly after the caret. */
+.composer-input-wrap {
+  position: relative;
+}
+.composer-ghost {
+  position: absolute;
+  inset: 0;
+  padding: 2px 0;
+  font-size: 14.5px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+.composer-ghost .ghost-hidden {
+  visibility: hidden;
+}
+.composer-ghost .ghost-text {
+  color: var(--muted);
+}
+
+/* Mic button + live level meter. */
+.mic-btn {
+  position: relative;
+}
+.mic-btn.is-recording {
+  color: var(--accent);
+}
+.mic-meter {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 1px;
+}
+.mic-bar {
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--border);
+}
+.mic-bar.on {
+  background: var(--accent);
 }
 
 .composer-attachments {
@@ -2456,6 +2625,9 @@ body {
 }
 .settings-input:focus {
   border-color: var(--accent);
+}
+.settings-select {
+  max-width: 220px;
 }
 .settings-segmented {
   display: inline-flex;

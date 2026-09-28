@@ -22,6 +22,7 @@ import { _electron as electron } from 'playwright-core'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FAKE_PI = join(ROOT, 'test/fixtures/fake-pi.mjs')
 const REAL = process.argv.includes('--real')
+const BIG = process.argv.includes('--big')
 const OUT_INDEX = process.argv.indexOf('--out')
 const OUT_FILE = OUT_INDEX >= 0 ? process.argv[OUT_INDEX + 1] : null
 const UD_INDEX = process.argv.indexOf('--userdata')
@@ -84,6 +85,83 @@ async function seedAgentDir(dir) {
       )
     }
   }
+}
+
+/** Seed 1,000 sessions across 40 projects for the sidebar scale test. */
+async function seedBigAgentDir(dir) {
+  const sessionsDir = join(dir, 'sessions')
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString()
+  let i = 0
+  for (let p = 0; p < 40; p++) {
+    const cwd = `/Users/example/synthetic-p${p}`
+    const dirPath = join(sessionsDir, sessionDirName(cwd))
+    await mkdir(dirPath, { recursive: true })
+    for (let n = 0; n < 25; n++) {
+      i += 1
+      const id = `big-${i}`
+      // A few heavy transcripts so the largest-session probe has substance.
+      const extra = i <= 3 ? 4000 : 0
+      const lines = makeSession(id, cwd, daysAgo(n), `Synthetic task ${i}`, extra)
+      await writeFile(
+        join(dirPath, `${id}.jsonl`),
+        lines.map((l) => JSON.stringify(l)).join('\n') + '\n'
+      )
+    }
+  }
+}
+
+/** Snapshot cumulative CPU seconds per pid: {pid: {ppid, seconds}}. */
+function cpuTable() {
+  return new Promise((resolvePromise) => {
+    execFile('ps', ['-Ao', 'pid=,ppid=,time='], (error, stdout) => {
+      const map = new Map()
+      if (!error) {
+        for (const line of stdout.split('\n')) {
+          const [cpid, ppid, time] = line.trim().split(/\s+/)
+          if (!cpid) continue
+          const parts = (time ?? '0').split(':').map(Number)
+          const seconds =
+            parts.length === 3
+              ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+              : parts.length === 2
+                ? parts[0] * 60 + parts[1]
+                : parts[0] || 0
+          map.set(Number(cpid), { ppid: Number(ppid), seconds })
+        }
+      }
+      resolvePromise(map)
+    })
+  })
+}
+
+/** Fraction of one core used by the process tree over `ms` milliseconds. */
+async function treeCpuFraction(pid, ms) {
+  const before = await cpuTable()
+  const members = new Set([pid])
+  // First pass doesn't know the tree yet; collect children seen in `before`.
+  for (const [p, info] of before) {
+    if (members.has(info.ppid)) members.add(p)
+  }
+  await new Promise((r) => setTimeout(r, ms))
+  const after = await cpuTable()
+  // Expand the tree fully using the second snapshot.
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const [p, info] of after) {
+      if (members.has(info.ppid) && !members.has(p)) {
+        members.add(p)
+        grew = true
+      }
+    }
+  }
+  let delta = 0
+  for (const p of members) {
+    const a = before.get(p)?.seconds ?? after.get(p)?.seconds ?? 0
+    const b = after.get(p)?.seconds ?? 0
+    delta += Math.max(0, b - a)
+  }
+  return delta / (ms / 1000)
 }
 
 /** Sum RSS (kB) of the whole process tree rooted at `pid` via ps. */
@@ -150,7 +228,11 @@ try {
     userDataDir = USERDATA_DIR ?? (await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-')))
   } else {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-perf-agent-'))
-    await seedAgentDir(agentDir)
+    if (BIG) {
+      await seedBigAgentDir(agentDir)
+    } else {
+      await seedAgentDir(agentDir)
+    }
     userDataDir = USERDATA_DIR ?? (await mkdtemp(join(tmpdir(), 'pi-desktop-perf-ud-')))
     await writeFile(
       join(userDataDir, 'settings.json'),
@@ -394,6 +476,54 @@ try {
   results.rss_after_open_mb = Math.round((await treeRssKb(mainPid)) / 1024)
   await page.waitForTimeout(15_000) // short idle for eviction sweep
   results.rss_after_idle_mb = Math.round((await treeRssKb(mainPid)) / 1024)
+
+  // --- scroll frames on the open chat ---------------------------------------
+  await page.evaluate(() => {
+    const scroller = document.querySelector('.chat-scroll, .chat-messages, main')
+    if (!scroller) {
+      window.__scrollFrames = null
+      return
+    }
+    window.__scrollFrames = []
+    window.__rafLive = true
+    let last
+    const loop = (t) => {
+      if (last !== undefined) window.__scrollFrames.push(t - last)
+      last = t
+      if (window.__rafLive) requestAnimationFrame(loop)
+    }
+    requestAnimationFrame(loop)
+  })
+  const scroller = page.locator('.chat-scroll, .chat-messages, main').first()
+  if (await scroller.count()) {
+    for (let i = 0; i < 6; i++) {
+      await scroller.evaluate((el, i) => {
+        el.scrollTop = i % 2 === 0 ? 0 : el.scrollHeight
+      }, i)
+      await page.waitForTimeout(150)
+    }
+  }
+  const scrollFrames = await page.evaluate(() => {
+    window.__rafLive = false
+    return window.__scrollFrames ?? []
+  })
+  if (scrollFrames.length > 0) {
+    const sorted = scrollFrames.slice().sort((a, b) => a - b)
+    results.scroll_frame_p95_ms =
+      Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] * 10) / 10
+  }
+
+  // --- idle CPU with the window hidden ---------------------------------------
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.hide()
+  })
+  await page.waitForTimeout(1000)
+  results.idle_cpu_hidden_percent =
+    Math.round((await treeCpuFraction(mainPid, 4000)) * 1000) / 10
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.show()
+  })
+  results.mode_big = BIG
 } finally {
   if (app) await app.close().catch(() => {})
   if (agentDir) await rm(agentDir, { recursive: true, force: true })

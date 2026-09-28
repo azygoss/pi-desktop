@@ -16,6 +16,8 @@ import { BrowserToolBridge } from './bridge/browser-tools'
 import { BrowserManager } from './browser/browser-manager'
 import { CuaService } from './cua/cua-service'
 import { ComputerToolBridge } from './cua/cua-tools'
+import { DictationService } from './dictation/dictation-service'
+import { UpdateChecker } from './updates/update-check'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
@@ -30,6 +32,13 @@ const bridge = new BridgeServer()
 // the binary is missing (non-mac, dev without a build) available() is false
 // and the computer_* tools simply aren't offered to pi.
 const cua = new CuaService()
+// Dictation: the Swift speech helper; absent on non-macOS/dev without a build.
+const dictation = new DictationService()
+dictation.onEvent((event) => broadcastAll(IPC_CHANNELS.dictationEvent, event))
+// Release check: caches the last-found update and pushes it to every window.
+const updates = new UpdateChecker({}, (info) =>
+  broadcastAll(IPC_CHANNELS.appUpdateAvailable, info)
+)
 const chat = new ChatService(pool, broadcastAll, {
   url: () => bridge.url,
   issue: (chatId) => bridge.issue(chatId),
@@ -242,8 +251,8 @@ app.whenReady().then(async () => {
   // even when that differs from the system appearance.
   nativeTheme.themeSource = lastSettings?.theme ?? 'system'
 
-  registerIpcHandlers({ pool, chat, pty, browser, bridge, cua })
-  wireAppLifecycle({ pool, chat, pty, browser, bridge, cua })
+  registerIpcHandlers({ pool, chat, pty, browser, bridge, cua, dictation, updates })
+  wireAppLifecycle({ pool, chat, pty, browser, bridge, cua, dictation })
   installAppMenu(isDev)
   const win = createWindow()
 
@@ -265,6 +274,15 @@ app.whenReady().then(async () => {
         )
       }
       startSessionWatcher()
+      // Release check: silent unless a newer version exists; repeated daily.
+      const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000
+      const runUpdateCheck = () => {
+        if (getCachedAppSettings()?.updates.check !== false) {
+          void updates.run().catch(() => {})
+        }
+      }
+      setTimeout(runUpdateCheck, 5000).unref?.()
+      setInterval(runUpdateCheck, UPDATE_INTERVAL_MS).unref?.()
       // Warm spare pi for the next project-less chat — spawned a couple of
       // seconds later; pi's own startup (eager extensions, MCP servers) can
       // take seconds and the spare absorbs it for the first draft.

@@ -1,7 +1,7 @@
 {
   "name": "pi-desktop",
   "productName": "Pi Desktop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Desktop GUI for the pi coding agent harness",
   "license": "MIT",
   "author": "Pi Desktop contributors",
@@ -17,7 +17,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:e2e": "electron-vite build && vitest run --config vitest.e2e.config.ts",
-    "build:cua": "bash scripts/build-cua-helper.sh",
+    "build:cua": "bash scripts/build-cua-helper.sh && bash scripts/build-dictation-helper.sh",
     "dist:dir": "pnpm build:cua && electron-vite build && electron-builder --dir",
     "dist:mac": "pnpm build:cua && electron-vite build && electron-builder --mac"
   },

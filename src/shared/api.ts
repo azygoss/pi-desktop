@@ -167,7 +167,40 @@ export interface AppSettings {
   computerUse: { enabled: boolean }
   /** Native notifications + dock badge when pi finishes or needs input. */
   notifications: { enabled: boolean }
+  /** First-run welcome checklist; dismissedAt is epoch ms. */
+  onboarding: { dismissedAt?: number }
+  /** Background release check; dismissedVersion hides the sidebar pill. */
+  updates: { check: boolean; dismissedVersion?: string }
+  /** Dictation: speech locale (BCP-47) and silence auto-stop. */
+  dictation: { locale?: string; autoStop: boolean }
 }
+
+/** A newer release found by the update check. */
+export interface UpdateInfo {
+  version: string
+  url: string
+}
+
+export type UpdateCheckResult =
+  | { status: 'up-to-date' }
+  | { status: 'update-available'; version: string; url: string }
+  | { status: 'unavailable' }
+
+/** Dictation helper permission state (macOS TCC). */
+export interface DictationPermissions {
+  available: boolean
+  microphone: 'authorized' | 'denied' | 'restricted' | 'notDetermined' | 'unknown'
+  speech: 'authorized' | 'denied' | 'restricted' | 'notDetermined' | 'unknown'
+}
+
+/** Events streamed by the dictation helper. */
+export type DictationEvent =
+  | { event: 'partial'; text: string }
+  | { event: 'final'; text: string }
+  | { event: 'level'; rms: number }
+  | { event: 'error'; message: string }
+  | { event: 'stopped' }
+  | { event: 'cancelled' }
 
 /** A native notification request from the renderer. */
 export interface AppNotifyInput {
@@ -546,5 +579,31 @@ export interface PiDesktopApi {
     onActivity(callback: (payload: CuaActivity) => void): () => void
     /** e2e-only: inject a synthetic activity event (PI_DESKTOP_E2E=1). */
     testActivity(payload: CuaActivity): Promise<void>
+  }
+  /** Release update check against the GitHub repo. */
+  updates: {
+    /** Last-known newer release (in-memory cache in main). */
+    get(): Promise<UpdateInfo | null>
+    /** Run the check now; failures report 'unavailable', never throw. */
+    checkNow(): Promise<UpdateCheckResult>
+    /** Open the latest release page in the system browser (main holds the URL). */
+    open(): Promise<void>
+    onAvailable(callback: (info: UpdateInfo) => void): () => void
+  }
+  /** Speech dictation via the bundled Swift helper (macOS only). */
+  dictation: {
+    permissions(): Promise<DictationPermissions>
+    /** BCP-47 locale identifiers supported by SFSpeechRecognizer. */
+    locales(): Promise<string[]>
+    start(input: { locale?: string; autoStop?: boolean }): Promise<void>
+    /** Finish and emit the final transcript. */
+    stop(): Promise<void>
+    /** Abort without committing the partial transcript. */
+    cancel(): Promise<void>
+    /** Open System Settings on a privacy pane. */
+    openSettings(pane: 'microphone' | 'speech'): Promise<void>
+    onEvent(callback: (payload: DictationEvent) => void): () => void
+    /** e2e-only: inject a synthetic dictation event (PI_DESKTOP_E2E=1). */
+    testEvent(payload: DictationEvent): Promise<void>
   }
 }

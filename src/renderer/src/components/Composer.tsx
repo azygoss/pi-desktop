@@ -9,6 +9,7 @@ import {
   FolderPlus,
   Globe,
   Image as ImageIcon,
+  Mic,
   MousePointerClick,
   Paperclip,
   Plus,
@@ -290,6 +291,15 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const [projectFiles, setProjectFiles] = useState<string[]>([])
   const [mentionHighlight, setMentionHighlight] = useState(0)
   const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [dictationAvailable, setDictationAvailable] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [micLevel, setMicLevel] = useState(0)
+  const [ghost, setGhost] = useState('')
+  const [ghostCaret, setGhostCaret] = useState(0)
+  const ghostCaretRef = useRef(0)
+  const recordingRef = useRef(false)
+  const micHoldTimer = useRef<number | null>(null)
+  const micHeldRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const folderRef = useRef<HTMLDivElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
@@ -442,6 +452,171 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     document.addEventListener('pointerdown', close)
     return () => document.removeEventListener('pointerdown', close)
   }, [plusOpen])
+
+  // --- Dictation -----------------------------------------------------------
+  // The mic button is hidden unless the helper exists (macOS + bundled binary).
+
+  function stopDictationUI(): void {
+    setRecording(false)
+    recordingRef.current = false
+    setGhost('')
+    setMicLevel(0)
+  }
+
+  /** Commit the final transcript at the caret captured on start. */
+  function commitDictation(final: string): void {
+    const caret = ghostCaretRef.current
+    setText((prev) => {
+      const next = prev.slice(0, caret) + final + prev.slice(caret)
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        const pos = caret + final.length
+        el?.focus()
+        el?.setSelectionRange(pos, pos)
+      })
+      return next
+    })
+    stopDictationUI()
+  }
+
+  useEffect(() => {
+    const api = window.piDesktop.dictation
+    if (!api) {
+      return
+    }
+    let cancelled = false
+    void api
+      .permissions()
+      .then((p) => {
+        if (!cancelled) {
+          setDictationAvailable(p.available)
+        }
+      })
+      .catch(() => {})
+    const off = api.onEvent((e) => {
+      if (e.event === 'partial' && typeof e.text === 'string') {
+        setGhost(e.text)
+      } else if (e.event === 'final') {
+        commitDictation(e.text ?? '')
+      } else if (e.event === 'level' && typeof e.rms === 'number') {
+        setMicLevel(e.rms)
+      } else if (e.event === 'stopped' || e.event === 'cancelled') {
+        stopDictationUI()
+      } else if (e.event === 'error') {
+        toast(e.message ?? 'Dictation failed')
+        stopDictationUI()
+      }
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function startDictation(): Promise<void> {
+    if (recordingRef.current) {
+      return
+    }
+    // Denied permissions open the right pane instead of failing silently.
+    const perms = await window.piDesktop.dictation
+      .permissions()
+      .catch(() => null)
+    if (perms && perms.available) {
+      if (perms.microphone === 'denied' || perms.microphone === 'restricted') {
+        toast('Microphone access is needed for dictation', {
+          action: {
+            label: 'Open System Settings',
+            run: () => void window.piDesktop.dictation.openSettings('microphone')
+          }
+        })
+        return
+      }
+      if (perms.speech === 'denied' || perms.speech === 'restricted') {
+        toast('Speech recognition access is needed for dictation', {
+          action: {
+            label: 'Open System Settings',
+            run: () => void window.piDesktop.dictation.openSettings('speech')
+          }
+        })
+        return
+      }
+    }
+    const caret = textareaRef.current?.selectionStart ?? text.length
+    ghostCaretRef.current = caret
+    setGhostCaret(caret)
+    recordingRef.current = true
+    setRecording(true)
+    setGhost('')
+    try {
+      const d = useAppStore.getState().appSettings.dictation
+      await window.piDesktop.dictation.start({
+        ...(d?.locale ? { locale: d.locale } : {}),
+        autoStop: d?.autoStop === true
+      })
+    } catch (e) {
+      stopDictationUI()
+      toast(e instanceof Error ? e.message : 'Dictation failed to start')
+    }
+  }
+
+  function stopDictation(): void {
+    if (!recordingRef.current) {
+      return
+    }
+    void window.piDesktop.dictation.stop().catch(() => stopDictationUI())
+  }
+
+  function cancelDictation(): void {
+    if (!recordingRef.current) {
+      return
+    }
+    stopDictationUI()
+    void window.piDesktop.dictation.cancel().catch(() => {})
+  }
+
+  function toggleDictation(): void {
+    if (recordingRef.current) {
+      stopDictation()
+    } else {
+      void startDictation()
+    }
+  }
+
+  function onMicPointerDown(): void {
+    micHeldRef.current = false
+    micHoldTimer.current = window.setTimeout(() => {
+      micHoldTimer.current = null
+      micHeldRef.current = true
+      void startDictation()
+    }, 300)
+  }
+
+  function onMicPointerUp(): void {
+    if (micHoldTimer.current !== null) {
+      window.clearTimeout(micHoldTimer.current)
+      micHoldTimer.current = null
+    }
+    if (micHeldRef.current) {
+      // Press-and-hold released: stop and commit.
+      micHeldRef.current = false
+      stopDictation()
+    } else {
+      // Quick click toggles a persistent recording.
+      toggleDictation()
+    }
+  }
+
+  function onMicPointerCancel(): void {
+    if (micHoldTimer.current !== null) {
+      window.clearTimeout(micHoldTimer.current)
+      micHoldTimer.current = null
+    }
+    if (micHeldRef.current) {
+      micHeldRef.current = false
+      stopDictation()
+    }
+  }
 
   // Prefetch the project's file list for @-mentions whenever the cwd changes
   // or the composer regains focus — the picker then opens instantly.
@@ -721,6 +896,18 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    // Esc while dictating cancels the session and drops the partial.
+    if (recordingRef.current && e.key === 'Escape') {
+      e.preventDefault()
+      cancelDictation()
+      return
+    }
+    // ⌘⇧D toggles dictation from the composer.
+    if (e.metaKey && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+      e.preventDefault()
+      toggleDictation()
+      return
+    }
     // ⌘U opens the file picker directly (also reachable via the + menu).
     if (e.metaKey && (e.key === 'u' || e.key === 'U')) {
       e.preventDefault()
@@ -951,33 +1138,48 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         </div>
       )}
 
-      <textarea
-        ref={textareaRef}
-        className="composer-input"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value)
-          setCursor(e.target.selectionStart ?? e.target.value.length)
-          setSlashDismissed(false)
-          setSlashHighlight(0)
-          setMentionDismissed(false)
-          setMentionHighlight(0)
-        }}
-        onSelect={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
-        onFocus={() => {
-          // Refresh the cached file list when the composer regains focus.
-          if (!projectless) {
-            void window.piDesktop.files
-              .list({ cwd })
-              .then((r) => setProjectFiles(r.files))
-              .catch(() => {})
+      <div className="composer-input-wrap">
+        <textarea
+          ref={textareaRef}
+          className="composer-input"
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value)
+            setCursor(e.target.selectionStart ?? e.target.value.length)
+            setSlashDismissed(false)
+            setSlashHighlight(0)
+            setMentionDismissed(false)
+            setMentionHighlight(0)
+          }}
+          onSelect={(e) => setCursor(e.currentTarget.selectionStart ?? 0)}
+          onFocus={() => {
+            // Refresh the cached file list when the composer regains focus.
+            if (!projectless) {
+              void window.piDesktop.files
+                .list({ cwd })
+                .then((r) => setProjectFiles(r.files))
+                .catch(() => {})
+            }
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={
+            ghost !== ''
+              ? ''
+              : recording
+                ? 'Listening…'
+                : (placeholder ?? 'How can I help you today?')
           }
-        }}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder ?? 'How can I help you today?'}
-        rows={1}
-        spellCheck={false}
-      />
+          rows={1}
+          spellCheck={false}
+        />
+        {recording && ghost !== '' && (
+          <div className="composer-ghost" aria-hidden="true">
+            <span className="ghost-hidden">{text.slice(0, ghostCaret)}</span>
+            <span className="ghost-text">{ghost}</span>
+            <span className="ghost-hidden">{text.slice(ghostCaret)}</span>
+          </div>
+        )}
+      </div>
 
       {chat?.status === 'starting' && (
         <StartingPiStatus startedAt={chat.startedAt} hint={chat.startupHint} />
@@ -1237,6 +1439,30 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                 void useChatStore.getState().setThinkingLevel(chat.chatId, level)
               }}
             />
+          )}
+          {dictationAvailable && (
+            <button
+              type="button"
+              className={clsx('icon-btn', 'mic-btn', { 'is-recording': recording })}
+              title={recording ? 'Stop dictation' : 'Dictate (⌘⇧D)'}
+              aria-label={recording ? 'Stop dictation' : 'Start dictation'}
+              aria-pressed={recording}
+              onPointerDown={onMicPointerDown}
+              onPointerUp={onMicPointerUp}
+              onPointerLeave={onMicPointerCancel}
+            >
+              <Mic size={14} />
+              {recording && (
+                <span className="mic-meter" aria-hidden="true">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className={clsx('mic-bar', { on: micLevel > (i + 1) / 4 })}
+                    />
+                  ))}
+                </span>
+              )}
+            </button>
           )}
           {chat && <ContextRing chat={chat} />}
           <button

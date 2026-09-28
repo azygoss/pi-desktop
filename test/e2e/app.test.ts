@@ -1081,7 +1081,16 @@ describe('Pi Desktop e2e', () => {
 
   it('shows needs-input, streaming, error and unread status dots', async () => {
     const openSession = async (title: string) => {
-      await page.locator('.sidebar-session', { hasText: title }).first().click()
+      const row = page.locator('.sidebar-session', { hasText: title }).first()
+      try {
+        await row.waitFor({ state: 'attached', timeout: 15_000 })
+      } catch {
+        // Diagnostic: capture what the sidebar actually showed.
+        const sidebar = await page.locator('.sidebar').textContent().catch(() => 'n/a')
+        await page.screenshot({ path: join(WAVE2_SHOTS, 'status-dots-fail.png') })
+        throw new Error(`session row "${title}" not found; sidebar="${sidebar}"`)
+      }
+      await row.click()
       await visible(page, '.composer-input')
     }
     const home = async () => {

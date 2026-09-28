@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { AppInfo, AppSettings, SessionMetaMap, SessionMetaPatch } from '../../../shared/api'
+import type {
+  AppInfo,
+  AppSettings,
+  SessionMetaMap,
+  SessionMetaPatch,
+  UpdateInfo
+} from '../../../shared/api'
 import type {
   PiRuntimeInfo,
   PiSettings,
@@ -20,8 +26,13 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   panelOpen: false,
   panelWidth: 400,
   computerUse: { enabled: true },
-  notifications: { enabled: true }
+  notifications: { enabled: true },
+  onboarding: {},
+  updates: { check: true },
+  dictation: { autoStop: false }
 }
+
+export type SettingsSection = 'general' | 'computer' | 'runtime' | 'data' | 'about'
 
 interface AppState {
   ready: boolean
@@ -47,6 +58,10 @@ interface AppState {
   backStack: ViewState[]
   forwardStack: ViewState[]
   settingsOpen: boolean
+  /** Section the settings modal should open on (default 'general'). */
+  settingsSection: SettingsSection
+  /** A newer release reported by the main-process update check. */
+  updateInfo: UpdateInfo | null
   /** Slash-command modal open over the current chat (/session, /tree, …). */
   chatModal: 'session' | 'tree' | 'fork' | 'hotkeys' | null
 
@@ -67,7 +82,7 @@ interface AppState {
   renameSession(path: string, title: string): void
   /** Set/unset pin/archive flags; updates local state, then main persists. */
   setSessionMeta(sessionPath: string, patch: SessionMetaPatch): Promise<void>
-  openSettings(): void
+  openSettings(section?: SettingsSection): void
   closeSettings(): void
   setChatModal(modal: AppState['chatModal']): void
 }
@@ -92,6 +107,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   backStack: [],
   forwardStack: [],
   settingsOpen: false,
+  settingsSection: 'general',
+  updateInfo: null,
   chatModal: null,
 
   async init() {
@@ -125,6 +142,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       applyPlatform(appInfo?.platform)
       // Another window (or a session delete in main) may change the map.
       window.piDesktop.sessionMeta.onChanged((map) => set({ sessionMeta: map }))
+      // Release check results: the cached value covers checks that ran before
+      // this window existed; the broadcast covers new finds.
+      void window.piDesktop.updates
+        .get()
+        .then((info) => set({ updateInfo: info }))
+        .catch(() => {})
+      window.piDesktop.updates.onAvailable((info) => set({ updateInfo: info }))
     } catch {
       set({ ready: true, piAvailable: false })
       applyPlatform()
@@ -289,8 +313,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  openSettings() {
-    set({ settingsOpen: true })
+  openSettings(section) {
+    set({ settingsOpen: true, ...(section ? { settingsSection: section } : {}) })
   },
 
   closeSettings() {

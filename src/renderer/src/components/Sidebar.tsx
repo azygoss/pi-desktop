@@ -529,6 +529,8 @@ export function Sidebar() {
   const navigate = useAppStore((s) => s.navigate)
   const runtimeInfo = useAppStore((s) => s.runtimeInfo)
   const userName = useAppStore((s) => s.userName)
+  const updateInfo = useAppStore((s) => s.updateInfo)
+  const dismissedUpdate = useAppStore((s) => s.appSettings.updates?.dismissedVersion)
   const sessionsLoaded = useAppStore((s) => s.sessionsLoaded)
   const view = useAppStore((s) => s.view)
   const activeChatCwd = useChatStore((s) =>
@@ -786,6 +788,34 @@ export function Sidebar() {
             <span className="runtime-badge" title="pi not found">
               <span className="runtime-dot offline" />
               no pi
+            </span>
+          )}
+          {updateInfo && updateInfo.version !== dismissedUpdate && (
+            <span className="update-pill" data-testid="update-pill">
+              <button
+                type="button"
+                className="update-pill-btn"
+                title={`Open the release notes for ${updateInfo.version}`}
+                onClick={() => void window.piDesktop.updates.open()}
+              >
+                Update {updateInfo.version}
+              </button>
+              <button
+                type="button"
+                className="update-pill-dismiss"
+                title="Dismiss"
+                aria-label={`Dismiss update ${updateInfo.version}`}
+                onClick={() =>
+                  void useAppStore.getState().updateAppSettings({
+                    updates: {
+                      ...useAppStore.getState().appSettings.updates,
+                      dismissedVersion: updateInfo.version
+                    }
+                  })
+                }
+              >
+                <X size={10} />
+              </button>
             </span>
           )}
           <button

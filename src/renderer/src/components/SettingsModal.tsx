@@ -2,12 +2,17 @@ import { ExternalLink, Folder, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 
-import type { AppInfo, AppSettings, CuaPermissions } from '../../../shared/api'
+import type {
+  AppInfo,
+  AppSettings,
+  CuaPermissions,
+  UpdateCheckResult
+} from '../../../shared/api'
 import type { PiRuntimeInfo } from '../../../shared/session-types'
-import { useAppStore } from '../state/app-store'
+import { useAppStore, type SettingsSection } from '../state/app-store'
 import { PiLogo } from './PiLogo'
 
-type Section = 'general' | 'computer' | 'runtime' | 'data' | 'about'
+type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -43,12 +48,17 @@ export function SettingsModal() {
   const updateAppSettings = useAppStore((s) => s.updateAppSettings)
   const runtimeInfo = useAppStore((s) => s.runtimeInfo)
 
-  const [section, setSection] = useState<Section>('general')
+  const [section, setSection] = useState<Section>(
+    useAppStore.getState().settingsSection
+  )
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [startupMs, setStartupMs] = useState<number | undefined>(undefined)
   const [displayName, setDisplayName] = useState(appSettings.displayName ?? '')
   const [refreshing, setRefreshing] = useState(false)
   const [cuaPerms, setCuaPerms] = useState<CuaPermissions | null>(null)
+  const [updateResult, setUpdateResult] = useState<string | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [dictationLocales, setDictationLocales] = useState<string[] | null>(null)
 
   // Permission status can change in System Settings while this modal is open —
   // re-check whenever the window regains focus.
@@ -81,6 +91,16 @@ export function SettingsModal() {
       .get()
       .then((c) => setStartupMs(c.lastStartupMs))
       .catch(() => {})
+    void window.piDesktop.dictation
+      ?.permissions()
+      .then((p) => {
+        if (p.available) {
+          return window.piDesktop.dictation.locales()
+        }
+        return []
+      })
+      .then(setDictationLocales)
+      .catch(() => setDictationLocales([]))
   }, [])
 
   useEffect(() => {
@@ -245,6 +265,124 @@ export function SettingsModal() {
                   <span className="switch-knob" />
                 </button>
               </div>
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">Check for updates</div>
+                  <div className="settings-hint">
+                    Check GitHub releases once a day
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={appSettings.updates?.check ?? true}
+                  className={clsx('switch', {
+                    on: appSettings.updates?.check ?? true
+                  })}
+                  onClick={() =>
+                    void updateAppSettings({
+                      updates: {
+                        ...appSettings.updates,
+                        check: !(appSettings.updates?.check ?? true)
+                      }
+                    })
+                  }
+                >
+                  <span className="switch-knob" />
+                </button>
+              </div>
+              <div className="settings-row" data-testid="settings-update-row">
+                <div>
+                  <div className="settings-label">Updates</div>
+                  <div className="settings-hint">
+                    {updateResult ?? 'Check for a newer release now'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="ui-btn"
+                  disabled={checkingUpdate}
+                  onClick={() => {
+                    setCheckingUpdate(true)
+                    setUpdateResult(null)
+                    void window.piDesktop.updates
+                      .checkNow()
+                      .then((r: UpdateCheckResult) => {
+                        if (r.status === 'update-available') {
+                          setUpdateResult(`Update available: ${r.version}`)
+                          useAppStore.setState({
+                            updateInfo: { version: r.version, url: r.url }
+                          })
+                        } else if (r.status === 'up-to-date') {
+                          setUpdateResult('Up to date')
+                        } else {
+                          setUpdateResult('Could not check for updates')
+                        }
+                      })
+                      .catch(() => setUpdateResult('Could not check for updates'))
+                      .finally(() => setCheckingUpdate(false))
+                  }}
+                >
+                  <RefreshCw size={12} /> Check now
+                </button>
+              </div>
+              {dictationLocales !== null && dictationLocales.length > 0 && (
+                <>
+                  <div className="settings-row" data-testid="settings-dictation-row">
+                    <div>
+                      <div className="settings-label">Dictation language</div>
+                      <div className="settings-hint">
+                        Speech recognition locale for the mic button
+                      </div>
+                    </div>
+                    <select
+                      className="settings-input settings-select"
+                      value={appSettings.dictation?.locale ?? ''}
+                      onChange={(e) =>
+                        void updateAppSettings({
+                          dictation: {
+                            ...appSettings.dictation,
+                            locale: e.target.value || undefined
+                          }
+                        })
+                      }
+                    >
+                      <option value="">System default</option>
+                      {dictationLocales.map((l) => (
+                        <option key={l} value={l}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-label">Dictation auto-stop</div>
+                      <div className="settings-hint">
+                        Stop after 2 seconds of silence
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={appSettings.dictation?.autoStop ?? false}
+                      className={clsx('switch', {
+                        on: appSettings.dictation?.autoStop ?? false
+                      })}
+                      onClick={() =>
+                        void updateAppSettings({
+                          dictation: {
+                            ...appSettings.dictation,
+                            autoStop: !(appSettings.dictation?.autoStop ?? false)
+                          }
+                        })
+                      }
+                    >
+                      <span className="switch-knob" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

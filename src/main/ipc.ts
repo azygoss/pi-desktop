@@ -133,7 +133,21 @@ export const IPC_CHANNELS = {
   cuaStop: 'pi-desktop:cua:stop',
   cuaActivity: 'pi-desktop:cua:activity',
   /** e2e-only: inject a fake cua:activity broadcast (PI_DESKTOP_E2E=1). */
-  cuaTestActivity: 'pi-desktop:cua:test-activity'
+  cuaTestActivity: 'pi-desktop:cua:test-activity',
+  updatesGet: 'pi-desktop:updates:get',
+  updatesCheckNow: 'pi-desktop:updates:check-now',
+  updatesOpen: 'pi-desktop:updates:open',
+  /** Broadcast when the release check finds a newer version. */
+  appUpdateAvailable: 'pi-desktop:app:update-available',
+  dictationPermissions: 'pi-desktop:dictation:permissions',
+  dictationLocales: 'pi-desktop:dictation:locales',
+  dictationStart: 'pi-desktop:dictation:start',
+  dictationStop: 'pi-desktop:dictation:stop',
+  dictationCancel: 'pi-desktop:dictation:cancel',
+  dictationOpenSettings: 'pi-desktop:dictation:open-settings',
+  dictationEvent: 'pi-desktop:dictation:event',
+  /** e2e-only: inject a fake dictation event (PI_DESKTOP_E2E=1). */
+  dictationTestEvent: 'pi-desktop:dictation:test-event'
 } as const
 
 export interface IpcDeps {
@@ -150,6 +164,24 @@ export interface IpcDeps {
     pause(): void
     resume(): void
     abortAll(message?: string): void
+    dispose(): void
+  }
+  /** Release update checker; absent in unit-test setups. */
+  updates?: {
+    readonly current: { version: string; url: string } | null
+    checkNow(): Promise<
+      | { status: 'update-available'; version: string; url: string }
+      | { status: 'up-to-date' }
+      | { status: 'unavailable' }
+    >
+  }
+  /** Dictation helper service; absent on non-macOS/test setups. */
+  dictation?: {
+    available(): boolean
+    call(cmd: string, args?: Record<string, unknown>): Promise<unknown>
+    start(args: { locale?: string; autoStop?: boolean }): Promise<void>
+    stop(): Promise<void>
+    cancel(): Promise<void>
     dispose(): void
   }
 }
@@ -819,6 +851,105 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     validateCwd(input?.cwd).then((cwd) => getRepoDiff(cwd))
   )
 
+  // --- Release updates ------------------------------------------------------
+
+  ipcMain.handle(IPC_CHANNELS.updatesGet, () => deps.updates?.current ?? null)
+  ipcMain.handle(IPC_CHANNELS.updatesCheckNow, async () => {
+    if (!deps.updates) {
+      return { status: 'unavailable' }
+    }
+    return deps.updates.checkNow()
+  })
+  ipcMain.handle(IPC_CHANNELS.updatesOpen, () => {
+    const url = deps.updates?.current?.url
+    // The URL came from the GitHub API and was prefix-validated on fetch;
+    // re-check before opening in case the cached value was tampered with.
+    if (
+      typeof url === 'string' &&
+      url.startsWith('https://github.com/azygoss/pi-desktop/') &&
+      url.length < 2048
+    ) {
+      return shell.openExternal(url)
+    }
+  })
+
+  // --- Dictation ------------------------------------------------------------
+
+  ipcMain.handle(IPC_CHANNELS.dictationPermissions, async () => {
+    if (!deps.dictation?.available()) {
+      return {
+        available: false,
+        microphone: 'unknown',
+        speech: 'unknown'
+      }
+    }
+    const result = (await deps.dictation.call('permissions')) as {
+      microphone?: unknown
+      speech?: unknown
+    }
+    const stat = (v: unknown) =>
+      v === 'authorized' || v === 'denied' || v === 'restricted' || v === 'notDetermined'
+        ? v
+        : 'unknown'
+    return {
+      available: true,
+      microphone: stat(result.microphone),
+      speech: stat(result.speech)
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.dictationLocales, async () => {
+    if (!deps.dictation?.available()) {
+      return { locales: [] as string[] }
+    }
+    const result = (await deps.dictation.call('locales')) as { locales?: unknown }
+    return {
+      locales: Array.isArray(result.locales)
+        ? result.locales.filter((l): l is string => typeof l === 'string').slice(0, 200)
+        : []
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.dictationStart, async (_e, input: unknown) => {
+    if (!deps.dictation?.available()) {
+      throw new Error('dictation is not available')
+    }
+    const i = input as { locale?: unknown; autoStop?: unknown } | null
+    const locale = typeof i?.locale === 'string' && i.locale.length <= 64 ? i.locale : undefined
+    const autoStop = i?.autoStop === true
+    await deps.dictation.start({ ...(locale ? { locale } : {}), autoStop })
+  })
+  ipcMain.handle(IPC_CHANNELS.dictationStop, () => deps.dictation?.stop())
+  ipcMain.handle(IPC_CHANNELS.dictationCancel, () => deps.dictation?.cancel())
+  ipcMain.handle(IPC_CHANNELS.dictationOpenSettings, (_e, input: { pane?: unknown }) => {
+    const anchor =
+      input?.pane === 'microphone'
+        ? 'Privacy_Microphone'
+        : input?.pane === 'speech'
+          ? 'Privacy_SpeechRecognition'
+          : undefined
+    if (!anchor) {
+      return Promise.resolve()
+    }
+    return shell.openExternal(
+      `x-apple.systempreferences:com.apple.preference.security?${anchor}`
+    )
+  })
+  // E2E hook: inject a synthetic dictation event (inert unless PI_DESKTOP_E2E=1).
+  ipcMain.handle(IPC_CHANNELS.dictationTestEvent, (_e, input: unknown) => {
+    if (process.env['PI_DESKTOP_E2E'] !== '1') {
+      return
+    }
+    const e = input as { event?: unknown; text?: unknown; rms?: unknown; message?: unknown }
+    if (typeof e?.event !== 'string' || e.event.length > 32) {
+      return
+    }
+    broadcastAll(IPC_CHANNELS.dictationEvent, {
+      event: e.event,
+      ...(typeof e.text === 'string' ? { text: e.text.slice(0, 4096) } : {}),
+      ...(typeof e.rms === 'number' ? { rms: Math.max(0, Math.min(1, e.rms)) } : {}),
+      ...(typeof e.message === 'string' ? { message: e.message.slice(0, 500) } : {})
+    })
+  })
+
   ipcMain.handle(IPC_CHANNELS.appQuit, () => {
     app.quit()
   })
@@ -931,6 +1062,7 @@ export function wireAppLifecycle(deps: IpcDeps): void {
     deps.browser.closeAll()
     void deps.bridge?.stop()
     deps.cua?.dispose()
+    deps.dictation?.dispose()
   })
 }
 

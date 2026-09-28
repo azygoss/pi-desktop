@@ -142,6 +142,27 @@ const api: PiDesktopApi = {
     onActivity: subscribe('pi-desktop:cua:activity'),
     testActivity: (payload) =>
       ipcRenderer.invoke('pi-desktop:cua:test-activity', payload)
+  },
+  updates: {
+    get: () => ipcRenderer.invoke('pi-desktop:updates:get'),
+    checkNow: () => ipcRenderer.invoke('pi-desktop:updates:check-now'),
+    open: () => ipcRenderer.invoke('pi-desktop:updates:open'),
+    onAvailable: subscribe('pi-desktop:app:update-available')
+  },
+  dictation: {
+    permissions: () => ipcRenderer.invoke('pi-desktop:dictation:permissions'),
+    locales: () =>
+      ipcRenderer
+        .invoke('pi-desktop:dictation:locales')
+        .then((r: { locales: string[] }) => r.locales),
+    start: (input) => ipcRenderer.invoke('pi-desktop:dictation:start', input),
+    stop: () => ipcRenderer.invoke('pi-desktop:dictation:stop'),
+    cancel: () => ipcRenderer.invoke('pi-desktop:dictation:cancel'),
+    openSettings: (pane) =>
+      ipcRenderer.invoke('pi-desktop:dictation:open-settings', { pane }),
+    onEvent: subscribe('pi-desktop:dictation:event'),
+    testEvent: (payload) =>
+      ipcRenderer.invoke('pi-desktop:dictation:test-event', payload)
   }
 }
 
