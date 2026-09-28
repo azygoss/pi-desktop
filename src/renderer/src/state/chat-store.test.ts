@@ -1,6 +1,6 @@
 // Node-environment test for the chat store: window.piDesktop and
 // requestAnimationFrame are stubbed; only the store update paths run.
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Model } from '../../../shared/pi-types'
 
@@ -27,6 +27,8 @@ let setModelResult: {
 
 let eventHandler: ((payload: { chatId: string; events: unknown[] }) => void) | null =
   null
+let cuaHandler: ((payload: unknown) => void) | null = null
+const reloadCalls: string[] = []
 
 let setCwdCalls: string[] = []
 let setCwdHandler:
@@ -74,7 +76,27 @@ const fakeApi = {
           }
     },
     readTranscript: async () => ({ messages: [], hasEarlier: false, totalMessages: 0 }),
+    reload: async (input: { chatId: string }) => {
+      reloadCalls.push(input.chatId)
+      return {
+        chatId: input.chatId,
+        cwd: '/tmp/synthetic',
+        state: { model: MODEL_A, thinkingLevel: 'high', isStreaming: false },
+        messages: [],
+        models: [MODEL_A],
+        thinkingLevels: ['off', 'high'],
+        commands: []
+      }
+    },
+    send: async () => {},
+    abort: async () => {},
     focus: async () => {}
+  },
+  cua: {
+    onActivity: (cb: (payload: unknown) => void) => {
+      cuaHandler = cb
+      return () => {}
+    }
   },
   catalog: {
     get: async () => ({
@@ -292,5 +314,125 @@ describe('unread marker', () => {
     })
     await flush()
     expect(useChatStore.getState().chats[chatId]!.unread ?? false).toBe(false)
+  })
+})
+
+describe('computer-use activity', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let useAppStore: typeof import('./app-store').useAppStore
+  let seq = 0
+
+  beforeEach(async () => {
+    reloadCalls.length = 0
+    const chatMod = await import('./chat-store')
+    useChatStore = chatMod.useChatStore
+    chatMod.initChatBridge()
+    useAppStore = (await import('./app-store')).useAppStore
+    useAppStore.setState({ view: { kind: 'home' } })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the strip on start, keeps a 4s tail after end, then hides', async () => {
+    vi.useFakeTimers()
+    const chatId = `cua${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await vi.advanceTimersByTimeAsync(10)
+
+    cuaHandler!({
+      chatId,
+      phase: 'start',
+      cmd: 'computer_click',
+      app: 'Finder',
+      summary: 'Clicked "Save"'
+    })
+    const chat = useChatStore.getState().chats[chatId]!
+    expect(chat.cuaActive).toBe(true)
+    expect(chat.cuaActivity?.app).toBe('Finder')
+    expect(chat.cuaActivity?.summary).toBe('Clicked "Save"')
+
+    cuaHandler!({
+      chatId,
+      phase: 'end',
+      cmd: 'computer_click',
+      app: 'Finder',
+      summary: 'Clicked "Save"'
+    })
+    // Tail still running — strip stays.
+    expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
+    await vi.advanceTimersByTimeAsync(3999)
+    expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(false)
+  })
+
+  it('clears the strip on agent_end without waiting for the tail', async () => {
+    vi.useFakeTimers()
+    const chatId = `cua${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await vi.advanceTimersByTimeAsync(10)
+
+    cuaHandler!({
+      chatId,
+      phase: 'start',
+      cmd: 'computer_state',
+      app: 'Safari',
+      summary: 'Read Safari'
+    })
+    expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
+
+    eventHandler!({ chatId, events: [{ type: 'agent_end' }] })
+    await vi.advanceTimersByTimeAsync(10)
+    const chat = useChatStore.getState().chats[chatId]!
+    expect(chat.cuaActive).toBe(false)
+  })
+
+  it('mirrors service-wide pause/resume broadcasts', async () => {
+    const chatId = `cua${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    cuaHandler!({ phase: 'paused', cmd: '', summary: 'Paused' })
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.cuaPaused).toBe(true)
+    cuaHandler!({ phase: 'resumed', cmd: '', summary: 'Resumed' })
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.cuaPaused).toBe(false)
+  })
+
+  it('restarts pi on the next send after markCuaStale', async () => {
+    const chatId = `cua${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    await useChatStore.getState().send(chatId, 'one', [], 'prompt')
+    expect(reloadCalls).toEqual([])
+    // Settle the turn so the next send is an idle prompt, not a steer.
+    eventHandler!({ chatId, events: [{ type: 'agent_end' }, { type: 'agent_settled' }] })
+    await flush()
+
+    useChatStore.getState().markCuaStale(chatId)
+    await useChatStore.getState().send(chatId, 'two', [], 'prompt')
+    expect(reloadCalls).toEqual([chatId])
+  })
+
+  it('defers the cua reload while the chat is streaming', async () => {
+    const chatId = `cua${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    eventHandler!({ chatId, events: [{ type: 'agent_start' }] })
+    await flush()
+    useChatStore.getState().markCuaStale(chatId)
+    // A send mid-run is a steer — it must not kill the in-flight pi.
+    await useChatStore.getState().send(chatId, 'steer', [], 'prompt')
+    expect(reloadCalls).toEqual([])
+
+    eventHandler!({ chatId, events: [{ type: 'agent_end' }, { type: 'agent_settled' }] })
+    await flush()
+    await useChatStore.getState().send(chatId, 'next', [], 'prompt')
+    expect(reloadCalls).toEqual([chatId])
   })
 })

@@ -111,6 +111,19 @@ const api: PiDesktopApi = {
   },
   catalog: {
     get: () => ipcRenderer.invoke('pi-desktop:catalog:get')
+  },
+  cua: {
+    permissions: () => ipcRenderer.invoke('pi-desktop:cua:permissions'),
+    requestPermissions: () =>
+      ipcRenderer.invoke('pi-desktop:cua:request-permissions'),
+    openSettings: (pane) =>
+      ipcRenderer.invoke('pi-desktop:cua:open-settings', { pane }),
+    pause: () => ipcRenderer.invoke('pi-desktop:cua:pause'),
+    resume: () => ipcRenderer.invoke('pi-desktop:cua:resume'),
+    stop: () => ipcRenderer.invoke('pi-desktop:cua:stop'),
+    onActivity: subscribe('pi-desktop:cua:activity'),
+    testActivity: (payload) =>
+      ipcRenderer.invoke('pi-desktop:cua:test-activity', payload)
   }
 }
 

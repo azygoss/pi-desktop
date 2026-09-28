@@ -9,8 +9,11 @@
 // only fetch() is used, so the same file loads under both the installed and
 // the bundled pi runtime without needing pi's own node_modules.
 
+import { COMPUTER_TOOLS } from './computer-tools.js'
+
 const BRIDGE_URL = process.env.PI_DESKTOP_BRIDGE_URL
 const BRIDGE_TOKEN = process.env.PI_DESKTOP_BRIDGE_TOKEN
+const COMPUTER_USE = process.env.PI_DESKTOP_COMPUTER_USE === '1'
 
 async function callBridge(tool, params) {
   let res
@@ -66,6 +69,47 @@ const SHARED_DESCRIPTION =
 export default function piDesktopBrowser(pi) {
   if (!BRIDGE_URL || !BRIDGE_TOKEN) {
     return
+  }
+
+  // Computer use: the main process sets PI_DESKTOP_COMPUTER_USE=1 only when
+  // the macOS helper exists and the setting is enabled. computer_confirm is
+  // answered locally through pi's UI bridge (a confirm dialog in the app)
+  // rather than the HTTP bridge — the other computer_* tools all proxy.
+  if (COMPUTER_USE) {
+    for (const tool of COMPUTER_TOOLS) {
+      if (tool.name === 'computer_confirm') {
+        pi.registerTool({
+          name: tool.name,
+          label: tool.label,
+          description: tool.description,
+          parameters: tool.schema,
+          execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+            const summary = typeof params?.summary === 'string' ? params.summary : ''
+            let approved
+            try {
+              approved = ctx?.ui?.confirm
+                ? await ctx.ui.confirm('Approve computer use', summary)
+                : false
+            } catch {
+              approved = false
+            }
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: approved
+                    ? 'Approved by the user.'
+                    : 'Not approved. Do not perform the action; ask the user how to proceed.'
+                }
+              ],
+              details: { approved }
+            }
+          }
+        })
+      } else {
+        register(pi, tool)
+      }
+    }
   }
 
   register(pi, {

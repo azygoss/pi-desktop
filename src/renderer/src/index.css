@@ -15,6 +15,7 @@
   --on-accent: #ffffff;
   --user-bubble: #2a2a27;
   --danger: #d15c5c;
+  --success: #5da663;
   --shadow: none;
 }
 
@@ -34,6 +35,7 @@
     --on-accent: #ffffff;
     --user-bubble: #ecebe6;
     --danger: #b44a4a;
+    --success: #3d8a4a;
     --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
   }
 }
@@ -53,6 +55,7 @@
   --on-accent: #ffffff;
   --user-bubble: #ecebe6;
   --danger: #b44a4a;
+  --success: #3d8a4a;
   --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
 }
 
@@ -71,6 +74,7 @@
   --on-accent: #ffffff;
   --user-bubble: #2a2a27;
   --danger: #d15c5c;
+  --success: #5da663;
   --shadow: none;
 }
 
@@ -831,6 +835,174 @@ body {
   padding: 6px 8px;
   color: var(--muted);
   font-size: 12.5px;
+}
+
+/* ---------- Plus ("+") popover ---------- */
+
+.plus-wrap {
+  position: relative;
+  display: flex;
+}
+.plus-popover {
+  min-width: 230px;
+}
+.plus-popover .folder-row.is-highlight {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.plus-row-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
+.plus-row-hint {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.plus-row-sub {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.plus-grant {
+  color: var(--accent);
+  cursor: pointer;
+}
+.plus-grant:hover {
+  text-decoration: underline;
+}
+.plus-cua-row {
+  align-items: flex-start;
+}
+.plus-cua-row .switch {
+  margin-top: 2px;
+}
+.cua-indicator {
+  color: var(--muted);
+}
+
+/* Toggle switch (computer use row, settings). */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border: none;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 150ms;
+  flex-shrink: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.switch.on {
+  background: var(--accent);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: left 150ms;
+}
+.switch.on .switch-knob {
+  left: 14px;
+}
+
+/* ---------- Computer-use activity strip ---------- */
+
+.cua-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  margin-bottom: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--text-2);
+  animation: cua-strip-in 160ms ease-out;
+}
+@keyframes cua-strip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.cua-strip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: composer-status-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.cua-strip-dot.is-paused {
+  animation: none;
+  background: var(--muted);
+}
+.cua-strip-headline {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.cua-strip-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.cua-strip-spacer {
+  flex: 1;
+}
+.cua-strip-btn {
+  flex-shrink: 0;
+}
+
+/* Permission status pill (Settings → Computer use). */
+.perm-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.perm-pill.is-granted {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+/* Right-aligned pill + buttons on permission rows; the text column wraps. */
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.perm-actions .ui-btn {
+  white-space: nowrap;
+}
+.settings-note-top {
+  margin-top: 0;
 }
 
 .send-btn {
@@ -2465,14 +2637,13 @@ body {
 
 .toasts {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 44px;
+  right: 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   z-index: 90;
-  align-items: center;
+  align-items: flex-end;
 }
 .toast {
   background: var(--surface);
@@ -2933,8 +3104,13 @@ body {
     background: none;
   }
   .live-dot,
-  .sidebar-skeleton {
+  .sidebar-skeleton,
+  .cua-strip,
+  .cua-strip-dot,
+  .switch,
+  .switch-knob {
     animation: none;
+    transition: none;
   }
   .settings-modal,
   .cmd-modal,

@@ -166,7 +166,10 @@ export class BridgeServer {
       reply(400, { ok: false, error: 'Invalid JSON' })
       return
     }
-    if (typeof body.tool !== 'string' || !/^browser_[a-z_]{1,32}$/.test(body.tool)) {
+    if (
+      typeof body.tool !== 'string' ||
+      !/^(browser|computer)_[a-z_]{1,32}$/.test(body.tool)
+    ) {
       reply(400, { ok: false, error: 'Invalid tool name' })
       return
     }

@@ -51,6 +51,8 @@ export interface ChatBridgeDeps {
   adopt?(fromChatId: string, toChatId: string): void
   /** Absolute path to the browser-tools extension; '' when not shipped. */
   extensionPath(): string
+  /** Whether to expose computer_* tools to this chat's pi process. */
+  computerToolsEnabled?(): boolean
 }
 
 export const CHAT_CHANNELS = {
@@ -224,6 +226,8 @@ export class ChatService {
   private readonly spares = new Map<string, WarmSpare>()
   private readonly spareSpawning = new Set<string>()
   private warmSeq = 0
+  /** Bumped by resetSpares(); in-flight spawns from before the bump stop. */
+  private spareGeneration = 0
   /**
    * Chats whose idle process was evicted: enough context to respawn on the
    * same cwd/session the next time the renderer talks to them.
@@ -261,6 +265,11 @@ export class ChatService {
       }
       extraEnv['PI_DESKTOP_BRIDGE_URL'] = this.bridge.url()
       extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = this.bridge.issue(chatId)
+      // The extension registers computer_* tools only when this env flag is
+      // present, so a disabled setting or missing helper hides them entirely.
+      if (this.bridge.computerToolsEnabled?.() === true) {
+        extraEnv['PI_DESKTOP_COMPUTER_USE'] = '1'
+      }
     }
     return {
       extraArgs: extraArgs.length ? extraArgs : undefined,
@@ -300,6 +309,7 @@ export class ChatService {
       return Promise.resolve()
     }
     this.spareSpawning.add(cwd)
+    const generation = this.spareGeneration
     return (async () => {
       try {
         if (cwd === workspaceDir()) {
@@ -307,8 +317,8 @@ export class ChatService {
         }
         const id = pinned ? SPARE_CHAT_ID : `__warm__${++this.warmSeq}`
         const client = await this.pool.open(id, { cwd, ...this.bridgeExtras(id) })
-        if (this.spares.has(cwd)) {
-          void client.stop() // a parked spare arrived first
+        if (generation !== this.spareGeneration || this.spares.has(cwd)) {
+          void client.stop() // stale spawn env or a parked spare arrived first
           return
         }
         // Warming: pi only becomes responsive once startup work (eager MCP
@@ -331,6 +341,17 @@ export class ChatService {
         this.spareSpawning.delete(cwd)
       }
     })()
+  }
+
+  /**
+   * Spawn-time env changed (e.g. computerUse.enabled flips
+   * PI_DESKTOP_COMPUTER_USE) — drop every warm spare so the next chat adopts
+   * a process spawned with current flags, then re-warm the workspace spare.
+   */
+  async resetSpares(): Promise<void> {
+    this.spareGeneration++
+    await Promise.all([...this.spares.keys()].map((cwd) => this.removeSpare(cwd)))
+    void this.warmSpare()
   }
 
   /** Remove a warm spare entirely (stop its process and revoke its token). */

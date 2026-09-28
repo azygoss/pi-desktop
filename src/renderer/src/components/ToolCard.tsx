@@ -6,7 +6,9 @@ import {
   FileText,
   Globe,
   Loader2,
+  MousePointerClick,
   Search,
+  ShieldCheck,
   Terminal,
   Wrench,
   X
@@ -15,6 +17,7 @@ import { memo, useMemo, useState } from 'react'
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
+import { computerToolSummary } from '../lib/tool-summary'
 
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
@@ -42,6 +45,13 @@ function toolKind(name: string): ToolKind {
 }
 
 function toolIcon(name: string) {
+  const n = name.toLowerCase()
+  if (n === 'computer_confirm') {
+    return <ShieldCheck size={13} />
+  }
+  if (n.startsWith('computer_')) {
+    return <MousePointerClick size={13} />
+  }
   switch (toolKind(name)) {
     case 'bash':
       return <Terminal size={13} />
@@ -76,7 +86,15 @@ function argPath(args: Record<string, unknown>): string | undefined {
   return typeof p === 'string' ? p : undefined
 }
 
-function summarize(name: string, args: Record<string, unknown>, cwd: string): string {
+function summarize(
+  name: string,
+  args: Record<string, unknown>,
+  cwd: string,
+  details?: Record<string, unknown>
+): string {
+  if (name.startsWith('computer_')) {
+    return computerToolSummary(name, args, details)
+  }
   if (toolKind(name) === 'bash') {
     return typeof args['command'] === 'string' ? (args['command'] as string) : ''
   }
@@ -161,6 +179,7 @@ function resultImages(run: ToolRun): ImageBlock[] {
 function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   const [showAll, setShowAll] = useState(false)
   const [showArgs, setShowArgs] = useState(false)
+  const [showTree, setShowTree] = useState(false)
   const [expandedImage, setExpandedImage] = useState<number | null>(null)
   const kind = toolKind(run.name)
 
@@ -213,9 +232,25 @@ function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
           {firstLines(shownOutput, PREVIEW_LINES).text}
         </pre>
       )}
-      {kind !== 'read' && output && (
-        <pre className={clsx('tool-output', { 'is-error': isError })}>{shownOutput}</pre>
-      )}
+      {kind !== 'read' &&
+        output &&
+        (run.name === 'computer_state' ? (
+          // The accessibility tree is bulky; keep it behind a second fold.
+          <div>
+            <button
+              type="button"
+              className="tool-show-all"
+              onClick={() => setShowTree(!showTree)}
+            >
+              {showTree ? 'Hide accessibility tree' : 'Accessibility tree'}
+            </button>
+            {showTree && (
+              <pre className={clsx('tool-output', { 'is-error': isError })}>{shownOutput}</pre>
+            )}
+          </div>
+        ) : (
+          <pre className={clsx('tool-output', { 'is-error': isError })}>{shownOutput}</pre>
+        ))}
 
       {images.map((image, i) => (
         <button
@@ -270,7 +305,14 @@ export const ToolCard = memo(function ToolCard({
         </span>
         <span className="tool-icon">{toolIcon(run.name)}</span>
         <span className="tool-name">{run.name}</span>
-        <span className="tool-summary">{summarize(run.name, run.args, cwd)}</span>
+        <span className="tool-summary">
+          {summarize(
+            run.name,
+            run.args,
+            cwd,
+            run.result?.details as Record<string, unknown> | undefined
+          )}
+        </span>
         <span className="tool-status">
           {run.status === 'running' && <Loader2 size={13} className="spin" />}
           {run.status === 'done' && <Check size={13} />}

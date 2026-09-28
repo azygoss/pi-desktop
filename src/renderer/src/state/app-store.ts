@@ -18,7 +18,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   recentUrls: [],
   sidebarCollapsed: false,
   panelOpen: false,
-  panelWidth: 400
+  panelWidth: 400,
+  computerUse: { enabled: true }
 }
 
 interface AppState {

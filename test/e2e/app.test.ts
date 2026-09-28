@@ -14,7 +14,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const FAKE_PI = join(ROOT, 'test/fixtures/fake-pi.mjs')
+const FAKE_CUA = join(ROOT, 'src/main/cua/__fixtures__/fake-helper.mjs')
 const SHOTS = process.env['PI_DESKTOP_SHOT_DIR'] ?? '/tmp/pi-desktop-shots'
+const CUA_SHOTS = '/tmp/pi-cua-shots'
 
 const PROJECT_A = '/Users/example/synthetic-alpha'
 const PROJECT_B = '/Users/example/synthetic-beta'
@@ -138,6 +140,15 @@ describe('Pi Desktop e2e', () => {
     agentDir = await mkdtemp(join(tmpdir(), 'pi-desktop-e2e-'))
     await seedAgentDir(agentDir)
     await mkdir(SHOTS, { recursive: true })
+    await mkdir(CUA_SHOTS, { recursive: true })
+
+    // The helper override must be an executable file; wrap the .mjs fixture.
+    const cuaHelper = join(agentDir, 'fake-cua-helper.sh')
+    await writeFile(
+      cuaHelper,
+      `#!/bin/sh\nexec "${process.execPath}" "${FAKE_CUA}"\n`,
+      { mode: 0o755 }
+    )
 
     // Synthetic git repo for the diff panel (basename shows in the UI).
     repoDir = join(await mkdtemp(join(tmpdir(), 'pi-e2e-repo-')), 'synthetic-repo')
@@ -186,6 +197,8 @@ describe('Pi Desktop e2e', () => {
       env: {
         ...env,
         PI_DESKTOP_PI_COMMAND: FAKE_PI,
+        PI_DESKTOP_CUA_HELPER: cuaHelper,
+        PI_DESKTOP_E2E: '1',
         PI_CODING_AGENT_DIR: agentDir,
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, 'sessions'),
         PI_DESKTOP_USER_DATA_DIR: userDataDir,
@@ -603,5 +616,126 @@ describe('Pi Desktop e2e', () => {
     expect(paths).toContain('notes.txt')
     expect(paths).toContain('new-file.txt')
     await page.screenshot({ path: join(SHOTS, 'panel-diff.png') })
+  })
+
+  it('opens the plus menu (not a file dialog) with keyboard nav', async () => {
+    const plusBtn = page.locator('button[title="Add files and more"]')
+    await visible(page, '.composer-input')
+    await plusBtn.click()
+    await visible(page, '.plus-popover')
+    const labels = await page.locator('.plus-popover .plus-row-label').allTextContents()
+    expect(labels.some((l) => l.includes('Add photos & images'))).toBe(true)
+    expect(labels.some((l) => l.includes('Computer use'))).toBe(true)
+    expect(labels.some((l) => l.includes('Browser'))).toBe(true)
+    expect(labels.some((l) => l.includes('Terminal'))).toBe(true)
+    // The computer-use row reports live status (fake helper grants AX).
+    await visible(page, '.plus-row-sub:text("Control Mac apps")', 10_000)
+    // Keyboard navigation highlights rows; Escape closes.
+    await page.keyboard.press('ArrowDown')
+    const highlighted = await page
+      .locator('.plus-popover .folder-row.is-highlight')
+      .textContent()
+    expect(highlighted).toContain('Computer use')
+    // Let the pop-in animation finish so the menu is fully opaque.
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: join(CUA_SHOTS, 'plus-menu-dark.png') })
+    await setTheme('light')
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: join(CUA_SHOTS, 'plus-menu-light.png') })
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.plus-popover', { state: 'detached', timeout: 5_000 })
+    await setTheme('dark')
+    // Browser item opens the right panel.
+    await plusBtn.click()
+    await visible(page, '.plus-popover')
+    await page.locator('.plus-popover .folder-row', { hasText: 'Browser' }).click()
+    await visible(page, '.right-panel .newtab-inner', 10_000)
+  })
+
+  it('toggles computer use from the plus menu', async () => {
+    const plusBtn = page.locator('button[title="Add files and more"]')
+    await plusBtn.click()
+    await visible(page, '.plus-popover')
+    await visible(page, '.plus-row-sub:text("Control Mac apps")', 10_000)
+    const row = page.locator('.plus-popover .plus-cua-row')
+    await expect.poll(() => row.locator('.switch').getAttribute('class')).toContain('on')
+    await row.click()
+    // Toast announces the deferred effect; the switch flips on reopen.
+    await visible(page, '.toast', 5_000)
+    await expect
+      .poll(async () => {
+        const v = await page.evaluate(
+          `window.piDesktop.appSettings.get().then(s => s.computerUse.enabled)`
+        )
+        return v
+      })
+      .toBe(false)
+    // Toggle back on for the rest of the suite.
+    await plusBtn.click()
+    await visible(page, '.plus-popover')
+    await page.locator('.plus-popover .plus-cua-row').click()
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          `window.piDesktop.appSettings.get().then(s => s.computerUse.enabled)`
+        )
+      )
+      .toBe(true)
+  })
+
+  it('shows the live computer-use activity strip with pause/stop', async () => {
+    // Activity must arrive while the turn is live: a 'start' after the
+    // turn's agent_end flush is correctly discarded by the store. Send the
+    // fake pi's scripted 2.5s-delayed reply so the turn is still streaming.
+    await page.locator('.composer-input').fill('slow reply please')
+    await page.keyboard.press('Enter')
+    await visible(page, '.msg-pending', 15_000)
+    await page.evaluate(
+      `window.piDesktop.cua.testActivity({
+        phase: 'start', cmd: 'computer_click', app: 'Finder',
+        summary: 'Clicked "Save"'
+      })`
+    )
+    await visible(page, '.cua-strip')
+    expect(await page.locator('.cua-strip-headline').textContent()).toBe(
+      'Using Finder'
+    )
+    expect(await page.locator('.cua-strip-summary').textContent()).toContain(
+      'Clicked'
+    )
+    await page.screenshot({ path: join(CUA_SHOTS, 'cua-strip.png') })
+    // Pause flips the strip copy.
+    await page.locator('button[title^="Pause computer actions"]').click()
+    await visible(page, '.cua-strip-headline:text("Paused — pi is waiting")')
+    await page.screenshot({ path: join(CUA_SHOTS, 'cua-strip-paused.png') })
+    // Resume returns to the live state.
+    await page.locator('button[title^="Resume"]').click()
+    await visible(page, '.cua-strip-headline:text("Using Finder")')
+    // Stop aborts the turn; the resulting agent_end clears the strip.
+    await page.locator('button[title="Stop computer use"]').click()
+    await page.waitForSelector('.cua-strip', { state: 'detached', timeout: 8_000 })
+    // Let the scripted reply settle so the next test starts clean.
+    await expect
+      .poll(async () => {
+        const stats = await page.locator('.chat-stats').allTextContents()
+        return !stats.some((t) => t.includes('Enter to steer'))
+      })
+      .toBe(true)
+  })
+
+  it('shows the Computer use settings section', async () => {
+    await page.locator('.sidebar-footer .icon-btn').last().click()
+    await visible(page, '.settings-modal')
+    await page
+      .locator('.settings-nav-item', { hasText: 'Computer use' })
+      .click()
+    await visible(page, '.perm-pill', 10_000)
+    // Fake helper reports both permissions granted.
+    await expect
+      .poll(() => page.locator('.perm-pill.is-granted').count(), { timeout: 10_000 })
+      .toBe(2)
+    await page.screenshot({ path: join(CUA_SHOTS, 'settings-cua.png') })
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
   })
 })

@@ -163,6 +163,25 @@ export interface AppSettings {
   /** Right panel open state and pixel width, persisted across restarts. */
   panelOpen: boolean
   panelWidth: number
+  /** Computer use: whether the agent may drive native macOS apps. */
+  computerUse: { enabled: boolean }
+}
+
+/** macOS permission state of the computer-use helper. */
+export interface CuaPermissions {
+  available: boolean
+  accessibility: boolean
+  screenRecording: boolean
+}
+
+/** Progress event for an agent-driven native-app action. */
+export interface CuaActivity {
+  chatId?: string
+  /** 'paused'/'resumed' are global service events (no chatId). */
+  phase: 'start' | 'end' | 'paused' | 'resumed'
+  cmd: string
+  app?: string
+  summary: string
 }
 
 /** A listening localhost dev server shown on the panel's new-tab page. */
@@ -429,5 +448,20 @@ export interface PiDesktopApi {
   /** Last-known pi catalog for instant composer/palette rendering. */
   catalog: {
     get(): Promise<CatalogSnapshot>
+  }
+  /** Computer use (native macOS app control). */
+  cua: {
+    permissions(): Promise<CuaPermissions>
+    /** Show the macOS permission prompts and return the new state. */
+    requestPermissions(): Promise<CuaPermissions>
+    /** Open System Settings on the relevant privacy pane. */
+    openSettings(pane: 'accessibility' | 'screenRecording'): Promise<void>
+    pause(): Promise<void>
+    resume(): Promise<void>
+    /** Abort in-flight and queued computer actions. */
+    stop(): Promise<void>
+    onActivity(callback: (payload: CuaActivity) => void): () => void
+    /** e2e-only: inject a synthetic activity event (PI_DESKTOP_E2E=1). */
+    testActivity(payload: CuaActivity): Promise<void>
   }
 }

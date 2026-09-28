@@ -39,3 +39,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.swp
+
+# Computer-use helper build output
+resources/cua-helper/bin/

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { PiProcessPool } from '../pi/pool'
 import type { LocatorDeps } from '../pi/locator'
@@ -240,6 +240,46 @@ describe('ChatService', () => {
       await expect
         .poll(() => pool.get('__spare__') !== undefined, { timeout: 5000 })
         .toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('drops warm spares when the computer-use flag flips and rewarms with new env', async () => {
+    const pool = new PiProcessPool({ preferBundled: true, deps: fakeDeps() })
+    let cuaOn = true
+    const bridge = {
+      url: () => 'http://127.0.0.1:9',
+      issue: () => 'tok',
+      revoke: () => {},
+      adopt: () => {},
+      extensionPath: () => '',
+      computerToolsEnabled: () => cuaOn
+    }
+    const service = new ChatService(pool, () => {}, bridge, {
+      sweepIntervalMs: 3_600_000
+    })
+    try {
+      const envs: (Record<string, string> | undefined)[] = []
+      const origOpen = pool.open.bind(pool)
+      vi.spyOn(pool, 'open').mockImplementation((id, opts) => {
+        envs.push(opts.extraEnv)
+        return origOpen(id, opts)
+      })
+      await service.warmSpare()
+      expect(pool.get('__spare__')?.isRunning).toBe(true)
+      expect(envs.at(-1)?.['PI_DESKTOP_COMPUTER_USE']).toBe('1')
+      const staleSpare = pool.get('__spare__')
+      cuaOn = false
+      await service.resetSpares()
+      // The stale spare is dropped; a fresh one warms with the new flag.
+      await expect
+        .poll(() => envs.length >= 2 && pool.get('__spare__') !== undefined, {
+          timeout: 5000
+        })
+        .toBe(true)
+      expect(envs.at(-1)?.['PI_DESKTOP_COMPUTER_USE']).toBeUndefined()
+      expect(pool.get('__spare__')).not.toBe(staleSpare)
     } finally {
       await pool.closeAll()
     }

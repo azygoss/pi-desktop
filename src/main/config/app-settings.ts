@@ -32,6 +32,8 @@ export interface AppSettings {
   /** Right panel open state and pixel width, persisted across restarts. */
   panelOpen: boolean
   panelWidth: number
+  /** Computer use: whether the agent may drive native macOS apps. */
+  computerUse: { enabled: boolean }
   /** Last window geometry; restored on launch when present. */
   windowBounds?: {
     width: number
@@ -53,7 +55,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   recentUrls: [],
   sidebarCollapsed: false,
   panelOpen: false,
-  panelWidth: 400
+  panelWidth: 400,
+  computerUse: { enabled: true }
 }
 
 export function settingsFilePath(): string {
@@ -128,7 +131,8 @@ function normalizeWindowBounds(
 export function normalizeAppSettings(raw: unknown): AppSettings {
   const settings: AppSettings = {
     ...DEFAULT_APP_SETTINGS,
-    piRuntime: { ...DEFAULT_APP_SETTINGS.piRuntime }
+    piRuntime: { ...DEFAULT_APP_SETTINGS.piRuntime },
+    computerUse: { ...DEFAULT_APP_SETTINGS.computerUse }
   }
   if (raw === null || typeof raw !== 'object') {
     return settings
@@ -190,6 +194,13 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   const bounds = normalizeWindowBounds(input['windowBounds'])
   if (bounds) {
     settings.windowBounds = bounds
+  }
+  const computerUse = input['computerUse']
+  if (computerUse !== null && typeof computerUse === 'object') {
+    const cu = computerUse as Record<string, unknown>
+    if (typeof cu['enabled'] === 'boolean') {
+      settings.computerUse.enabled = cu['enabled']
+    }
   }
   return settings
 }
@@ -261,6 +272,12 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
     if (Number.isFinite(panelWidth)) {
       merged.panelWidth = Math.max(PANEL_MIN_WIDTH, Math.min(1200, Math.floor(panelWidth)))
     }
+    if (input['computerUse'] !== null && typeof input['computerUse'] === 'object') {
+      const cu = input['computerUse'] as Record<string, unknown>
+      if (typeof cu['enabled'] === 'boolean') {
+        merged.computerUse = { ...merged.computerUse, enabled: cu['enabled'] }
+      }
+    }
     const bounds = normalizeWindowBounds(input['windowBounds'])
     if (bounds) {
       merged.windowBounds = bounds
@@ -276,4 +293,12 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
 /** Test hook: reset the cached settings. */
 export function resetAppSettingsCache(): void {
   cached = null
+}
+
+/**
+ * Synchronous view of the last loaded settings — for spawn paths that can't
+ * await. Returns null until the first loadAppSettings() resolves.
+ */
+export function getCachedAppSettings(): AppSettings | null {
+  return cached
 }

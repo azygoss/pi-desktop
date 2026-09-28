@@ -1,8 +1,22 @@
-import { Check, Folder, FolderPlus, Plus, Search, Square, ArrowUp, X } from 'lucide-react'
+import {
+  ArrowUp,
+  Check,
+  ClipboardPaste,
+  Folder,
+  FolderPlus,
+  Globe,
+  ImagePlus,
+  MousePointerClick,
+  Plus,
+  Search,
+  Square,
+  SquareTerminal,
+  X
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
-import type { ChatSendMode } from '../../../shared/api'
+import type { ChatSendMode, CuaPermissions } from '../../../shared/api'
 import type { ImageContent, ThinkingLevel } from '../../../shared/pi-types'
 import { executeAppCommand } from '../lib/app-commands'
 import {
@@ -15,6 +29,8 @@ import {
 import { warmProjectSoon } from '../lib/warm'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
+import { usePanelStore } from '../state/panel-store'
+import { toast } from '../state/toast-store'
 import { ModelPicker } from './ModelPicker'
 
 const MAX_IMAGES = 8
@@ -69,12 +85,21 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const [folderOpen, setFolderOpen] = useState(false)
+  const [plusOpen, setPlusOpen] = useState(false)
+  const [plusHighlight, setPlusHighlight] = useState(0)
+  const [clipHasImage, setClipHasImage] = useState(false)
+  const [cuaPerms, setCuaPerms] = useState<CuaPermissions | null>(null)
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [modelSignal, setModelSignal] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLDivElement>(null)
+  const plusRef = useRef<HTMLDivElement>(null)
+
+  const computerUseEnabled = useAppStore(
+    (s) => s.appSettings.computerUse?.enabled ?? true
+  )
 
   const projects = useAppStore((s) => s.projects)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
@@ -161,12 +186,168 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     return () => document.removeEventListener('pointerdown', close)
   }, [folderOpen])
 
+  // Fresh permission state whenever the plus menu opens, plus once on mount
+  // so the "computer use on" indicator chip can render without a first click.
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () =>
+      window.piDesktop.cua
+        ?.permissions()
+        .then((p) => {
+          if (!cancelled) {
+            setCuaPerms(p)
+          }
+        })
+        .catch(() => {})
+    void refresh()
+    if (plusOpen) {
+      void refresh()
+      // Only offer clipboard paste when there's actually an image waiting.
+      navigator.clipboard
+        ?.read?.()
+        .then((items) =>
+          setClipHasImage(
+            items.some((item) =>
+              item.types.some((t) => t.startsWith('image/'))
+            )
+          )
+        )
+        .catch(() => setClipHasImage(false))
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [plusOpen])
+
+  useEffect(() => {
+    if (!plusOpen) {
+      return
+    }
+    const close = (e: PointerEvent) => {
+      if (plusRef.current && !plusRef.current.contains(e.target as Node)) {
+        setPlusOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [plusOpen])
+
   async function addFiles(files: Iterable<File>): Promise<void> {
     const results = await Promise.all([...files].map(fileToImage))
     setImages((prev) =>
       [...prev, ...results.filter((i): i is ImageContent => i !== null)].slice(0, MAX_IMAGES)
     )
   }
+
+  async function pasteClipboardImage(): Promise<void> {
+    try {
+      const items = await navigator.clipboard.read()
+      const files: File[] = []
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith('image/'))
+        if (type) {
+          const blob = await item.getType(type)
+          files.push(new File([blob], 'clipboard', { type: blob.type }))
+        }
+      }
+      if (files.length > 0) {
+        await addFiles(files)
+      } else {
+        toast('No image on the clipboard')
+      }
+    } catch {
+      toast('Could not read the clipboard')
+    }
+  }
+
+  function toggleComputerUse(): void {
+    const next = !computerUseEnabled
+    void useAppStore
+      .getState()
+      .updateAppSettings({ computerUse: { enabled: next } })
+      .catch(() => {})
+    // New pi processes pick the flag up; an open chat restarts on next send.
+    if (chat) {
+      useChatStore.getState().markCuaStale(chat.chatId)
+      // Only toast when this chat has a live pi to restart — a fresh draft
+      // just spawns with the new flag.
+      if (chat.piReady) {
+        toast('Takes effect on the next message')
+      }
+    }
+  }
+
+  function grantAccessibility(): void {
+    void window.piDesktop.cua
+      ?.requestPermissions()
+      .then(setCuaPerms)
+      .catch(() => {})
+    void window.piDesktop.cua?.openSettings('accessibility').catch(() => {})
+  }
+
+  /** Selectable rows of the plus menu, in display order (divider excluded). */
+  const plusItems = useMemo(() => {
+    const items: { key: string; run: () => void; disabled?: boolean }[] = [
+      { key: 'photos', run: () => fileRef.current?.click() },
+      ...(clipHasImage
+        ? [{ key: 'paste', run: () => void pasteClipboardImage() }]
+        : []),
+      {
+        key: 'computer',
+        run: () => {
+          if (cuaPerms && !cuaPerms.available) {
+            return
+          }
+          toggleComputerUse()
+        }
+      },
+      { key: 'browser', run: () => usePanelStore.getState().addNewTab() },
+      { key: 'terminal', run: () => usePanelStore.getState().toggleTerminal(cwd) }
+    ]
+    return items
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipHasImage, cuaPerms, computerUseEnabled, cwd])
+
+  function closePlus(restoreFocus = true): void {
+    setPlusOpen(false)
+    setPlusHighlight(0)
+    if (restoreFocus) {
+      textareaRef.current?.focus()
+    }
+  }
+
+  function runPlusItem(index: number): void {
+    const item = plusItems[index]
+    if (!item || item.disabled) {
+      return
+    }
+    closePlus()
+    item.run()
+  }
+
+  // Arrow keys / Enter navigate the plus menu while focus stays in the input.
+  useEffect(() => {
+    if (!plusOpen) {
+      return
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setPlusHighlight((h) => Math.min(h + 1, plusItems.length - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setPlusHighlight((h) => Math.max(h - 1, 0))
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        runPlusItem(plusHighlight)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        closePlus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
 
   function runAppCommand(command: string, args: string): void {
     void executeAppCommand(
@@ -235,6 +416,12 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    // ⌘U opens the image picker directly (also reachable via the + menu).
+    if (e.metaKey && (e.key === 'u' || e.key === 'U')) {
+      e.preventDefault()
+      fileRef.current?.click()
+      return
+    }
     if (slashOpen) {
       const items = slashItems
       if (e.key === 'ArrowDown') {
@@ -403,14 +590,156 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
       <div className="composer-bar">
         <div className="composer-left">
-          <button
-            type="button"
-            className="icon-btn"
-            title="Attach image"
-            onClick={() => fileRef.current?.click()}
-          >
-            <Plus size={16} />
-          </button>
+          <div className="plus-wrap" ref={plusRef}>
+            <button
+              type="button"
+              className="icon-btn"
+              title="Add files and more"
+              aria-label="Add files and more"
+              aria-haspopup="menu"
+              aria-expanded={plusOpen}
+              onClick={() => setPlusOpen(!plusOpen)}
+            >
+              <Plus size={16} />
+            </button>
+            {plusOpen && (
+              <div className="folder-popover plus-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={clsx('folder-row', {
+                    'is-highlight': plusHighlight === 0
+                  })}
+                  onMouseEnter={() => setPlusHighlight(0)}
+                  onClick={() => runPlusItem(0)}
+                >
+                  <ImagePlus size={14} />
+                  <span className="plus-row-label">Add photos & images</span>
+                  <span className="plus-row-hint">⌘U</span>
+                </button>
+                {clipHasImage &&
+                  (() => {
+                    const i = plusItems.findIndex((it) => it.key === 'paste')
+                    return (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={clsx('folder-row', {
+                          'is-highlight': plusHighlight === i
+                        })}
+                        onMouseEnter={() => setPlusHighlight(i)}
+                        onClick={() => runPlusItem(i)}
+                      >
+                        <ClipboardPaste size={14} />
+                        <span className="plus-row-label">
+                          Paste image from clipboard
+                        </span>
+                      </button>
+                    )
+                  })()}
+                <div className="folder-popover-divider" />
+                {(() => {
+                  const i = plusItems.findIndex((it) => it.key === 'computer')
+                  const unavailable = cuaPerms?.available === false
+                  const needsAccess =
+                    cuaPerms !== null &&
+                    cuaPerms.available &&
+                    !cuaPerms.accessibility
+                  return (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={clsx('folder-row', 'plus-cua-row', {
+                        'is-highlight': plusHighlight === i
+                      })}
+                      disabled={unavailable}
+                      onMouseEnter={() => setPlusHighlight(i)}
+                      onClick={() => runPlusItem(i)}
+                    >
+                      <MousePointerClick size={14} />
+                      <span className="plus-row-label">
+                        Computer use
+                        <span className="plus-row-sub">
+                          {unavailable ? (
+                            'Not available on this system'
+                          ) : needsAccess ? (
+                            <>
+                              Needs Accessibility access{' '}
+                              <span
+                                className="plus-grant"
+                                role="link"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  grantAccessibility()
+                                }}
+                              >
+                                Grant
+                              </span>
+                            </>
+                          ) : (
+                            'Control Mac apps'
+                          )}
+                        </span>
+                      </span>
+                      <span
+                        className={clsx('switch', { on: computerUseEnabled })}
+                        aria-hidden="true"
+                      >
+                        <span className="switch-knob" />
+                      </span>
+                    </button>
+                  )
+                })()}
+                <div className="folder-popover-divider" />
+                {(() => {
+                  const i = plusItems.findIndex((it) => it.key === 'browser')
+                  return (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={clsx('folder-row', {
+                        'is-highlight': plusHighlight === i
+                      })}
+                      onMouseEnter={() => setPlusHighlight(i)}
+                      onClick={() => runPlusItem(i)}
+                    >
+                      <Globe size={14} />
+                      <span className="plus-row-label">Browser</span>
+                    </button>
+                  )
+                })()}
+                {(() => {
+                  const i = plusItems.findIndex((it) => it.key === 'terminal')
+                  return (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={clsx('folder-row', {
+                        'is-highlight': plusHighlight === i
+                      })}
+                      onMouseEnter={() => setPlusHighlight(i)}
+                      onClick={() => runPlusItem(i)}
+                    >
+                      <SquareTerminal size={14} />
+                      <span className="plus-row-label">Terminal</span>
+                      <span className="plus-row-hint">⌃`</span>
+                    </button>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+          {computerUseEnabled && cuaPerms?.accessibility === true && (
+            <button
+              type="button"
+              className="icon-btn cua-indicator"
+              title="Computer use on"
+              aria-label="Computer use on"
+              onClick={() => setPlusOpen(true)}
+            >
+              <MousePointerClick size={13} />
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"

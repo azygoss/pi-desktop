@@ -6,8 +6,11 @@ import {
   CircleAlert,
   Copy,
   Loader2,
+  Pause,
   Pencil,
+  Play,
   RotateCcw,
+  Square,
   X,
   Zap
 } from 'lucide-react'
@@ -18,7 +21,7 @@ import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat
 import type { ImageContent } from '../../../shared/pi-types'
 import { parseSkillPrefix } from '../../../shared/skill-prefix'
 import { Perf } from '../lib/perf'
-import { summarizeToolNames } from '../lib/tool-summary'
+import { computerGroupApp, summarizeToolNames } from '../lib/tool-summary'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -176,18 +179,26 @@ function ToolGroup({
   const running = runs.some((r) => r.status === 'running')
   const errors = runs.filter((r) => r.status === 'error').length
   const summary = summarizeToolNames(runs.map((r) => r.name))
+  // All computer_* against one app: "Used Finder · 6 actions".
+  const cuaApp = computerGroupApp(runs.map((r) => ({ name: r.name, args: r.args })))
+  const groupLabel =
+    cuaApp !== null
+      ? running
+        ? `Using ${cuaApp}…`
+        : `Used ${cuaApp} · ${runs.length} action${runs.length === 1 ? '' : 's'}`
+      : running
+        ? `Running ${runs.length} tools…`
+        : `Ran ${runs.length} tool${runs.length === 1 ? '' : 's'}`
   return (
     <div className={clsx('tool-card', 'tool-group', { 'tool-error': errors > 0 && !running })}>
       <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
         <span className="tool-chevron">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
-        <span className="tool-name">
-          {running
-            ? `Running ${runs.length} tools…`
-            : `Ran ${runs.length} tool${runs.length === 1 ? '' : 's'}`}
-        </span>
-        {summary && <span className="tool-summary">{summary}</span>}
+        <span className="tool-name">{groupLabel}</span>
+        {summary && cuaApp === null && (
+          <span className="tool-summary">{summary}</span>
+        )}
         {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
         <span className="tool-status">
           {running && <Loader2 size={13} className="spin" />}
@@ -213,6 +224,60 @@ function ToolGroup({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Live computer-use strip above the composer: shows what pi is doing in a
+ * native app ("Using Finder · Clicked "Save"") with pause/resume and stop.
+ */
+function CuaActivityStrip({ chat }: { chat: ChatState }) {
+  if (!chat.cuaActive) {
+    return null
+  }
+  const activity = chat.cuaActivity
+  const paused = chat.cuaPaused === true
+  const headline = paused
+    ? 'Paused — pi is waiting'
+    : `Using ${activity?.app ?? 'an app'}`
+  return (
+    <div className="cua-strip" role="status">
+      <span className={clsx('cua-strip-dot', { 'is-paused': paused })} />
+      <span className="cua-strip-headline">{headline}</span>
+      {activity?.summary && !paused && (
+        <span className="cua-strip-summary">{activity.summary}</span>
+      )}
+      <span className="cua-strip-spacer" />
+      <button
+        type="button"
+        className="icon-btn cua-strip-btn"
+        title={
+          paused
+            ? 'Resume (⌃⌥⌘P)'
+            : 'Pause computer actions (⌃⌥⌘P)'
+        }
+        onClick={() => {
+          if (paused) {
+            void window.piDesktop.cua.resume().catch(() => {})
+          } else {
+            void window.piDesktop.cua.pause().catch(() => {})
+          }
+        }}
+      >
+        {paused ? <Play size={13} /> : <Pause size={13} />}
+      </button>
+      <button
+        type="button"
+        className="icon-btn cua-strip-btn"
+        title="Stop computer use"
+        onClick={() => {
+          void window.piDesktop.cua.stop().catch(() => {})
+          void useChatStore.getState().abort(chat.chatId).catch(() => {})
+        }}
+      >
+        <Square size={12} />
+      </button>
     </div>
   )
 }
@@ -778,6 +843,7 @@ export function ChatView({ chatId }: { chatId: string }) {
       <UiRequestDialog chat={chat} />
 
       <div className="chat-composer-dock">
+        <CuaActivityStrip chat={chat} />
         <Perf id="Composer">
           <Composer
             chat={chat}

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { BrowserWindow, app, nativeTheme, shell } from 'electron'
+import { BrowserWindow, app, globalShortcut, nativeTheme, shell } from 'electron'
 import {
   IPC_CHANNELS,
   broadcastAll,
@@ -9,11 +9,13 @@ import {
   startSessionWatcher,
   wireAppLifecycle
 } from './ipc'
-import { loadAppSettings, updateAppSettings, type AppSettings } from './config/app-settings'
+import { loadAppSettings, updateAppSettings, getCachedAppSettings, type AppSettings } from './config/app-settings'
 import { ensureWorkspaceDir } from './config/app-paths'
 import { BridgeServer } from './bridge/bridge-server'
 import { BrowserToolBridge } from './bridge/browser-tools'
 import { BrowserManager } from './browser/browser-manager'
+import { CuaService } from './cua/cua-service'
+import { ComputerToolBridge } from './cua/cua-tools'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
@@ -24,12 +26,72 @@ const pool = new PiProcessPool({
   customPath: process.env['PI_DESKTOP_PI_COMMAND'] || undefined
 })
 const bridge = new BridgeServer()
+// Computer use: the Swift helper supervises AX/CGEvent/screenshot work; when
+// the binary is missing (non-mac, dev without a build) available() is false
+// and the computer_* tools simply aren't offered to pi.
+const cua = new CuaService()
 const chat = new ChatService(pool, broadcastAll, {
   url: () => bridge.url,
   issue: (chatId) => bridge.issue(chatId),
   revoke: (chatId) => bridge.revoke(chatId),
   adopt: (fromChatId, toChatId) => bridge.adopt(fromChatId, toChatId),
-  extensionPath: piExtensionPath
+  extensionPath: piExtensionPath,
+  computerToolsEnabled: () =>
+    cua.available() && (getCachedAppSettings()?.computerUse.enabled ?? true)
+})
+const computerTools = new ComputerToolBridge(cua, {
+  isEnabled: async () => (await loadAppSettings()).computerUse.enabled
+})
+cua.onActivity((event) => {
+  broadcastAll(IPC_CHANNELS.cuaActivity, event)
+  updateCuaShortcut(event)
+})
+
+// While the agent is driving a Mac app, Control+Option+Command+P toggles the
+// pause gate anywhere in the OS. The shortcut is only held while activity is
+// live — it unregisters 4s after the last 'end' so we don't hog the chord.
+const CUA_PAUSE_ACCELERATOR = 'Control+Option+Command+P'
+let cuaShortcutRegistered = false
+let cuaShortcutTimer: ReturnType<typeof setTimeout> | null = null
+function updateCuaShortcut(event: { phase: string }): void {
+  if (process.platform !== 'darwin' || !cua.available()) {
+    return
+  }
+  if (event.phase === 'start') {
+    if (cuaShortcutTimer) {
+      clearTimeout(cuaShortcutTimer)
+      cuaShortcutTimer = null
+    }
+    if (!cuaShortcutRegistered) {
+      cuaShortcutRegistered = globalShortcut.register(CUA_PAUSE_ACCELERATOR, () => {
+        if (cua.paused) {
+          cua.resume()
+        } else {
+          cua.pause()
+        }
+      })
+    }
+    return
+  }
+  if (event.phase === 'end') {
+    if (cuaShortcutTimer) {
+      clearTimeout(cuaShortcutTimer)
+    }
+    cuaShortcutTimer = setTimeout(() => {
+      cuaShortcutTimer = null
+      if (cuaShortcutRegistered) {
+        globalShortcut.unregister(CUA_PAUSE_ACCELERATOR)
+        cuaShortcutRegistered = false
+      }
+    }, 4000)
+    cuaShortcutTimer.unref?.()
+  }
+}
+app.on('will-quit', () => {
+  if (cuaShortcutRegistered) {
+    globalShortcut.unregister(CUA_PAUSE_ACCELERATOR)
+    cuaShortcutRegistered = false
+  }
 })
 const pty = new PtyManager({
   onData: (id, data) => broadcastAll(IPC_CHANNELS.terminalData, { id, data }),
@@ -180,8 +242,8 @@ app.whenReady().then(async () => {
   // even when that differs from the system appearance.
   nativeTheme.themeSource = lastSettings?.theme ?? 'system'
 
-  registerIpcHandlers({ pool, chat, pty, browser, bridge })
-  wireAppLifecycle({ pool, chat, pty, browser, bridge })
+  registerIpcHandlers({ pool, chat, pty, browser, bridge, cua })
+  wireAppLifecycle({ pool, chat, pty, browser, bridge, cua })
   installAppMenu(isDev)
   const win = createWindow()
 
@@ -196,7 +258,11 @@ app.whenReady().then(async () => {
       }
       await bridge.start().catch(() => {})
       if (bridge.running) {
-        bridge.setHandler((call) => browserTools.call(call.chatId, call.tool, call.params))
+        bridge.setHandler((call) =>
+          call.tool.startsWith('computer_')
+            ? computerTools.call(call.chatId, call.tool, call.params)
+            : browserTools.call(call.chatId, call.tool, call.params)
+        )
       }
       startSessionWatcher()
       // Warm spare pi for the next project-less chat — spawned a couple of

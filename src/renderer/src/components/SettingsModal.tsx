@@ -2,15 +2,16 @@ import { ExternalLink, Folder, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 
-import type { AppInfo, AppSettings } from '../../../shared/api'
+import type { AppInfo, AppSettings, CuaPermissions } from '../../../shared/api'
 import type { PiRuntimeInfo } from '../../../shared/session-types'
 import { useAppStore } from '../state/app-store'
 import { PiLogo } from './PiLogo'
 
-type Section = 'general' | 'runtime' | 'data' | 'about'
+type Section = 'general' | 'computer' | 'runtime' | 'data' | 'about'
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
+  { id: 'computer', label: 'Computer use' },
   { id: 'runtime', label: 'Pi Runtime' },
   { id: 'data', label: 'Data' },
   { id: 'about', label: 'About' }
@@ -47,6 +48,29 @@ export function SettingsModal() {
   const [startupMs, setStartupMs] = useState<number | undefined>(undefined)
   const [displayName, setDisplayName] = useState(appSettings.displayName ?? '')
   const [refreshing, setRefreshing] = useState(false)
+  const [cuaPerms, setCuaPerms] = useState<CuaPermissions | null>(null)
+
+  // Permission status can change in System Settings while this modal is open —
+  // re-check whenever the window regains focus.
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => {
+      void window.piDesktop.cua
+        ?.permissions()
+        .then((p) => {
+          if (!cancelled) {
+            setCuaPerms(p)
+          }
+        })
+        .catch(() => {})
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
 
   useEffect(() => {
     void window.piDesktop.app
@@ -196,6 +220,112 @@ export function SettingsModal() {
                   {appSettings.projects.length} added
                 </span>
               </div>
+            </div>
+          )}
+
+          {section === 'computer' && (
+            <div className="settings-section">
+              <h2>Computer use</h2>
+              <p className="settings-note settings-note-top">
+                Pi can read and operate the UI of Mac apps you ask it to use. It
+                asks before sending, deleting or paying. Screen Recording is
+                only needed for screenshots.
+              </p>
+              {cuaPerms === null ? (
+                <span className="settings-hint">Checking…</span>
+              ) : cuaPerms.available === false ? (
+                <span className="settings-hint">Computer use requires macOS</span>
+              ) : (
+                <>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-label">Computer use</div>
+                      <div className="settings-hint">
+                        Let pi drive native apps; applies to new chats
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={appSettings.computerUse?.enabled ?? true}
+                      className={clsx('switch', {
+                        on: appSettings.computerUse?.enabled ?? true
+                      })}
+                      onClick={() =>
+                        void updateAppSettings({
+                          computerUse: {
+                            enabled: !(appSettings.computerUse?.enabled ?? true)
+                          }
+                        })
+                      }
+                    >
+                      <span className="switch-knob" />
+                    </button>
+                  </div>
+                  {(
+                    [
+                      {
+                        key: 'accessibility' as const,
+                        label: 'Accessibility',
+                        granted: cuaPerms.accessibility,
+                        canRequest: true
+                      },
+                      {
+                        key: 'screenRecording' as const,
+                        label: 'Screen Recording',
+                        granted: cuaPerms.screenRecording,
+                        canRequest: false
+                      }
+                    ]
+                  ).map((row) => (
+                    <div key={row.key} className="settings-row">
+                      <div className="settings-row-text">
+                        <div className="settings-label">{row.label}</div>
+                        <div className="settings-hint">
+                          {row.key === 'screenRecording'
+                            ? 'Needed for screenshots only'
+                            : 'Needed to read and control app UI'}
+                        </div>
+                      </div>
+                      <div className="perm-actions">
+                        <span
+                          className={clsx('perm-pill', {
+                            'is-granted': row.granted
+                          })}
+                        >
+                          {row.granted ? 'Granted' : 'Not granted'}
+                        </span>
+                        {row.canRequest && !row.granted && (
+                          <button
+                            type="button"
+                            className="ui-btn"
+                            onClick={() => {
+                              void window.piDesktop.cua
+                                .requestPermissions()
+                                .then(setCuaPerms)
+                                .catch(() => {})
+                            }}
+                          >
+                            Request
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="ui-btn"
+                          onClick={() =>
+                            void window.piDesktop.cua.openSettings(row.key)
+                          }
+                        >
+                          <ExternalLink size={12} /> Open System Settings
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="settings-note">
+                    Unsigned builds: macOS may ask again after an update.
+                  </div>
+                </>
+              )}
             </div>
           )}
 

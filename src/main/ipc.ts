@@ -2,7 +2,7 @@ import { basename, isAbsolute, resolve } from 'node:path'
 import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import type {
   AppSettings,
   BrowserRect,
@@ -107,7 +107,16 @@ export const IPC_CHANNELS = {
   diffStatus: 'pi-desktop:diff:status',
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external',
-  appLocalServers: 'pi-desktop:app:local-servers'
+  appLocalServers: 'pi-desktop:app:local-servers',
+  cuaPermissions: 'pi-desktop:cua:permissions',
+  cuaRequestPermissions: 'pi-desktop:cua:request-permissions',
+  cuaOpenSettings: 'pi-desktop:cua:open-settings',
+  cuaPause: 'pi-desktop:cua:pause',
+  cuaResume: 'pi-desktop:cua:resume',
+  cuaStop: 'pi-desktop:cua:stop',
+  cuaActivity: 'pi-desktop:cua:activity',
+  /** e2e-only: inject a fake cua:activity broadcast (PI_DESKTOP_E2E=1). */
+  cuaTestActivity: 'pi-desktop:cua:test-activity'
 } as const
 
 export interface IpcDeps {
@@ -117,6 +126,15 @@ export interface IpcDeps {
   browser: BrowserManager
   /** Loopback bridge server for pi browser tools; stopped on quit. */
   bridge?: { stop(): Promise<void>; url?: string }
+  /** Computer-use helper service; absent on non-macOS/test setups. */
+  cua?: {
+    available(): boolean
+    call(cmd: string, args?: Record<string, unknown>): Promise<unknown>
+    pause(): void
+    resume(): void
+    abortAll(message?: string): void
+    dispose(): void
+  }
 }
 
 /**
@@ -227,6 +245,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       'piRuntime' in (patch as Record<string, unknown>)
     ) {
       await applyRuntimeSettings(deps.pool)
+    }
+    // computerUse.enabled is baked into each pi's spawn env, so warm spares
+    // kept for adoption must be respawned with the new flag.
+    if (
+      patch !== null &&
+      typeof patch === 'object' &&
+      'computerUse' in (patch as Record<string, unknown>)
+    ) {
+      void deps.chat.resetSpares().catch(() => {})
     }
     return next
   })
@@ -341,6 +368,75 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const bridgePort = Number(new URL(deps.bridge?.url ?? 'http://x:0').port)
     const exclude = Number.isInteger(bridgePort) && bridgePort > 0 ? [bridgePort] : []
     return listLocalServers(exclude)
+  })
+
+  // --- Computer use (native macOS app control) ----------------------------
+
+  const cuaPermissions = async (prompt: boolean) => {
+    const cua = deps.cua
+    if (!cua?.available()) {
+      return { available: false, accessibility: false, screenRecording: false }
+    }
+    const result = (await cua.call('permissions', { prompt })) as {
+      accessibility?: boolean
+      screenRecording?: boolean
+    }
+    return {
+      available: true,
+      accessibility: result.accessibility === true,
+      screenRecording: result.screenRecording === true
+    }
+  }
+
+  ipcMain.handle(IPC_CHANNELS.cuaPermissions, () => cuaPermissions(false))
+  ipcMain.handle(IPC_CHANNELS.cuaRequestPermissions, () => {
+    // Registers the app in the Accessibility list; the helper inherits the
+    // grant as our child (TCC attributes it to the responsible process).
+    systemPreferences.isTrustedAccessibilityClient(true)
+    return cuaPermissions(true)
+  })
+  ipcMain.handle(IPC_CHANNELS.cuaOpenSettings, (_e, input: { pane?: unknown }) => {
+    const pane = input?.pane
+    if (pane !== 'accessibility' && pane !== 'screenRecording') {
+      return Promise.resolve()
+    }
+    const anchor =
+      pane === 'accessibility' ? 'Privacy_Accessibility' : 'Privacy_ScreenCapture'
+    return shell.openExternal(
+      `x-apple.systempreferences:com.apple.preference.security?${anchor}`
+    )
+  })
+  ipcMain.handle(IPC_CHANNELS.cuaPause, () => deps.cua?.pause())
+  ipcMain.handle(IPC_CHANNELS.cuaResume, () => deps.cua?.resume())
+  ipcMain.handle(IPC_CHANNELS.cuaStop, () =>
+    deps.cua?.abortAll('Computer use stopped by the user')
+  )
+  // E2E hook: lets tests drive the activity strip without a real helper.
+  // Inert unless PI_DESKTOP_E2E=1 was set at launch.
+  ipcMain.handle(IPC_CHANNELS.cuaTestActivity, (_e, input: unknown) => {
+    if (process.env['PI_DESKTOP_E2E'] !== '1') {
+      return
+    }
+    const payload = input as {
+      chatId?: unknown
+      phase?: unknown
+      cmd?: unknown
+      app?: unknown
+      summary?: unknown
+    } | null
+    broadcastAll(IPC_CHANNELS.cuaActivity, {
+      chatId: typeof payload?.chatId === 'string' ? payload.chatId : undefined,
+      phase:
+        payload?.phase === 'start' ||
+        payload?.phase === 'end' ||
+        payload?.phase === 'paused' ||
+        payload?.phase === 'resumed'
+          ? payload.phase
+          : 'start',
+      cmd: typeof payload?.cmd === 'string' ? payload.cmd : 'computer_state',
+      app: typeof payload?.app === 'string' ? payload.app : undefined,
+      summary: typeof payload?.summary === 'string' ? payload.summary : 'Test activity'
+    })
   })
 
   ipcMain.handle(IPC_CHANNELS.chatOpen, (_e, input: ChatOpenInput) => deps.chat.open(input))
@@ -699,6 +795,7 @@ export function wireAppLifecycle(deps: IpcDeps): void {
     void deps.pty.killAll()
     deps.browser.closeAll()
     void deps.bridge?.stop()
+    deps.cua?.dispose()
   })
 }
 

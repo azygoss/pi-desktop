@@ -4,7 +4,8 @@ import { titleFromUserText } from '../../../shared/skill-prefix'
 import type {
   ChatOpenResult,
   ChatSendMode,
-  ChatSessionStats
+  ChatSessionStats,
+  CuaActivity
 } from '../../../shared/api'
 import {
   buildChatViewState,
@@ -53,6 +54,14 @@ export interface ChatState extends ChatViewState {
   transcriptApplied?: boolean
   /** A run finished while the chat was not visible; cleared when opened. */
   unread?: boolean
+  /** Latest computer-use activity (start or end) for the strip. */
+  cuaActivity?: { app?: string; summary: string; phase: 'start' | 'end'; at: number }
+  /** True from the first start until 4s after the last end / turn end. */
+  cuaActive?: boolean
+  /** Service-wide pause state, mirrored from paused/resumed broadcasts. */
+  cuaPaused?: boolean
+  /** computerUse.enabled changed while open — restart pi on next send. */
+  cuaNeedsReload?: boolean
 }
 
 interface ChatStoreState {
@@ -84,6 +93,8 @@ interface ChatStoreState {
   /** Clear the unread marker when the chat becomes visible. */
   markRead(chatId: string): void
   setChatTitle(chatId: string, title: string): void
+  /** Restart the chat's pi on next send (after computerUse.enabled changed). */
+  markCuaStale(chatId: string): void
   respondUi(chatId: string, response: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean }): void
 }
 
@@ -91,8 +102,75 @@ interface ChatStoreState {
 // state after an animation-frame flush, so token deltas batch into one render.
 const drafts = new Map<string, ChatState>()
 const pendingEvents = new Map<string, PiEvent[]>()
+/** 4s "keep the strip visible" tail after the last cua end event. */
+const cuaTails = new Map<string, ReturnType<typeof setTimeout>>()
 let flushScheduled = false
 let statsTimer: ReturnType<typeof setTimeout> | null = null
+
+const CUA_TAIL_MS = 4000
+
+function clearCuaTail(chatId: string): void {
+  const timer = cuaTails.get(chatId)
+  if (timer) {
+    clearTimeout(timer)
+    cuaTails.delete(chatId)
+  }
+}
+
+/** Stop showing the strip: cancel the tail and mark the chat inactive. */
+function clearCua(draft: ChatState): void {
+  clearCuaTail(draft.chatId)
+  if (draft.cuaActive) {
+    draft.cuaActive = false
+  }
+}
+
+function handleCuaActivity(activity: CuaActivity): void {
+  // Pause state is service-wide; events carry no chatId.
+  if (activity.phase === 'paused' || activity.phase === 'resumed') {
+    for (const draft of drafts.values()) {
+      draft.cuaPaused = activity.phase === 'paused'
+      publish(draft.chatId)
+    }
+    return
+  }
+  const chatId =
+    activity.chatId ??
+    (useAppStore.getState().view.kind === 'chat'
+      ? (useAppStore.getState().view as { chatId: string }).chatId
+      : undefined)
+  const draft = chatId ? drafts.get(chatId) : undefined
+  if (!draft) {
+    return
+  }
+  draft.cuaActivity = {
+    app: activity.app,
+    summary: activity.summary,
+    phase: activity.phase,
+    at: Date.now()
+  }
+  if (activity.phase === 'start') {
+    clearCuaTail(draft.chatId)
+    draft.cuaActive = true
+  } else {
+    // Keep the strip on screen briefly after the last action so a burst of
+    // tool calls reads as one continuous activity rather than flickering.
+    clearCuaTail(draft.chatId)
+    const id = draft.chatId
+    cuaTails.set(
+      id,
+      setTimeout(() => {
+        cuaTails.delete(id)
+        const current = drafts.get(id)
+        if (current) {
+          current.cuaActive = false
+          publish(id)
+        }
+      }, CUA_TAIL_MS)
+    )
+  }
+  publish(draft.chatId)
+}
 
 function publish(chatId: string): void {
   const draft = drafts.get(chatId)
@@ -124,6 +202,11 @@ function flushPending(): void {
       if (reducePiEvent(draft, event)) {
         statsDirty = true
       }
+    }
+    // The turn ended — drop the computer-use strip immediately rather than
+    // letting the 4s tail linger past the reply.
+    if (events.some((e) => e.type === 'agent_end' || e.type === 'agent_settled')) {
+      clearCua(draft)
     }
     // A run that settles while the chat isn't on screen leaves an unread
     // marker in the sidebar; opening the chat clears it via markRead().
@@ -231,6 +314,8 @@ export function initChatBridge(): void {
     draft.startupHint = hint
     publish(chatId)
   })
+
+  window.piDesktop.cua?.onActivity(handleCuaActivity)
 
   window.piDesktop.chat.onUiRequest(({ chatId, request }) => {
     const draft = drafts.get(chatId)
@@ -490,9 +575,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   async send(chatId, message, images, mode) {
-    const draft = drafts.get(chatId)
+    let draft = drafts.get(chatId)
     if (!draft) {
       throw new Error('Chat is not open')
+    }
+    // computerUse.enabled is read when pi spawns its extension — a toggle on
+    // an open chat takes effect on the next send by restarting the process.
+    // A send while streaming/starting is a steer and must not kill the run;
+    // the flag stays set and the next idle send reloads instead.
+    if (draft.cuaNeedsReload && draft.status !== 'streaming' && draft.status !== 'starting') {
+      draft.cuaNeedsReload = undefined
+      await get().reloadChat(chatId).catch(() => {})
+      draft = drafts.get(chatId)
+      if (!draft) {
+        throw new Error('Chat is not open')
+      }
     }
     const display: DisplayMessage = {
       kind: 'user',
@@ -524,6 +621,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   async abort(chatId) {
+    const draft = drafts.get(chatId)
+    if (draft) {
+      clearCua(draft)
+      publish(chatId)
+    }
     await window.piDesktop.chat.abort({ chatId })
   },
 
@@ -606,6 +708,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   async closeChat(chatId) {
+    clearCuaTail(chatId)
     drafts.delete(chatId)
     pendingEvents.delete(chatId)
     set((s) => {
@@ -731,6 +834,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
   },
 
+  /** Flag that the chat's pi must restart before the next send (setting
+   *  applied at process spawn). */
+  markCuaStale(chatId) {
+    const draft = drafts.get(chatId)
+    if (draft) {
+      draft.cuaNeedsReload = true
+      publish(chatId)
+    }
+  },
+
   respondUi(chatId, response) {
     const draft = drafts.get(chatId)
     if (draft) {
@@ -740,3 +853,5 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     void window.piDesktop.chat.respondUi({ chatId, ...response }).catch(() => {})
   }
 }))
+
+
