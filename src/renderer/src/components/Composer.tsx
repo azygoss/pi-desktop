@@ -79,6 +79,148 @@ function StartingPiStatus({ startedAt, hint }: { startedAt?: number; hint?: stri
   )
 }
 
+function formatTokens(n: number): string {
+  if (n < 1000) {
+    return `${n}`
+  }
+  const k = n / 1000
+  return `${k % 1 === 0 ? k : k.toFixed(1)}k`
+}
+
+/**
+ * Context-usage ring between the model picker and the send button. Opens a
+ * popover with the token breakdown, session cost and a compact action.
+ */
+function ContextRing({ chat }: { chat: ChatState }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const close = (e: PointerEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const stats = chat.stats
+  const pct = stats?.contextUsage?.percent
+  if (typeof pct !== 'number') {
+    return null
+  }
+  const clamped = Math.max(0, Math.min(100, pct))
+  const tone = clamped >= 90 ? 'danger' : clamped >= 75 ? 'warning' : 'muted'
+  const used = stats?.contextUsage?.tokens
+  const window_ = stats?.contextUsage?.contextWindow
+  const tokens = stats?.tokens
+  const cost = stats?.cost
+  const streaming = chat.status === 'streaming'
+  // r=7 circle in an 18px box.
+  const radius = 7
+  const circumference = 2 * Math.PI * radius
+  const compact = () => {
+    setOpen(false)
+    void window.piDesktop.chat.compact({ chatId: chat.chatId }).catch(() => {})
+  }
+  return (
+    <div className="ctx-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className={`ctx-ring ctx-${tone}`}
+        title={`${Math.round(clamped)}% of context used`}
+        aria-label={`${Math.round(clamped)}% of context used`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <circle className="ctx-track" cx="9" cy="9" r={radius} />
+          <circle
+            className="ctx-arc"
+            cx="9"
+            cy="9"
+            r={radius}
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - clamped / 100)}
+            transform="rotate(-90 9 9)"
+          />
+        </svg>
+      </button>
+      {open && (
+        <div className="folder-popover ctx-popover" role="dialog">
+          <div className="ctx-popover-title">Context</div>
+          {typeof used === 'number' && typeof window_ === 'number' ? (
+            <div className="ctx-popover-row ctx-popover-strong">
+              {formatTokens(used)} / {formatTokens(window_)} ({Math.round(clamped)}%)
+            </div>
+          ) : (
+            <div className="ctx-popover-row ctx-popover-strong">
+              {Math.round(clamped)}% used
+            </div>
+          )}
+          <div className="ctx-bar">
+            <div
+              className={`ctx-bar-fill ctx-bar-${tone}`}
+              style={{ width: `${clamped}%` }}
+            />
+          </div>
+          {tokens && (
+            <div className="ctx-tokens">
+              {(
+                [
+                  ['Input', tokens.input],
+                  ['Output', tokens.output],
+                  ['Cache read', tokens.cacheRead],
+                  ['Cache write', tokens.cacheWrite]
+                ] as const
+              )
+                .filter(([, v]) => typeof v === 'number' && v > 0)
+                .map(([label, v]) => (
+                  <div key={label} className="ctx-popover-row">
+                    <span>{label}</span>
+                    <span className="ctx-value">{formatTokens(v)}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+          {typeof cost === 'number' && cost > 0 && (
+            <div className="ctx-popover-row">
+              <span>Session cost</span>
+              <span className="ctx-value">${cost.toFixed(cost < 0.01 ? 4 : 2)}</span>
+            </div>
+          )}
+          <div className="ctx-popover-actions">
+            <button
+              type="button"
+              className="ui-btn ctx-compact"
+              disabled={streaming}
+              title={streaming ? 'Wait for the current run to finish' : undefined}
+              onClick={compact}
+            >
+              Compact now
+            </button>
+          </div>
+          <div className="ctx-popover-note">pi auto-compacts near the limit</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: ComposerProps) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<ImageContent[]>([])
@@ -856,6 +998,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               }}
             />
           )}
+          {chat && <ContextRing chat={chat} />}
           <button
             type="button"
             className={clsx('send-btn', { 'send-active': canSend && !streaming })}

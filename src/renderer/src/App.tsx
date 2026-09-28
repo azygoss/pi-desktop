@@ -51,11 +51,46 @@ export function App() {
         store.toggleSidebar()
       } else if (action === 'new-chat') {
         store.navigate({ kind: 'home' })
+      } else if (action === 'find-in-chat') {
+        if (store.view.kind === 'chat') {
+          window.dispatchEvent(new CustomEvent('pi-desktop:find-in-chat'))
+        }
       }
     })
+    const unsubscribeOpenChat = window.piDesktop.app.onOpenChat(({ chatId }) => {
+      if (useChatStore.getState().chats[chatId]) {
+        useAppStore.getState().navigate({ kind: 'chat', chatId })
+      }
+    })
+    // Dock badge: unread chats + chats with a pending interactive request.
+    let lastBadge = -1
+    const updateBadge = () => {
+      const enabled =
+        useAppStore.getState().appSettings.notifications?.enabled !== false
+      const count = enabled
+        ? Object.values(useChatStore.getState().chats).filter(
+            (c) =>
+              c.unread ||
+              (c.uiRequest &&
+                (c.uiRequest.method === 'confirm' ||
+                  c.uiRequest.method === 'select' ||
+                  c.uiRequest.method === 'input' ||
+                  c.uiRequest.method === 'editor'))
+          ).length
+        : 0
+      if (count !== lastBadge) {
+        lastBadge = count
+        void window.piDesktop.app.setBadge(count).catch(() => {})
+      }
+    }
+    const unsubscribeBadge = useChatStore.subscribe(updateBadge)
+    const unsubscribeBadgeSettings = useAppStore.subscribe(updateBadge)
     return () => {
       unsubscribe()
       unsubscribeMenu()
+      unsubscribeOpenChat()
+      unsubscribeBadge()
+      unsubscribeBadgeSettings()
     }
   }, [])
 

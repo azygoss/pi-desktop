@@ -93,6 +93,15 @@ function buildItems(
     usePanelStore.getState().openTerminal({ cwd }, 'Terminal')
   }, '⌃`')
   add('Actions', <FileDiff size={13} />, 'Open diff', () => usePanelStore.getState().openDiff())
+  if (chatId) {
+    add(
+      'Actions',
+      <Search size={13} />,
+      'Find in chat',
+      () => window.dispatchEvent(new CustomEvent('pi-desktop:find-in-chat')),
+      '⌘F'
+    )
+  }
   add('Actions', <Settings size={13} />, 'Open settings', () => app.openSettings(), '⌘,')
   for (const theme of ['light', 'dark', 'system'] as const) {
     add(

@@ -220,6 +220,31 @@ export function SettingsModal() {
                   {appSettings.projects.length} added
                 </span>
               </div>
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">Notifications</div>
+                  <div className="settings-hint">
+                    Notify when pi finishes or needs input
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={appSettings.notifications?.enabled ?? true}
+                  className={clsx('switch', {
+                    on: appSettings.notifications?.enabled ?? true
+                  })}
+                  onClick={() =>
+                    void updateAppSettings({
+                      notifications: {
+                        enabled: !(appSettings.notifications?.enabled ?? true)
+                      }
+                    })
+                  }
+                >
+                  <span className="switch-knob" />
+                </button>
+              </div>
             </div>
           )}
 

@@ -70,6 +70,12 @@ export function installAppMenu(isDev: boolean): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => sendMenuAction('find-in-chat')
+        },
         ...(isMac
           ? ([
               { type: 'separator' },

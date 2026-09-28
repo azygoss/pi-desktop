@@ -51,6 +51,8 @@ export type DisplayMessage =
       errorMessage?: string
       streaming?: boolean
       timestamp?: number
+      /** pi's model id that produced this message (persisted sessions). */
+      model?: string
     }
   | {
       kind: 'bash'
@@ -145,7 +147,8 @@ export function mapAgentMessage(message: AgentMessage, key?: string): DisplayMes
         blocks: assistantBlocks(message),
         stopReason: message.stopReason,
         errorMessage: message.errorMessage,
-        timestamp: message.timestamp
+        timestamp: message.timestamp,
+        model: message.model
       }
     case 'bashExecution':
       return {

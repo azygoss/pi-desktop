@@ -4,7 +4,8 @@ import {
   computerGroupApp,
   computerToolSummary,
   formatKeyChord,
-  summarizeToolNames
+  summarizeToolNames,
+  summarizeToolRuns
 } from './tool-summary'
 
 describe('summarizeToolNames', () => {
@@ -106,6 +107,79 @@ describe('computerToolSummary', () => {
     expect(
       computerToolSummary('computer_confirm', {}, { approved: false })
     ).toBe('Declined')
+  })
+})
+
+describe('summarizeToolRuns', () => {
+  const run = (name: string, args: Record<string, unknown> = {}, status = 'done') => ({
+    name,
+    args,
+    status
+  })
+
+  it('joins categories in first-occurrence order', () => {
+    expect(
+      summarizeToolRuns([run('edit'), run('bash'), run('read'), run('read')]).text
+    ).toBe('Edited a file, ran a command, read 2 files')
+    expect(
+      summarizeToolRuns([
+        run('read'),
+        run('edit'),
+        run('edit'),
+        run('bash'),
+        run('bash'),
+        run('bash')
+      ]).text
+    ).toBe('Read a file, edited 2 files, ran 3 commands')
+  })
+
+  it('uses singular phrasing for one-offs', () => {
+    expect(summarizeToolRuns([run('write'), run('bash')]).text).toBe(
+      'Created a file, ran a command'
+    )
+  })
+
+  it('counts searches and browser/computer actions', () => {
+    expect(summarizeToolRuns([run('grep'), run('glob')]).text).toBe('Searched 2 times')
+    expect(
+      summarizeToolRuns([run('browser_open'), run('browser_click')]).text
+    ).toBe('Used the browser (2 actions)')
+    expect(summarizeToolRuns([run('browser_open')]).text).toBe('Used the browser')
+  })
+
+  it('falls back to other tools', () => {
+    expect(summarizeToolRuns([run('web_search'), run('mcp_thing')]).text).toBe(
+      'Used 2 other tools'
+    )
+  })
+
+  it('counts edit and write lines into a diff stat', () => {
+    const s = summarizeToolRuns([
+      run('edit', { oldText: 'a\nb', newText: 'a\nc\nd' }),
+      run('write', { content: 'x\ny' })
+    ])
+    expect(s.diff).toEqual({ added: 5, removed: 2 })
+  })
+
+  it('supports the edits[] arg shape', () => {
+    const s = summarizeToolRuns([
+      run('edit', { edits: [{ oldText: 'a', newText: 'a\nb' }, { newText: 'c' }] })
+    ])
+    expect(s.diff).toEqual({ added: 3, removed: 1 })
+  })
+
+  it('omits the diff when no edits or writes ran', () => {
+    expect(summarizeToolRuns([run('read'), run('bash')]).diff).toBeUndefined()
+  })
+
+  it('reports failures and in-flight runs', () => {
+    const s = summarizeToolRuns([
+      run('read'),
+      run('bash', {}, 'error'),
+      run('edit', {}, 'running')
+    ])
+    expect(s.failed).toBe(1)
+    expect(s.running).toBe(1)
   })
 })
 

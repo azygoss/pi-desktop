@@ -133,7 +133,7 @@ func walk(
     }
 
     var printedDepth = depth
-    if roleCollapses(info) {
+    if roleCollapses(info) || isSingleChildGroup(info) {
         printedDepth -= 1 // children join the parent's level
     } else if info.hasFrame || floats || !info.children.isEmpty || elementDeservesId(info) {
         let id = elementDeservesId(info) ? snapshot.elements.count + 1 : nil

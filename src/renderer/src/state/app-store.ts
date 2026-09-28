@@ -19,7 +19,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   sidebarCollapsed: false,
   panelOpen: false,
   panelWidth: 400,
-  computerUse: { enabled: true }
+  computerUse: { enabled: true },
+  notifications: { enabled: true }
 }
 
 interface AppState {

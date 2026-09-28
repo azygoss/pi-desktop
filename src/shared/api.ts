@@ -165,6 +165,15 @@ export interface AppSettings {
   panelWidth: number
   /** Computer use: whether the agent may drive native macOS apps. */
   computerUse: { enabled: boolean }
+  /** Native notifications + dock badge when pi finishes or needs input. */
+  notifications: { enabled: boolean }
+}
+
+/** A native notification request from the renderer. */
+export interface AppNotifyInput {
+  chatId: string
+  title: string
+  body: string
 }
 
 /** macOS permission state of the computer-use helper. */
@@ -272,7 +281,7 @@ export interface RepoDiffResult {
 }
 
 /** Actions dispatched from the native application menu. */
-export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat'
+export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat' | 'find-in-chat'
 
 export interface AppInfo {
   /** App version from the package manifest. */
@@ -398,8 +407,14 @@ export interface PiDesktopApi {
     localServers(): Promise<LocalServer[]>
     /** Quit the app (renderer confirms with the user first when needed). */
     quit(): Promise<void>
+    /** Show a native notification; clicking it focuses the app and the chat. */
+    notify(input: AppNotifyInput): Promise<void>
+    /** macOS dock badge count (0 clears). */
+    setBadge(count: number): Promise<void>
     /** Native application menu actions; returns an unsubscribe function. */
     onMenuAction(callback: (action: MenuAction) => void): () => void
+    /** Notification click / main-process request to open a chat. */
+    onOpenChat(callback: (payload: { chatId: string }) => void): () => void
   }
   chat: {
     open(input: ChatOpenInput): Promise<ChatOpenResult>

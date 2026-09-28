@@ -2,7 +2,7 @@ import { basename, isAbsolute, resolve } from 'node:path'
 import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import type {
   AppSettings,
   BrowserRect,
@@ -108,6 +108,10 @@ export const IPC_CHANNELS = {
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external',
   appLocalServers: 'pi-desktop:app:local-servers',
+  appNotify: 'pi-desktop:app:notify',
+  appSetBadge: 'pi-desktop:app:set-badge',
+  /** Broadcast to the renderer when a notification click should open a chat. */
+  appOpenChat: 'pi-desktop:app:open-chat',
   cuaPermissions: 'pi-desktop:cua:permissions',
   cuaRequestPermissions: 'pi-desktop:cua:request-permissions',
   cuaOpenSettings: 'pi-desktop:cua:open-settings',
@@ -729,6 +733,49 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(IPC_CHANNELS.appQuit, () => {
     app.quit()
+  })
+
+  // Shown notifications are kept referenced so the click handler isn't
+  // garbage-collected before macOS delivers it.
+  const shownNotifications = new Set<Notification>()
+  ipcMain.handle(IPC_CHANNELS.appNotify, (_e, input: unknown) => {
+    if (!Notification.isSupported()) {
+      return
+    }
+    const n = input as { chatId?: unknown; title?: unknown; body?: unknown } | null
+    const chatId =
+      typeof n?.chatId === 'string' && n.chatId.length > 0 && n.chatId.length <= 128
+        ? n.chatId
+        : undefined
+    if (!chatId) {
+      return
+    }
+    const title = typeof n?.title === 'string' ? n.title.slice(0, 200) : 'Pi'
+    const body = typeof n?.body === 'string' ? n.body.slice(0, 500) : ''
+    const notification = new Notification({ title, body })
+    shownNotifications.add(notification)
+    notification.once('close', () => shownNotifications.delete(notification))
+    notification.on('click', () => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) {
+        return
+      }
+      if (win.isMinimized()) {
+        win.restore()
+      }
+      win.show()
+      win.focus()
+      win.webContents.send(IPC_CHANNELS.appOpenChat, { chatId })
+    })
+    notification.show()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.appSetBadge, (_e, input: unknown) => {
+    const count = Math.floor(Number((input as { count?: unknown } | null)?.count))
+    if (!Number.isInteger(count) || count < 0 || count > 999) {
+      return
+    }
+    app.setBadgeCount(count)
   })
 
   ipcMain.handle(IPC_CHANNELS.appOpenExternal, (_e, url: string) => {

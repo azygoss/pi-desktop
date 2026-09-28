@@ -1,3 +1,182 @@
+export type ToolCategory =
+  | 'read'
+  | 'edit'
+  | 'create'
+  | 'run'
+  | 'search'
+  | 'browser'
+  | 'computer'
+  | 'other'
+
+export function toolCategory(name: string): ToolCategory {
+  const n = name.toLowerCase()
+  if (n.startsWith('browser_')) {
+    return 'browser'
+  }
+  if (n.startsWith('computer_')) {
+    return 'computer'
+  }
+  if (/^(bash|sh|shell|exec|run|terminal)/.test(n)) {
+    return 'run'
+  }
+  if (/^(edit|patch|str_replace|insert|apply)/.test(n)) {
+    return 'edit'
+  }
+  if (/^(write|create)/.test(n)) {
+    return 'create'
+  }
+  if (/^(grep|find|ls|list|glob|search)/.test(n)) {
+    return 'search'
+  }
+  if (/^(read|view|cat)/.test(n)) {
+    return 'read'
+  }
+  return 'other'
+}
+
+function countLines(text: string | undefined): number {
+  if (!text) {
+    return 0
+  }
+  return text.split('\n').length
+}
+
+interface EditEntry {
+  oldText?: string
+  newText?: string
+}
+
+function editEntries(args: Record<string, unknown>): EditEntry[] {
+  if (Array.isArray(args['edits'])) {
+    return args['edits'] as EditEntry[]
+  }
+  if (typeof args['oldText'] === 'string' || typeof args['newText'] === 'string') {
+    return [args as EditEntry]
+  }
+  return []
+}
+
+export interface GroupSummary {
+  /** "Edited 2 files, ran 3 commands" — ordered by first occurrence. */
+  text: string
+  /** Line diff across edit/write calls; undefined when none are present. */
+  diff?: { added: number; removed: number }
+  /** How many runs finished with an error. */
+  failed: number
+  running: number
+}
+
+/**
+ * Claude-style natural summary for a run of tool calls, e.g.
+ * "Edited 2 files, ran 3 commands, read 4 files".
+ */
+export function summarizeToolRuns(
+  runs: { name: string; args: Record<string, unknown>; status: string }[]
+): GroupSummary {
+  const counts = new Map<ToolCategory, number>()
+  const order: ToolCategory[] = []
+  let added = 0
+  let removed = 0
+  let hasDiff = false
+  let failed = 0
+  let running = 0
+
+  for (const run of runs) {
+    const cat = toolCategory(run.name)
+    if (!counts.has(cat)) {
+      order.push(cat)
+    }
+    counts.set(cat, (counts.get(cat) ?? 0) + 1)
+    if (run.status === 'error') {
+      failed += 1
+    }
+    if (run.status === 'running') {
+      running += 1
+    }
+    if (cat === 'edit') {
+      for (const entry of editEntries(run.args)) {
+        removed += countLines(entry.oldText)
+        added += countLines(entry.newText)
+        hasDiff = true
+      }
+    } else if (cat === 'create') {
+      const content = run.args['content']
+      added += countLines(typeof content === 'string' ? content : undefined)
+      hasDiff = true
+    }
+  }
+
+  const phrase = (cat: ToolCategory, n: number): string => {
+    const plural = (word: string) => (n === 1 ? word : `${word}s`)
+    switch (cat) {
+      case 'read':
+        return `read ${n === 1 ? 'a file' : `${n} files`}`
+      case 'edit':
+        return `edited ${n === 1 ? 'a file' : `${n} files`}`
+      case 'create':
+        return `created ${n === 1 ? 'a file' : `${n} files`}`
+      case 'run':
+        return `ran ${n === 1 ? 'a command' : `${n} commands`}`
+      case 'search':
+        return n === 1 ? 'searched' : `searched ${n} times`
+      case 'browser':
+        return `used the browser${n > 1 ? ` (${n} actions)` : ''}`
+      case 'computer':
+        return `used the computer${n > 1 ? ` (${n} actions)` : ''}`
+      default:
+        return `used ${n} other ${plural('tool')}`
+    }
+  }
+
+  const text = order.map((cat) => phrase(cat, counts.get(cat)!)).join(', ')
+  const summary: GroupSummary = {
+    text: text.charAt(0).toUpperCase() + text.slice(1),
+    failed,
+    running
+  }
+  if (hasDiff) {
+    summary.diff = { added, removed }
+  }
+  return summary
+}
+
+function relativePath(p: string, cwd: string): string {
+  if (cwd && p.startsWith(cwd)) {
+    const rest = p.slice(cwd.length).replace(/^[/\\]/, '')
+    return rest || p
+  }
+  return p
+}
+
+function argPath(args: Record<string, unknown>): string | undefined {
+  const p = args['path'] ?? args['file'] ?? args['filePath'] ?? args['file_path']
+  return typeof p === 'string' ? p : undefined
+}
+
+/**
+ * The one-line summary a tool card shows next to the tool name — also the
+ * searchable line find-in-chat indexes for tool calls.
+ */
+export function toolCallSummary(
+  name: string,
+  args: Record<string, unknown>,
+  cwd = '',
+  details?: Record<string, unknown>
+): string {
+  if (name.startsWith('computer_')) {
+    return computerToolSummary(name, args, details)
+  }
+  if (toolCategory(name) === 'run') {
+    return typeof args['command'] === 'string' ? (args['command'] as string) : ''
+  }
+  const p = argPath(args)
+  if (p) {
+    return relativePath(p, cwd)
+  }
+  const firstString = Object.values(args).find((v) => typeof v === 'string')
+  return typeof firstString === 'string' ? firstString.slice(0, 120) : ''
+}
+
 /**
  * Turn a run of tool names into a short human summary, e.g.
  * "read 2 files, edited 1, ran 2 commands". Unknown tools fall back to

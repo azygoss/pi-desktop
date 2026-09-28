@@ -84,6 +84,11 @@ interface ChatStoreState {
    * messages). Returns the message text pi hands back for editing.
    */
   forkFromUserMessage(chatId: string, userIndex: number): Promise<string | undefined>
+  /**
+   * Retry: fork at the user message at `userIndex` and immediately re-send
+   * that message's text and images (no composer prefill).
+   */
+  retryFromUserMessage(chatId: string, userIndex: number): Promise<void>
   /** Fork at a specific entry id (e.g. picked in the /fork or /tree modal). */
   forkAtEntry(chatId: string, entryId: string): Promise<string | undefined>
   /** Restart the chat's pi process on the same session and refresh state. */
@@ -190,6 +195,69 @@ function isVisibleChat(chatId: string): boolean {
   return view.kind === 'chat' && view.chatId === chatId
 }
 
+// ---------------------------------------------------------------------------
+// Notifications — the renderer decides when, main shows the native toast.
+// ---------------------------------------------------------------------------
+
+function notifyEnabled(): boolean {
+  return useAppStore.getState().appSettings.notifications?.enabled !== false
+}
+
+function windowFocused(): boolean {
+  return typeof document !== 'undefined' && document.hasFocus()
+}
+
+/** Rough markdown → plain text for notification bodies. */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function lastAssistantText(draft: ChatState): string {
+  for (let i = draft.messages.length - 1; i >= 0; i--) {
+    const m = draft.messages[i]!
+    if (m.kind === 'assistant') {
+      return m.blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => (b.type === 'text' ? b.text : ''))
+        .join('\n')
+        .trim()
+    }
+  }
+  return ''
+}
+
+/** A finished run notifies when the chat is off-screen or the window is
+ *  unfocused; the body is the last assistant reply (or the error outcome). */
+function notifyRunSettled(chatId: string, draft: ChatState): void {
+  if (!notifyEnabled()) {
+    return
+  }
+  const errored = draft.status === 'error' || !!draft.error
+  const body = errored
+    ? 'Stopped with an error'
+    : stripMarkdown(lastAssistantText(draft)).slice(0, 120) || 'Run finished'
+  void window.piDesktop.app?.notify?.({ chatId, title: draft.title || 'Pi', body })
+    .catch(() => {})
+}
+
+function notifyUiRequest(chatId: string, draft: ChatState, title?: string): void {
+  if (!notifyEnabled()) {
+    return
+  }
+  void window.piDesktop.app?.notify?.({
+    chatId,
+    title: draft.title || 'Pi',
+    body: `Pi needs your input${title ? `: ${title}` : ''}`
+  }).catch(() => {})
+}
+
 function flushPending(): void {
   flushScheduled = false
   let statsDirty = false
@@ -212,12 +280,13 @@ function flushPending(): void {
     // marker in the sidebar; opening the chat clears it via markRead().
     // (start+settle can land in the same batch, so key off the event, not
     // the status snapshot before this flush.)
-    if (
-      draft.status === 'idle' &&
-      !isVisibleChat(chatId) &&
-      events.some((e) => e.type === 'agent_settled')
-    ) {
-      draft.unread = true
+    if (draft.status === 'idle' && events.some((e) => e.type === 'agent_settled')) {
+      if (!isVisibleChat(chatId)) {
+        draft.unread = true
+      }
+      if (!isVisibleChat(chatId) || !windowFocused()) {
+        notifyRunSettled(chatId, draft)
+      }
     }
     publish(chatId)
   }
@@ -322,6 +391,15 @@ export function initChatBridge(): void {
     if (draft) {
       draft.uiRequest = request
       publish(chatId)
+      if (
+        (request.method === 'confirm' ||
+          request.method === 'select' ||
+          request.method === 'input' ||
+          request.method === 'editor') &&
+        (!isVisibleChat(chatId) || !windowFocused())
+      ) {
+        notifyUiRequest(chatId, draft, request.title)
+      }
     }
   })
 
@@ -779,6 +857,31 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       publish(chatId)
     }
     return result.text
+  },
+
+  async retryFromUserMessage(chatId, userIndex) {
+    const draft = drafts.get(chatId)
+    if (!draft) {
+      return
+    }
+    const user = draft.messages.filter((m) => m.kind === 'user')[userIndex]
+    if (!user || user.kind !== 'user') {
+      return
+    }
+    const text = user.text
+    const images = user.images.length ? user.images : undefined
+    const forked = await get().forkFromUserMessage(chatId, userIndex)
+    if (forked === undefined) {
+      return
+    }
+    // forkFromUserMessage seeds the composer for editing; retry sends right
+    // away, so clear the seed to leave an empty composer.
+    const refreshed = drafts.get(chatId)
+    if (refreshed?.composerSeed) {
+      refreshed.composerSeed = { text: '', nonce: ++seedCounter }
+      publish(chatId)
+    }
+    await get().send(chatId, text, images, 'prompt')
   },
 
   async reloadChat(chatId) {

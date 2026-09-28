@@ -75,7 +75,10 @@ const api: PiDesktopApi = {
     openExternal: (url) => ipcRenderer.invoke('pi-desktop:app:open-external', url),
     localServers: () => ipcRenderer.invoke('pi-desktop:app:local-servers'),
     quit: () => ipcRenderer.invoke('pi-desktop:app:quit'),
-    onMenuAction: subscribe('pi-desktop:menu:action')
+    notify: (input) => ipcRenderer.invoke('pi-desktop:app:notify', input),
+    setBadge: (count) => ipcRenderer.invoke('pi-desktop:app:set-badge', { count }),
+    onMenuAction: subscribe('pi-desktop:menu:action'),
+    onOpenChat: subscribe('pi-desktop:app:open-chat')
   },
   chat: {
     open: (input) => ipcRenderer.invoke('pi-desktop:chat:open', input),

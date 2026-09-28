@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   Copy,
   Loader2,
@@ -10,18 +11,35 @@ import {
   Pencil,
   Play,
   RotateCcw,
+  Search,
   Square,
   X,
   Zap
 } from 'lucide-react'
-import { Suspense, lazy, memo, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
+import { flushSync } from 'react-dom'
 import clsx from 'clsx'
 
 import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
-import type { ImageContent } from '../../../shared/pi-types'
+import type { ImageContent, Model } from '../../../shared/pi-types'
 import { parseSkillPrefix } from '../../../shared/skill-prefix'
+import {
+  findMatches,
+  locateOccurrence,
+  totalOccurrences,
+  type FindMatch
+} from '../lib/find'
 import { Perf } from '../lib/perf'
-import { computerGroupApp, summarizeToolNames } from '../lib/tool-summary'
+import { computerGroupApp, summarizeToolRuns } from '../lib/tool-summary'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -176,9 +194,11 @@ function ToolGroup({
         status: 'done' as const
       }
   )
-  const running = runs.some((r) => r.status === 'running')
-  const errors = runs.filter((r) => r.status === 'error').length
-  const summary = summarizeToolNames(runs.map((r) => r.name))
+  const group = summarizeToolRuns(
+    runs.map((r) => ({ name: r.name, args: r.args, status: r.status }))
+  )
+  const running = group.running > 0
+  const errors = group.failed
   // All computer_* against one app: "Used Finder · 6 actions".
   const cuaApp = computerGroupApp(runs.map((r) => ({ name: r.name, args: r.args })))
   const groupLabel =
@@ -188,7 +208,7 @@ function ToolGroup({
         : `Used ${cuaApp} · ${runs.length} action${runs.length === 1 ? '' : 's'}`
       : running
         ? `Running ${runs.length} tools…`
-        : `Ran ${runs.length} tool${runs.length === 1 ? '' : 's'}`
+        : group.text
   return (
     <div className={clsx('tool-card', 'tool-group', { 'tool-error': errors > 0 && !running })}>
       <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
@@ -196,10 +216,17 @@ function ToolGroup({
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
         <span className="tool-name">{groupLabel}</span>
-        {summary && cuaApp === null && (
-          <span className="tool-summary">{summary}</span>
+        {!running && group.diff && (
+          <span className="tool-group-diff">
+            <span className="diff-add-count">+{group.diff.added}</span>{' '}
+            <span className="diff-del-count">−{group.diff.removed}</span>
+          </span>
         )}
-        {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
+        {errors > 0 && (
+          <span className="tool-group-errors">
+            ({errors} failed)
+          </span>
+        )}
         <span className="tool-status">
           {running && <Loader2 size={13} className="spin" />}
           {!running && errors === 0 && <Check size={13} />}
@@ -282,19 +309,52 @@ function CuaActivityStrip({ chat }: { chat: ChatState }) {
   )
 }
 
+/** Muted hover metadata in the actions row: "GLM 5.3 · 14:02". */
+function messageMeta(message: DisplayMessage, models: Model[]): string {
+  const parts: string[] = []
+  if (message.kind === 'assistant' && message.model) {
+    // Sessions persist the model id; show the catalog's display name.
+    parts.push(models.find((m) => m.id === message.model)?.name ?? message.model)
+  }
+  if (message.timestamp) {
+    parts.push(
+      new Date(message.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    )
+  }
+  return parts.join(' · ')
+}
+
 function MessageRow({
   message,
   toolRuns,
   cwd,
+  midx,
   userIndex,
-  onFork
+  copyText,
+  meta,
+  pinnedActions,
+  onFork,
+  onRetry
 }: {
   message: DisplayMessage
   toolRuns: Record<string, ToolRun>
   cwd: string
+  /** Absolute index in the transcript (find-in-chat target). */
+  midx: number
   /** Position among user messages; defined for user rows only. */
   userIndex?: number
+  /** Text the Copy action writes; omitted when the row has no actions. */
+  copyText?: string
+  /** Muted "model · time" metadata in the actions row. */
+  meta?: string
+  /** Keep the actions row visible without hover (last assistant turn). */
+  pinnedActions?: boolean
   onFork?: (userIndex: number) => void
+  /** Retry handler; set only on the last assistant message. */
+  onRetry?: () => void
 }) {
   const homeDir = useAppStore((s) => s.appInfo?.homeDir ?? '')
   if (message.kind === 'user') {
@@ -304,7 +364,7 @@ function MessageRow({
     const tilde = (p: string) =>
       homeDir && homeDir !== '/' && p.startsWith(homeDir) ? `~${p.slice(homeDir.length)}` : p
     return (
-      <div className="msg-user-row fade-in">
+      <div className="msg-user-row fade-in" data-midx={midx}>
         <div className="msg-user">
           {skills.length > 0 && (
             <div className="skill-chips">
@@ -351,6 +411,7 @@ function MessageRow({
               <Pencil size={12} />
             </button>
           )}
+          {meta && <span className="msg-meta">{meta}</span>}
         </div>
       </div>
     )
@@ -358,7 +419,7 @@ function MessageRow({
   if (message.kind === 'assistant') {
     const items = groupToolCalls(message.blocks)
     return (
-      <div className="msg-assistant fade-in">
+      <div className="msg-assistant fade-in" data-midx={midx}>
         {items.map((item, i) =>
           item.type === 'toolGroup' ? (
             <ToolGroup
@@ -378,9 +439,20 @@ function MessageRow({
           )
         )}
         {message.errorMessage && <div className="msg-error">{message.errorMessage}</div>}
-        {!message.streaming && assistantText(message) && (
-          <div className="msg-actions">
-            <CopyButton text={assistantText(message)} />
+        {!message.streaming && (copyText || onRetry || meta) && (
+          <div className={clsx('msg-actions', { 'is-pinned': pinnedActions })}>
+            {copyText && <CopyButton text={copyText} />}
+            {onRetry && (
+              <button
+                type="button"
+                className="icon-btn msg-action"
+                title="Retry"
+                onClick={onRetry}
+              >
+                <RotateCcw size={12} />
+              </button>
+            )}
+            {meta && <span className="msg-meta">{meta}</span>}
           </div>
         )}
       </div>
@@ -394,10 +466,14 @@ function MessageRow({
       status: message.cancelled || (message.exitCode ?? 0) !== 0 ? 'error' : 'done',
       result: { content: [{ type: 'text', text: message.output }] }
     }
-    return <ToolCard run={run} cwd={cwd} className="fade-in" />
+    return (
+      <div data-midx={midx}>
+        <ToolCard run={run} cwd={cwd} className="fade-in" />
+      </div>
+    )
   }
   return (
-    <div className={`msg-notice msg-notice-${message.tone} fade-in`}>
+    <div className={`msg-notice msg-notice-${message.tone} fade-in`} data-midx={midx}>
       <span>{message.text}</span>
     </div>
   )
@@ -415,7 +491,12 @@ const MemoMessageRow = memo(
       prev.message !== next.message ||
       prev.userIndex !== next.userIndex ||
       prev.onFork !== next.onFork ||
-      prev.cwd !== next.cwd
+      prev.onRetry !== next.onRetry ||
+      prev.midx !== next.midx ||
+      prev.cwd !== next.cwd ||
+      prev.copyText !== next.copyText ||
+      prev.meta !== next.meta ||
+      prev.pinnedActions !== next.pinnedActions
     ) {
       return false
     }
@@ -571,36 +652,178 @@ function UiRequestDialog({ chat }: { chat: ChatState }) {
 const INITIAL_RENDER_ROWS = 60
 const RENDER_CHUNK_ROWS = 80
 
-function statsFooter(chat: ChatState): string {
-  const parts: string[] = []
-  const pct = chat.stats?.contextUsage?.percent
-  if (typeof pct === 'number') {
-    parts.push(`${Math.round(pct)}% context`)
+/** HighlightRegistry isn't in older TS DOM libs. */
+function highlightRegistry(): Map<string, Highlight> | undefined {
+  return (CSS as unknown as { highlights?: Map<string, Highlight> }).highlights
+}
+
+function clearFindHighlights(): void {
+  const registry = highlightRegistry()
+  registry?.delete('find')
+  registry?.delete('find-current')
+}
+
+/**
+ * Build Highlight ranges for every occurrence of `query` inside mounted
+ * message rows. The row containing the active match additionally feeds the
+ * stronger 'find-current' highlight.
+ */
+function applyFindHighlights(
+  root: HTMLElement,
+  matches: FindMatch[],
+  query: string,
+  currentMessageIndex: number | undefined,
+  occurrenceInMessage: number
+): void {
+  const registry = highlightRegistry()
+  if (!registry) {
+    return
   }
-  const tokens = chat.stats?.tokens?.total
-  if (typeof tokens === 'number' && tokens > 0) {
-    parts.push(
-      tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k tokens` : `${tokens} tokens`
-    )
+  if (!query) {
+    clearFindHighlights()
+    return
   }
-  const cost = chat.stats?.cost
-  if (typeof cost === 'number' && cost > 0) {
-    parts.push(`$${cost.toFixed(cost < 0.01 ? 4 : 2)}`)
+  const q = query.toLowerCase()
+  const ranges: Range[] = []
+  let current: Range | null = null
+  for (const match of matches) {
+    const row = root.querySelector(`[data-midx="${match.messageIndex}"]`)
+    if (!row) {
+      continue
+    }
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+    const rowRanges: Range[] = []
+    let node: Node | null
+    while ((node = walker.nextNode())) {
+      const text = node.textContent ?? ''
+      const lower = text.toLowerCase()
+      let pos = 0
+      while ((pos = lower.indexOf(q, pos)) !== -1) {
+        const range = new Range()
+        range.setStart(node, pos)
+        range.setEnd(node, pos + q.length)
+        rowRanges.push(range)
+        pos += q.length
+      }
+    }
+    if (match.messageIndex === currentMessageIndex && rowRanges.length > 0) {
+      current = rowRanges[Math.min(occurrenceInMessage, rowRanges.length - 1)]!
+    }
+    ranges.push(...rowRanges)
   }
-  return parts.join(' · ')
+  registry.set('find', new Highlight(...ranges))
+  if (current) {
+    registry.set('find-current', new Highlight(current))
+  } else {
+    registry.delete('find-current')
+  }
+}
+
+/**
+ * The compact ⌘F bar pinned top-right of the chat pane.
+ */
+function FindBar({
+  query,
+  onQuery,
+  count,
+  total,
+  onPrev,
+  onNext,
+  onClose,
+  inputRef
+}: {
+  query: string
+  onQuery: (q: string) => void
+  /** 0-based index of the current occurrence. */
+  count: number
+  total: number
+  onPrev: () => void
+  onNext: () => void
+  onClose: () => void
+  inputRef: React.RefObject<HTMLInputElement | null>
+}) {
+  return (
+    <div className="find-bar" role="search">
+      <Search size={12} className="find-bar-icon" />
+      <input
+        ref={inputRef}
+        className="find-bar-input"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="Find in chat"
+        spellCheck={false}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            if (e.shiftKey) {
+              onPrev()
+            } else {
+              onNext()
+            }
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            onClose()
+          }
+        }}
+      />
+      <span className="find-bar-count">
+        {query ? (total > 0 ? `${count + 1} of ${total}` : 'No results') : ''}
+      </span>
+      <button
+        type="button"
+        className="icon-btn find-bar-btn"
+        title="Previous match (⇧Enter)"
+        disabled={total === 0}
+        onClick={onPrev}
+      >
+        <ChevronUp size={13} />
+      </button>
+      <button
+        type="button"
+        className="icon-btn find-bar-btn"
+        title="Next match (Enter)"
+        disabled={total === 0}
+        onClick={onNext}
+      >
+        <ChevronDown size={13} />
+      </button>
+      <button
+        type="button"
+        className="icon-btn find-bar-btn"
+        title="Close (Esc)"
+        onClick={onClose}
+      >
+        <X size={13} />
+      </button>
+    </div>
+  )
 }
 
 export function ChatView({ chatId }: { chatId: string }) {
   const chat = useChatStore((s) => s.chats[chatId])
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
+  // While a jump-initiated scroll is animating its intermediate scroll
+  // events must not clear the pin — the animation's target decides it.
+  const jumpAnimRef = useRef(false)
   const [showJump, setShowJump] = useState(false)
+  // Accent dot on the jump button: new streamed content arrived while the
+  // user was scrolled up.
+  const [newContent, setNewContent] = useState(false)
   // rowsWindow.chatId keeps the count scoped: switching chats starts over at
   // INITIAL_RENDER_ROWS without a reset effect.
   const [rowsWindow, setRowsWindow] = useState({ chatId, rows: INITIAL_RENDER_ROWS })
   const renderRows =
     rowsWindow.chatId === chatId ? rowsWindow.rows : INITIAL_RENDER_ROWS
   const navigate = useAppStore((s) => s.navigate)
+
+  // Find-in-chat (⌘F): query is debounced so highlighting doesn't churn per
+  // keystroke; findOrdinal is the global occurrence index across messages.
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [findOrdinal, setFindOrdinal] = useState(0)
+  const findInputRef = useRef<HTMLInputElement>(null)
 
   const messageCountForWindow = chat?.messages.length ?? 0
   // Windowed transcript: only the latest rows mount at first. Scrolling near
@@ -625,9 +848,15 @@ export function ChatView({ chatId }: { chatId: string }) {
     if (!el) {
       return
     }
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    stickRef.current = nearBottom
-    setShowJump(!nearBottom)
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    const nearBottom = distance < 80
+    if (!jumpAnimRef.current) {
+      stickRef.current = nearBottom
+    }
+    if (nearBottom) {
+      setNewContent(false)
+    }
+    setShowJump(distance > 200)
     // Scrolling up mounts the next chunk of older rows immediately instead of
     // waiting for an idle callback.
     if (el.scrollTop < 480) {
@@ -662,10 +891,19 @@ export function ChatView({ chatId }: { chatId: string }) {
   const streaming = chat?.status === 'streaming'
   // One rAF per publish instead of a sync scroll during render — avoids
   // forcing layout while React is still mutating the list. Short hops
-  // animate smoothly; long jumps (initial load) snap.
+  // animate smoothly; long jumps (initial load) snap. When the user has
+  // scrolled up (stick=false) we never yank them down — the jump button's
+  // dot marks new streamed content instead.
   useEffect(() => {
     const el = scrollRef.current
-    if (!el || !stickRef.current) {
+    if (!el) {
+      return
+    }
+    if (!stickRef.current) {
+      if (streaming) {
+        const raf = requestAnimationFrame(() => setNewContent(true))
+        return () => cancelAnimationFrame(raf)
+      }
       return
     }
     const raf = requestAnimationFrame(() => {
@@ -682,6 +920,185 @@ export function ChatView({ chatId }: { chatId: string }) {
     return () => cancelAnimationFrame(raf)
   }, [chat, messageCount, streaming])
 
+  // Jump to the very bottom/top: expand the window synchronously first so
+  // the target row is mounted before scrolling.
+  const jumpTo = useCallback(
+    (where: 'top' | 'bottom') => {
+      const el = scrollRef.current
+      if (!el) {
+        return
+      }
+      flushSync(() => setRowsWindow({ chatId, rows: messageCount }))
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const instant =
+        where === 'top' || reduceMotion || distance > el.clientHeight * 3
+      el.scrollTo({
+        top: where === 'bottom' ? el.scrollHeight : 0,
+        behavior: instant ? 'auto' : 'smooth'
+      })
+      // Keep the pin decision frozen until the programmatic scroll finishes
+      // (Chromium fires 'scrollend'; the timeout covers instant jumps).
+      jumpAnimRef.current = true
+      let cleared = false
+      const clearAnim = () => {
+        if (!cleared) {
+          cleared = true
+          jumpAnimRef.current = false
+        }
+      }
+      el.addEventListener('scrollend', clearAnim, { once: true })
+      setTimeout(clearAnim, 900)
+      stickRef.current = where === 'bottom'
+      if (where === 'bottom') {
+        setNewContent(false)
+        setShowJump(false)
+      }
+    },
+    [chatId, messageCount]
+  )
+
+  // Keyboard: ⌘↓/⌘↑ jump (unless the composer has text), ⌘F opens find.
+  useEffect(() => {
+    const composerBusy = () => {
+      const ta = document.querySelector<HTMLTextAreaElement>('.composer-input')
+      return document.activeElement === ta && (ta?.value ?? '') !== ''
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.ctrlKey || e.altKey) {
+        return
+      }
+      if (e.key === 'f' && !e.shiftKey) {
+        e.preventDefault()
+        setFindOpen(true)
+        requestAnimationFrame(() => findInputRef.current?.focus())
+      } else if (e.key === 'ArrowDown' && !e.shiftKey && !composerBusy()) {
+        e.preventDefault()
+        jumpTo('bottom')
+      } else if (e.key === 'ArrowUp' && !e.shiftKey && !composerBusy()) {
+        e.preventDefault()
+        jumpTo('top')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [jumpTo])
+
+  // The Edit → Find… menu item and the palette dispatch this event.
+  useEffect(() => {
+    const open = () => {
+      setFindOpen(true)
+      requestAnimationFrame(() => findInputRef.current?.focus())
+    }
+    window.addEventListener('pi-desktop:find-in-chat', open)
+    return () => window.removeEventListener('pi-desktop:find-in-chat', open)
+  }, [])
+
+  // Debounce the find query.
+  useEffect(() => {
+    if (!findOpen) {
+      return
+    }
+    const timer = setTimeout(() => {
+      setDebouncedQuery(findQuery)
+      setFindOrdinal(0)
+    }, 120)
+    return () => clearTimeout(timer)
+  }, [findOpen, findQuery])
+
+  const matches = useMemo(
+    () =>
+      findOpen && debouncedQuery && chat
+        ? findMatches(chat.messages, chat.toolRuns, debouncedQuery, chat.cwd)
+        : [],
+    [findOpen, debouncedQuery, chat]
+  )
+  const matchTotal = totalOccurrences(matches)
+  const currentOrdinal = Math.min(findOrdinal, Math.max(0, matchTotal - 1))
+  const currentTarget =
+    matchTotal > 0 ? locateOccurrence(matches, currentOrdinal) : null
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    setFindQuery('')
+    setDebouncedQuery('')
+    setFindOrdinal(0)
+    clearFindHighlights()
+    document.querySelector<HTMLTextAreaElement>('.composer-input')?.focus()
+  }, [])
+
+  // Clear highlights when the bar unmounts.
+  useEffect(() => () => clearFindHighlights(), [])
+
+  // Navigate to the current match: expand the window so its row mounts.
+  useEffect(() => {
+    if (!findOpen || !currentTarget || !chat) {
+      return
+    }
+    const targetIdx = matches[currentTarget.matchIndex]!.messageIndex
+    const hidden = chat.messages.length - renderRows
+    if (targetIdx < hidden) {
+      const raf = requestAnimationFrame(() =>
+        setRowsWindow({ chatId, rows: chat.messages.length - targetIdx })
+      )
+      return () => cancelAnimationFrame(raf)
+    }
+  }, [findOpen, currentTarget, matches, chat, renderRows, chatId])
+
+  // Scroll to the current row and paint the highlights. Highlights repaint
+  // on every publish (new streamed matches appear live), but the scroll only
+  // happens when the navigated target changes — otherwise every delta would
+  // yank the viewport back.
+  const findNavRef = useRef('')
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) {
+      return
+    }
+    if (!findOpen || !debouncedQuery) {
+      clearFindHighlights()
+      findNavRef.current = ''
+      return
+    }
+    const raf = requestAnimationFrame(() => {
+      const targetIdx =
+        currentTarget !== null
+          ? matches[currentTarget.matchIndex]!.messageIndex
+          : undefined
+      applyFindHighlights(
+        el,
+        matches,
+        debouncedQuery,
+        targetIdx,
+        currentTarget?.occurrenceInMessage ?? 0
+      )
+      if (targetIdx !== undefined) {
+        const navKey = `${debouncedQuery}:${currentOrdinal}`
+        if (findNavRef.current !== navKey) {
+          findNavRef.current = navKey
+          const reduceMotion = window
+            .matchMedia('(prefers-reduced-motion: reduce)')
+            .matches
+          el.querySelector(`[data-midx="${targetIdx}"]`)?.scrollIntoView({
+            block: 'center',
+            behavior: reduceMotion ? 'auto' : 'smooth'
+          })
+        }
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [findOpen, debouncedQuery, currentOrdinal, currentTarget, matches, renderRows])
+
+  const goFind = useCallback(
+    (delta: 1 | -1) => {
+      if (matchTotal === 0) {
+        return
+      }
+      setFindOrdinal((o) => (o + delta + matchTotal) % matchTotal)
+    },
+    [matchTotal]
+  )
+
   if (!chat) {
     return (
       <div className="chat-view">
@@ -695,10 +1112,7 @@ export function ChatView({ chatId }: { chatId: string }) {
     )
   }
 
-  const footer = statsFooter(chat)
   const hiddenRows = Math.max(0, chat.messages.length - renderRows)
-  const visibleMessages =
-    hiddenRows > 0 ? chat.messages.slice(hiddenRows) : chat.messages
   // Fork indices count user messages across the whole transcript, so start
   // at however many live in the windowed-off head.
   let userIndex = -1
@@ -707,6 +1121,16 @@ export function ChatView({ chatId }: { chatId: string }) {
       if (m.kind === 'user') {
         userIndex += 1
       }
+    }
+  }
+  // Retry is offered only on the last assistant message of the transcript.
+  const canFork = chat.sessionPath && chat.status !== 'streaming'
+  let lastAssistantMidx = -1
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i]!
+    if (m.kind === 'assistant' && !m.streaming) {
+      lastAssistantMidx = i
+      break
     }
   }
 
@@ -742,22 +1166,92 @@ export function ChatView({ chatId }: { chatId: string }) {
               …
             </div>
           )}
-          {visibleMessages.map((m) => {
-            const idx = m.kind === 'user' ? ++userIndex : undefined
-            return (
-              <Perf key={m.key} id="MessageRow">
-                <MemoMessageRow
-                  message={m}
-                  toolRuns={chat.toolRuns}
-                  cwd={chat.cwd}
-                  userIndex={idx}
-                  onFork={
-                    chat.sessionPath && chat.status !== 'streaming' ? onForkMessage : undefined
-                  }
-                />
-              </Perf>
-            )
-          })}
+          {(() => {
+            // Consecutive assistant messages form one turn: its actions row
+            // renders once, after the turn's last message, and reveals on
+            // hover anywhere in the turn.
+            const rowItems: (
+              | { kind: 'turn'; midxs: number[] }
+              | { kind: 'row'; midx: number }
+            )[] = []
+            for (let i = hiddenRows; i < chat.messages.length; i++) {
+              const last = rowItems[rowItems.length - 1]
+              if (chat.messages[i]!.kind === 'assistant') {
+                if (last?.kind === 'turn') {
+                  last.midxs.push(i)
+                } else {
+                  rowItems.push({ kind: 'turn', midxs: [i] })
+                }
+              } else {
+                rowItems.push({ kind: 'row', midx: i })
+              }
+            }
+            return rowItems.map((item) => {
+              if (item.kind === 'turn') {
+                const turnMidx = item.midxs[item.midxs.length - 1]!
+                const turnLast = chat.messages[turnMidx]!
+                const isLastTurn = turnMidx === chat.messages.length - 1
+                const copyText = item.midxs
+                  .map((mi) => assistantText(chat.messages[mi]!))
+                  .filter(Boolean)
+                  .join('\n\n')
+                const meta = messageMeta(turnLast, chat.models)
+                const retryUserIdx = userIndex >= 0 ? userIndex : undefined
+                return (
+                  <div className="msg-turn" key={`turn-${turnLast.key}`}>
+                    {item.midxs.map((midx, k) => {
+                      const m = chat.messages[midx]!
+                      const isLast = k === item.midxs.length - 1
+                      return (
+                        <Perf key={m.key} id="MessageRow">
+                          <MemoMessageRow
+                            message={m}
+                            toolRuns={chat.toolRuns}
+                            cwd={chat.cwd}
+                            midx={midx}
+                            copyText={isLast ? copyText : undefined}
+                            meta={isLast ? meta : undefined}
+                            pinnedActions={isLast && isLastTurn}
+                            onRetry={
+                              canFork &&
+                              isLast &&
+                              isLastTurn &&
+                              turnMidx === lastAssistantMidx &&
+                              retryUserIdx !== undefined
+                                ? () => {
+                                    stickRef.current = true
+                                    void useChatStore
+                                      .getState()
+                                      .retryFromUserMessage(chatId, retryUserIdx)
+                                      .catch(() => {})
+                                  }
+                                : undefined
+                            }
+                          />
+                        </Perf>
+                      )
+                    })}
+                  </div>
+                )
+              }
+              const midx = item.midx
+              const m = chat.messages[midx]!
+              const idx = m.kind === 'user' ? ++userIndex : undefined
+              return (
+                <Perf key={m.key} id="MessageRow">
+                  <MemoMessageRow
+                    message={m}
+                    toolRuns={chat.toolRuns}
+                    cwd={chat.cwd}
+                    midx={midx}
+                    userIndex={idx}
+                    meta={messageMeta(m, chat.models)}
+                    onFork={canFork ? onForkMessage : undefined}
+                  />
+                </Perf>
+              )
+            })
+          })()}
           {awaitingFirstToken && (
             <div className="msg-pending" aria-live="polite">
               <span className="shimmer-text">Thinking…</span>
@@ -820,25 +1314,28 @@ export function ChatView({ chatId }: { chatId: string }) {
 
       <button
         type="button"
-        className={showJump ? 'jump-pill is-visible' : 'jump-pill'}
+        className={showJump ? 'jump-btn is-visible' : 'jump-btn'}
         aria-hidden={!showJump}
         tabIndex={showJump ? 0 : -1}
-        onClick={() => {
-          const el = scrollRef.current
-          if (el) {
-            const reduceMotion = window.matchMedia(
-              '(prefers-reduced-motion: reduce)'
-            ).matches
-            el.scrollTo({
-              top: el.scrollHeight,
-              behavior: reduceMotion ? 'auto' : 'smooth'
-            })
-            stickRef.current = true
-          }
-        }}
+        title="Jump to bottom (⌘↓)"
+        onClick={() => jumpTo('bottom')}
       >
-        <ArrowDown size={12} /> Jump to bottom
+        <ArrowDown size={15} />
+        {newContent && <span className="jump-dot" />}
       </button>
+
+      {findOpen && (
+        <FindBar
+          query={findQuery}
+          onQuery={setFindQuery}
+          count={currentOrdinal}
+          total={matchTotal}
+          onPrev={() => goFind(-1)}
+          onNext={() => goFind(1)}
+          onClose={closeFind}
+          inputRef={findInputRef}
+        />
+      )}
 
       <UiRequestDialog chat={chat} />
 
@@ -856,11 +1353,9 @@ export function ChatView({ chatId }: { chatId: string }) {
             }}
           />
         </Perf>
-        {(footer || streaming) && (
+        {streaming && (
           <div className="chat-stats">
-            {footer}
-            {footer && streaming ? ' · ' : ''}
-            {streaming ? 'Enter to steer · Alt+Enter to queue follow-up' : ''}
+            Enter to steer · Alt+Enter to queue follow-up
           </div>
         )}
       </div>

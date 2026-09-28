@@ -17,6 +17,7 @@ const FAKE_PI = join(ROOT, 'test/fixtures/fake-pi.mjs')
 const FAKE_CUA = join(ROOT, 'src/main/cua/__fixtures__/fake-helper.mjs')
 const SHOTS = process.env['PI_DESKTOP_SHOT_DIR'] ?? '/tmp/pi-desktop-shots'
 const CUA_SHOTS = '/tmp/pi-cua-shots'
+const WAVE1_SHOTS = '/tmp/pi-wave1'
 
 const PROJECT_A = '/Users/example/synthetic-alpha'
 const PROJECT_B = '/Users/example/synthetic-beta'
@@ -141,6 +142,7 @@ describe('Pi Desktop e2e', () => {
     await seedAgentDir(agentDir)
     await mkdir(SHOTS, { recursive: true })
     await mkdir(CUA_SHOTS, { recursive: true })
+    await mkdir(WAVE1_SHOTS, { recursive: true })
 
     // The helper override must be an executable file; wrap the .mjs fixture.
     const cuaHelper = join(agentDir, 'fake-cua-helper.sh')
@@ -224,6 +226,19 @@ describe('Pi Desktop e2e', () => {
       themeSource: nativeTheme.themeSource,
       dark: nativeTheme.shouldUseDarkColors
     }))
+  }
+
+  /** Wait until the current run settles (no steer hint under the composer). */
+  async function waitForSettled(): Promise<void> {
+    await expect
+      .poll(
+        async () => {
+          const stats = await page.locator('.chat-stats').allTextContents()
+          return !stats.some((t) => t.includes('Enter to steer'))
+        },
+        { timeout: 40_000 }
+      )
+      .toBe(true)
   }
 
   afterAll(async () => {
@@ -455,7 +470,9 @@ describe('Pi Desktop e2e', () => {
     // The two consecutive browser calls collapse into a group row.
     const group = page.locator('.tool-group')
     await visible(page, '.tool-group .tool-row', 20_000)
-    expect(await group.locator('.tool-name').textContent()).toContain('Ran 2 tools')
+    expect(await group.locator('.tool-name').textContent()).toContain(
+      'Used the browser (2 actions)'
+    )
     await page.screenshot({ path: join(SHOTS, 'chat-toolgroup.png') })
     await group.locator('.tool-row').first().click()
     // Screenshot tool returned a real JPEG; expanding the card shows it.
@@ -735,6 +752,216 @@ describe('Pi Desktop e2e', () => {
       .poll(() => page.locator('.perm-pill.is-granted').count(), { timeout: 10_000 })
       .toBe(2)
     await page.screenshot({ path: join(CUA_SHOTS, 'settings-cua.png') })
+    await page.keyboard.press('Escape')
+    await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
+  })
+
+  // --- Wave 1: chat core UX --------------------------------------------------
+
+  it('groups consecutive tools with a natural summary, diff stats and a failure count', async () => {
+    await page.locator('.composer-input').fill('group tools please')
+    await page.keyboard.press('Enter')
+    await visible(page, '.tool-group', 30_000)
+    // The group header flips from "Running N tools…" to the natural summary
+    // once the last tool settles.
+    await expect
+      .poll(() => page.locator('.tool-group .tool-name').textContent(), {
+        timeout: 30_000
+      })
+      .toBe('Edited a file, created a file, ran a command')
+    await visible(page, '.tool-group-diff')
+    expect(await page.locator('.diff-add-count').textContent()).toBe('+6')
+    expect(await page.locator('.diff-del-count').textContent()).toBe('−2')
+    expect(await page.locator('.tool-group-errors').textContent()).toContain(
+      '1 failed'
+    )
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'tool-group.png') })
+    await setTheme('light')
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'tool-group-light.png') })
+    await setTheme('dark')
+    // The group expands to the individual tool cards.
+    await page.locator('.tool-group > .tool-row').first().click()
+    await visible(page, '.tool-group-body .tool-card')
+    await waitForSettled()
+  })
+
+  it('finds text in the chat with Meta+F and navigates matches', async () => {
+    await page.keyboard.press('Meta+f')
+    await visible(page, '.find-bar')
+    await page.locator('.find-bar-input').fill('Done')
+    // 120ms debounce, then the match counter resolves.
+    await expect
+      .poll(() => page.locator('.find-bar-count').textContent(), { timeout: 5_000 })
+      .toMatch(/^\d+ of \d+$/)
+    const count = (await page.locator('.find-bar-count').textContent())!
+    const total = Number(count.split(' of ')[1])
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'find-bar.png') })
+    // Enter advances to the next match, wrapping at the end.
+    await page.locator('.find-bar-input').press('Enter')
+    await expect
+      .poll(() => page.locator('.find-bar-count').textContent())
+      .toBe(`${total > 1 ? 2 : 1} of ${total}`)
+    // Escape closes the bar and returns focus to the composer.
+    await page.locator('.find-bar-input').press('Escape')
+    await page.waitForSelector('.find-bar', { state: 'detached', timeout: 5_000 })
+    await expect
+      .poll(() =>
+        page.evaluate('document.activeElement?.className ?? ""')
+      )
+      .toContain('composer-input')
+  })
+
+  it('shows copy actions on user and assistant messages', async () => {
+    const userRow = page.locator('.msg-user-row').last()
+    await userRow.hover()
+    const copy = page.locator('.msg-user-row .msg-actions button[title="Copy"]').last()
+    await visible(page, '.msg-user-row .msg-actions button[title="Copy"]')
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'msg-actions-user.png') })
+    // Copy flips into a transient check state.
+    await copy.click()
+    await visible(page, '.msg-user-row .msg-actions button[title="Copied"]')
+    const assistant = page.locator('.msg-assistant').last()
+    await assistant.hover()
+    await visible(page, '.msg-assistant .msg-actions button[title="Copy"]')
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'msg-actions-assistant.png') })
+  })
+
+  it('shows the jump-to-bottom button with a new-content dot', async () => {
+    const scroller = page.locator('.chat-scroll')
+    // The transcript is long by now; scroll to the top so the button shows.
+    await scroller.hover()
+    for (let i = 0; i < 8; i++) {
+      await page.mouse.wheel(0, -3000)
+      await page.waitForTimeout(80)
+    }
+    await visible(page, '.jump-btn.is-visible', 10_000)
+    // Start a streamed reply (send pins to bottom), then scroll up mid-stream:
+    // new content sets the accent dot on the jump button.
+    await page.locator('.composer-input').fill('slow reply please')
+    await page.keyboard.press('Enter')
+    await scroller.hover()
+    for (let i = 0; i < 8; i++) {
+      await page.mouse.wheel(0, -3000)
+      await page.waitForTimeout(80)
+    }
+    await visible(page, '.jump-dot', 20_000)
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'jump-dot.png') })
+    // The button jumps back to the bottom.
+    await page.locator('.jump-btn').click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          '(() => { const el = document.querySelector(".chat-scroll"); return el.scrollHeight - el.scrollTop - el.clientHeight })()'
+        )
+      )
+      .toBeLessThan(120)
+    await waitForSettled()
+    // ⌘↑ / ⌘↓ jump to top/bottom while the composer is empty.
+    await page.keyboard.press('Meta+ArrowUp')
+    await expect
+      .poll(() =>
+        page.evaluate('document.querySelector(".chat-scroll").scrollTop')
+      )
+      .toBeLessThan(60)
+    await page.keyboard.press('Meta+ArrowDown')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          '(() => { const el = document.querySelector(".chat-scroll"); return el.scrollHeight - el.scrollTop - el.clientHeight })()'
+        )
+      )
+      .toBeLessThan(120)
+  })
+
+  it('shows the context ring and usage popover', async () => {
+    await visible(page, '.ctx-ring', 15_000)
+    expect(await page.locator('.ctx-ring').getAttribute('aria-label')).toBe(
+      '78% of context used'
+    )
+    await page.locator('.ctx-ring').click()
+    await visible(page, '.ctx-popover')
+    expect(await page.locator('.ctx-popover-strong').textContent()).toBe(
+      '156.6k / 200k (78%)'
+    )
+    const popover = await page.locator('.ctx-popover').textContent()
+    expect(popover).toContain('Session cost')
+    expect(popover).toContain('Input')
+    expect(popover).toContain('Output')
+    await visible(page, '.ctx-compact')
+    // Let the popover animation settle before shooting.
+    await page.waitForTimeout(350)
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'ctx-popover.png') })
+    await setTheme('light')
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'ctx-popover-light.png') })
+    await setTheme('dark')
+    await page.keyboard.press('Escape')
+    // Composer close-ups at ~40% (muted) and ~80% (warning): the fake pi
+    // honours a `ctxNN` percent hint in the prompt.
+    await page.locator('.composer-input').fill('ctx40 please')
+    await page.keyboard.press('Enter')
+    await waitForSettled()
+    await expect
+      .poll(() => page.locator('.ctx-ring').getAttribute('aria-label'), {
+        timeout: 10_000
+      })
+      .toBe('40% of context used')
+    await page.locator('.composer').screenshot({
+      path: join(WAVE1_SHOTS, 'ctx-ring-40.png')
+    })
+    await page.locator('.composer-input').fill('ctx80 please')
+    await page.keyboard.press('Enter')
+    await waitForSettled()
+    await expect
+      .poll(() => page.locator('.ctx-ring').getAttribute('aria-label'), {
+        timeout: 10_000
+      })
+      .toBe('80% of context used')
+    await page.locator('.composer').screenshot({
+      path: join(WAVE1_SHOTS, 'ctx-ring-80.png')
+    })
+  })
+
+  it('retries the last assistant reply via fork on a saved session', async () => {
+    // Any saved session works — the expanded projects cap at 3 rows and the
+    // order of same-day seeds isn't stable, so take the first visible one.
+    const row = page.locator('.sidebar-session').first()
+    await row.waitFor({ state: 'visible', timeout: 10_000 })
+    await row.click()
+    await visible(page, '.msg-assistant')
+    const userText = (await page.locator('.msg-user-row').first().textContent())!
+    await page.locator('.msg-assistant').last().hover()
+    await visible(
+      page,
+      '.msg-assistant .msg-actions button[title="Retry"]',
+      10_000
+    )
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'msg-actions-retry.png') })
+    await page
+      .locator('.msg-assistant .msg-actions button[title="Retry"]')
+      .last()
+      .click()
+    // Fork resends the preceding user message's own text.
+    await expect
+      .poll(() => page.locator('.msg-user-row').count(), { timeout: 15_000 })
+      .toBe(2)
+    expect(await page.locator('.msg-user-row').last().textContent()).toContain(
+      userText.trim().replace(/[\d: ]+$/, '').slice(0, 30)
+    )
+    await waitForSettled()
+    // Back home for the settings test.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-greeting')
+  })
+
+  it('shows the notifications toggle in General settings', async () => {
+    await page.locator('.sidebar-footer .icon-btn').last().click()
+    await visible(page, '.settings-modal')
+    await page.locator('.settings-nav-item', { hasText: 'General' }).click()
+    const row = page.locator('.settings-row', { hasText: 'Notify when pi' })
+    await visible(page, '.settings-row:has-text("Notify when pi")')
+    // The switch defaults on.
+    expect(await row.locator('.switch').getAttribute('aria-checked')).toBe('true')
+    await page.screenshot({ path: join(WAVE1_SHOTS, 'settings-notifications.png') })
     await page.keyboard.press('Escape')
     await page.waitForSelector('.settings-modal', { state: 'detached', timeout: 5_000 })
   })

@@ -153,7 +153,12 @@ func fetchInfo(_ element: AXUIElement) -> ElInfo {
     if AXUIElementCopyActionNames(element, &actionNames) == .success,
         let names = actionNames as? [String]
     {
-        info.actions = names.map(shortActionName)
+        // Electron/Chromium web content reports showMenu + scrollToVisible on
+        // nearly every element — pure noise in the printed tree. Dropping them
+        // here also strips ids from elements that offered nothing else.
+        info.actions = names.map(shortActionName).filter {
+            $0 != "showMenu" && $0 != "scrollToVisible"
+        }
     }
     return info
 }
@@ -171,6 +176,15 @@ func roleCollapses(_ info: ElInfo) -> Bool {
     (info.role == "AXGroup" || info.role == "AXGenericElement" || info.role == "AXUnknown")
         && info.title == nil && info.desc == nil && info.value == nil
         && info.placeholder == nil && info.actions.isEmpty
+}
+
+/// Unlabeled group/generic wrapper with exactly one child — chains of these
+/// are common in web content and are collapsed so the child takes the depth.
+func isSingleChildGroup(_ info: ElInfo) -> Bool {
+    (info.role == "AXGroup" || info.role == "AXGenericElement")
+        && info.title == nil && info.desc == nil && info.value == nil
+        && info.placeholder == nil && info.actions.isEmpty
+        && info.children.count == 1
 }
 
 /// Elements worth an id: labelled, valued or actionable.

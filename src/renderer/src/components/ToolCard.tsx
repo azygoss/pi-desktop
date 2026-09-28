@@ -17,7 +17,7 @@ import { memo, useMemo, useState } from 'react'
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
-import { computerToolSummary } from '../lib/tool-summary'
+import { toolCallSummary } from '../lib/tool-summary'
 
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
@@ -86,25 +86,7 @@ function argPath(args: Record<string, unknown>): string | undefined {
   return typeof p === 'string' ? p : undefined
 }
 
-function summarize(
-  name: string,
-  args: Record<string, unknown>,
-  cwd: string,
-  details?: Record<string, unknown>
-): string {
-  if (name.startsWith('computer_')) {
-    return computerToolSummary(name, args, details)
-  }
-  if (toolKind(name) === 'bash') {
-    return typeof args['command'] === 'string' ? (args['command'] as string) : ''
-  }
-  const p = argPath(args)
-  if (p) {
-    return relativePath(p, cwd)
-  }
-  const firstString = Object.values(args).find((v) => typeof v === 'string')
-  return typeof firstString === 'string' ? firstString.slice(0, 120) : ''
-}
+
 
 function firstLines(text: string, maxLines: number): { text: string; truncated: boolean } {
   const lines = text.split('\n')
@@ -306,7 +288,7 @@ export const ToolCard = memo(function ToolCard({
         <span className="tool-icon">{toolIcon(run.name)}</span>
         <span className="tool-name">{run.name}</span>
         <span className="tool-summary">
-          {summarize(
+          {toolCallSummary(
             run.name,
             run.args,
             cwd,

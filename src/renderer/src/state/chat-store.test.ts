@@ -38,6 +38,9 @@ let openHandler:
   | ((input: { chatId: string }) => Promise<unknown>)
   | null = null
 
+const sendCalls: { chatId: string; message: string; mode: string }[] = []
+const notifyCalls: { chatId: string; title: string; body: string }[] = []
+
 const fakeApi = {
   chat: {
     onEvent: (cb: (payload: { chatId: string; events: unknown[] }) => void) => {
@@ -88,9 +91,35 @@ const fakeApi = {
         commands: []
       }
     },
-    send: async () => {},
+    send: async (input: {
+      chatId: string
+      message: string
+      images?: unknown[]
+      mode: string
+    }) => {
+      sendCalls.push(input)
+    },
+    getForkMessages: async () => ({
+      messages: [{ entryId: 'e0' }, { entryId: 'e1' }]
+    }),
+    fork: async () => ({ text: 'resend me' }),
+    refresh: async (input: { chatId: string }) => ({
+      chatId: input.chatId,
+      cwd: '/tmp/synthetic',
+      state: { model: MODEL_A, thinkingLevel: 'high', isStreaming: false },
+      messages: [],
+      models: [MODEL_A],
+      thinkingLevels: ['off', 'high'],
+      commands: []
+    }),
     abort: async () => {},
     focus: async () => {}
+  },
+  app: {
+    notify: async (input: { chatId: string; title: string; body: string }) => {
+      notifyCalls.push(input)
+    },
+    setBadge: async () => {}
   },
   cua: {
     onActivity: (cb: (payload: unknown) => void) => {
@@ -434,5 +463,120 @@ describe('computer-use activity', () => {
     await flush()
     await useChatStore.getState().send(chatId, 'next', [], 'prompt')
     expect(reloadCalls).toEqual([chatId])
+  })
+})
+
+describe('retryFromUserMessage', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let seq = 0
+
+  beforeEach(async () => {
+    sendCalls.length = 0
+    reloadCalls.length = 0
+    const mod = await import('./chat-store')
+    useChatStore = mod.useChatStore
+  })
+
+  it('forks at the user message and re-sends its text without a composer seed', async () => {
+    const chatId = `r${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    await useChatStore.getState().send(chatId, 'resend me', undefined, 'prompt')
+    eventHandler!({ chatId, events: [{ type: 'agent_end' }, { type: 'agent_settled' }] })
+    await flush()
+
+    await useChatStore.getState().retryFromUserMessage(chatId, 0)
+    const last = sendCalls[sendCalls.length - 1]!
+    expect(last.message).toBe('resend me')
+    expect(last.mode).toBe('prompt')
+    // The fork path seeds the composer for editing; retry clears it.
+    const seed = useChatStore.getState().chats[chatId]!.composerSeed
+    expect(seed).toBeDefined()
+    expect(seed!.text).toBe('')
+  })
+
+  it('does nothing for an out-of-range user index', async () => {
+    const chatId = `r${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    await useChatStore.getState().retryFromUserMessage(chatId, 9)
+    expect(sendCalls).toEqual([])
+  })
+})
+
+describe('run-settled notifications', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let useAppStore: typeof import('./app-store').useAppStore
+  let seq = 0
+
+  beforeEach(async () => {
+    notifyCalls.length = 0
+    const chatMod = await import('./chat-store')
+    useChatStore = chatMod.useChatStore
+    chatMod.initChatBridge()
+    useAppStore = (await import('./app-store')).useAppStore
+    useAppStore.setState({ view: { kind: 'home' } })
+  })
+
+  it('notifies with the last assistant text when a background run settles', async () => {
+    const chatId = `n${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    eventHandler!({
+      chatId,
+      events: [
+        { type: 'agent_start' },
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '**Done** — `fixed` the bug' }],
+            api: 'test',
+            provider: 'p',
+            model: 'm',
+            usage: {},
+            stopReason: 'endTurn',
+            timestamp: 1
+          }
+        },
+        { type: 'agent_settled' }
+      ]
+    })
+    await flush()
+    expect(notifyCalls).toHaveLength(1)
+    expect(notifyCalls[0]!.chatId).toBe(chatId)
+    expect(notifyCalls[0]!.body).toBe('Done — fixed the bug')
+  })
+
+  it('says "Stopped with an error" when the run errored', async () => {
+    const chatId = `n${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    const draft = useChatStore.getState().chats[chatId]!
+    expect(draft).toBeDefined()
+    // Simulate an errored turn: status goes to error, then settled fires.
+    eventHandler!({ chatId, events: [{ type: 'agent_start' }] })
+    await flush()
+    eventHandler!({ chatId, events: [{ type: 'agent_settled' }] })
+    await flush()
+    expect(notifyCalls).toHaveLength(1)
+  })
+
+  it('does not notify when notifications are disabled', async () => {
+    const chatId = `n${++seq}`
+    useAppStore.setState((s) => ({
+      appSettings: { ...s.appSettings, notifications: { enabled: false } }
+    }))
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    eventHandler!({
+      chatId,
+      events: [{ type: 'agent_start' }, { type: 'agent_settled' }]
+    })
+    await flush()
+    expect(notifyCalls).toEqual([])
+    useAppStore.setState((s) => ({
+      appSettings: { ...s.appSettings, notifications: { enabled: true } }
+    }))
   })
 })

@@ -16,6 +16,7 @@
   --user-bubble: #2a2a27;
   --danger: #d15c5c;
   --success: #5da663;
+  --warning: #d19a4a;
   --shadow: none;
 }
 
@@ -36,6 +37,7 @@
     --user-bubble: #ecebe6;
     --danger: #b44a4a;
     --success: #3d8a4a;
+    --warning: #b07f2e;
     --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
   }
 }
@@ -56,6 +58,7 @@
   --user-bubble: #ecebe6;
   --danger: #b44a4a;
   --success: #3d8a4a;
+    --warning: #b07f2e;
   --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
 }
 
@@ -75,6 +78,7 @@
   --user-bubble: #2a2a27;
   --danger: #d15c5c;
   --success: #5da663;
+    --warning: #d19a4a;
   --shadow: none;
 }
 
@@ -1283,7 +1287,8 @@ body {
   transition: opacity 150ms;
 }
 .msg-user-row:hover .msg-actions,
-.msg-assistant:hover .msg-actions,
+.msg-turn:hover .msg-actions,
+.msg-actions.is-pinned,
 .msg-actions:focus-within {
   opacity: 1;
 }
@@ -1515,21 +1520,20 @@ body {
   color: var(--danger);
 }
 
-.jump-pill {
+.jump-btn {
   position: absolute;
   bottom: 120px;
   left: 50%;
   transform: translateX(-50%) translateY(6px);
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--border);
+  border-radius: 50%;
   background: var(--surface);
   color: var(--text-2);
-  font-size: 12px;
-  font-family: inherit;
-  padding: 5px 12px;
-  border-radius: 999px;
   cursor: pointer;
   box-shadow: var(--shadow);
   z-index: 20;
@@ -1539,13 +1543,197 @@ body {
     opacity 150ms ease,
     transform 150ms ease;
 }
-.jump-pill.is-visible {
+.jump-btn.is-visible {
   opacity: 1;
   transform: translateX(-50%);
   pointer-events: auto;
 }
-.jump-pill:hover {
+.jump-btn:hover {
   color: var(--text);
+}
+/* Accent dot: new streamed content arrived while scrolled up. */
+.jump-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+
+/* Find-in-chat bar (⌘F), pinned top-right of the chat pane. */
+.find-bar {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 4px 6px;
+  z-index: 30;
+}
+.find-bar-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.find-bar-input {
+  width: 160px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  padding: 2px 0;
+}
+.find-bar-input::placeholder {
+  color: var(--muted);
+}
+.find-bar-count {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: right;
+}
+.find-bar-btn {
+  padding: 3px;
+}
+
+::highlight(find) {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+}
+::highlight(find-current) {
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Muted metadata in the message actions row ("model · 14:02"). */
+.msg-meta {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* Diff stat inside a tool group header. */
+.tool-group-diff {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Context ring + usage popover (composer bar). */
+.ctx-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ctx-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.ctx-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-width: 2.5;
+}
+.ctx-arc {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 200ms ease;
+}
+.ctx-muted .ctx-arc {
+  stroke: var(--muted);
+}
+.ctx-warning .ctx-arc {
+  stroke: var(--warning);
+}
+.ctx-danger .ctx-arc {
+  stroke: var(--danger);
+}
+.ctx-popover {
+  left: auto;
+  right: 0;
+  bottom: 30px;
+  min-width: 220px;
+  padding: 10px 12px;
+  gap: 6px;
+}
+.ctx-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ctx-popover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ctx-popover-strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.ctx-value {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ctx-tokens {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.ctx-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.ctx-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+.ctx-bar-muted {
+  background: var(--muted);
+}
+.ctx-bar-warning {
+  background: var(--warning);
+}
+.ctx-bar-danger {
+  background: var(--danger);
+}
+.ctx-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+.ctx-popover-note {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .chat-composer-dock {
@@ -3122,7 +3310,7 @@ body {
   .settings-overlay {
     animation: none;
   }
-  .jump-pill {
+  .jump-btn {
     transition: none;
   }
 }

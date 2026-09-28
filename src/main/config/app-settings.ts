@@ -34,6 +34,8 @@ export interface AppSettings {
   panelWidth: number
   /** Computer use: whether the agent may drive native macOS apps. */
   computerUse: { enabled: boolean }
+  /** Native notifications + dock badge when pi finishes or needs input. */
+  notifications: { enabled: boolean }
   /** Last window geometry; restored on launch when present. */
   windowBounds?: {
     width: number
@@ -56,7 +58,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   sidebarCollapsed: false,
   panelOpen: false,
   panelWidth: 400,
-  computerUse: { enabled: true }
+  computerUse: { enabled: true },
+  notifications: { enabled: true }
 }
 
 export function settingsFilePath(): string {
@@ -132,7 +135,8 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
   const settings: AppSettings = {
     ...DEFAULT_APP_SETTINGS,
     piRuntime: { ...DEFAULT_APP_SETTINGS.piRuntime },
-    computerUse: { ...DEFAULT_APP_SETTINGS.computerUse }
+    computerUse: { ...DEFAULT_APP_SETTINGS.computerUse },
+    notifications: { ...DEFAULT_APP_SETTINGS.notifications }
   }
   if (raw === null || typeof raw !== 'object') {
     return settings
@@ -200,6 +204,13 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     const cu = computerUse as Record<string, unknown>
     if (typeof cu['enabled'] === 'boolean') {
       settings.computerUse.enabled = cu['enabled']
+    }
+  }
+  const notifications = input['notifications']
+  if (notifications !== null && typeof notifications === 'object') {
+    const n = notifications as Record<string, unknown>
+    if (typeof n['enabled'] === 'boolean') {
+      settings.notifications.enabled = n['enabled']
     }
   }
   return settings
@@ -276,6 +287,12 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
       const cu = input['computerUse'] as Record<string, unknown>
       if (typeof cu['enabled'] === 'boolean') {
         merged.computerUse = { ...merged.computerUse, enabled: cu['enabled'] }
+      }
+    }
+    if (input['notifications'] !== null && typeof input['notifications'] === 'object') {
+      const n = input['notifications'] as Record<string, unknown>
+      if (typeof n['enabled'] === 'boolean') {
+        merged.notifications = { ...merged.notifications, enabled: n['enabled'] }
       }
     }
     const bounds = normalizeWindowBounds(input['windowBounds'])

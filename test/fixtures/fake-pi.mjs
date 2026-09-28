@@ -11,6 +11,7 @@
 //                         prompt mentions "browser" the fixture performs real
 //                         bridge calls (like the pi extension would) so e2e
 //                         covers the whole browser-tools path.
+import { readFileSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
 
 if (process.argv.includes('--version')) {
@@ -22,6 +23,9 @@ const DELAY_MS = Number(process.env['PI_FAKE_PI_DELAY_MS'] ?? 40)
 
 const decoder = new StringDecoder('utf8')
 let buffer = ''
+
+/** Context-usage percent override, set by prompts containing `ctxNN`. */
+let statsPct = 78.3
 
 function writeLine(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n')
@@ -496,6 +500,111 @@ async function scriptedReply(id, promptMessage, preDelayMs = 0) {
 }
 
 /**
+ * Scripted reply that runs three consecutive tool calls — an edit, a write and
+ * a failing bash — so e2e can cover grouped tool summaries, diff stats and the
+ * failed-tool counter.
+ */
+async function scriptedGroupReply(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+
+  writeLine({ type: 'turn_start' })
+  const toolCalls = [
+    {
+      type: 'toolCall',
+      id: 'call_edit_1',
+      name: 'edit',
+      arguments: {
+        path: 'src/synthetic.ts',
+        oldText: 'const a = 1\nconst b = 2',
+        newText: 'const a = 1\nconst b = 3\nconst c = 4'
+      }
+    },
+    {
+      type: 'toolCall',
+      id: 'call_write_1',
+      name: 'write',
+      arguments: {
+        path: 'src/synthetic-new.ts',
+        content: 'line one\nline two\nline three'
+      }
+    },
+    {
+      type: 'toolCall',
+      id: 'call_bash_1',
+      name: 'bash',
+      arguments: { command: 'false' }
+    }
+  ]
+  const callMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Applying the synthetic edits.' }, ...toolCalls],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...callMessage, content: [] } })
+  writeLine({ type: 'message_end', message: callMessage })
+
+  const toolResults = []
+  for (const toolCall of toolCalls) {
+    writeLine({
+      type: 'tool_execution_start',
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      args: toolCall.arguments
+    })
+    await sleep(DELAY_MS)
+    const isError = toolCall.name === 'bash'
+    const content = [
+      {
+        type: 'text',
+        text: isError ? 'command failed with exit code 1' : `ok: ${toolCall.name}`
+      }
+    ]
+    writeLine({
+      type: 'tool_execution_end',
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      result: { content },
+      isError
+    })
+    const toolResult = {
+      role: 'toolResult',
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      content,
+      isError,
+      timestamp: Date.now()
+    }
+    writeLine({ type: 'message_start', message: toolResult })
+    writeLine({ type: 'message_end', message: toolResult })
+    toolResults.push(toolResult)
+  }
+  writeLine({ type: 'turn_end', message: callMessage, toolResults })
+
+  writeLine({ type: 'turn_start' })
+  const finalMessage = {
+    ...callMessage,
+    content: [{ type: 'text', text: 'Edits applied; the last command failed as scripted.' }],
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...finalMessage, content: [] } })
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
  * Perf benchmark reply: ~2000 small text deltas written as fast as stdout
  * drains, then a normal end sequence. Used by scripts/perf.mjs to measure
  * main→renderer IPC throughput.
@@ -559,6 +668,21 @@ function getMessages() {
   if (raw) {
     try {
       return JSON.parse(raw)
+    } catch {
+      return []
+    }
+  }
+  // Spawned with `--session <file>`: serve that session's messages like real
+  // pi does, so transcript restores and post-fork refreshes see history.
+  const sessionIdx = process.argv.indexOf('--session')
+  if (sessionIdx !== -1) {
+    try {
+      return readFileSync(process.argv[sessionIdx + 1], 'utf8')
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => JSON.parse(l))
+        .filter((e) => e.type === 'message')
+        .map((e) => e.message)
     } catch {
       return []
     }
@@ -645,9 +769,19 @@ function handle(command) {
           toolCalls: 1,
           toolResults: 1,
           totalMessages: 5,
-          tokens: { input: 1024, output: 256, cacheRead: 0, cacheWrite: 0, total: 1280 },
-          cost: 0.0042,
-          contextUsage: { tokens: 1280, contextWindow: 200000, percent: 0.64 }
+          tokens: {
+            input: 120000,
+            output: 32000,
+            cacheRead: 4000,
+            cacheWrite: 600,
+            total: 156600
+          },
+          cost: 0.42,
+          contextUsage: {
+            tokens: Math.round(200000 * (statsPct / 100)),
+            contextWindow: 200000,
+            percent: statsPct
+          }
         }
       })
       break
@@ -672,20 +806,27 @@ function handle(command) {
       break
     case 'prompt':
     case 'steer':
-    case 'follow_up':
+    case 'follow_up': {
       writeLine({ id, type: 'response', command: command.type, success: true })
+      const ctxMatch = /\bctx(\d+)\b/i.exec(String(command.message))
+      if (ctxMatch) {
+        statsPct = Number(ctxMatch[1])
+      }
       if (/stream perf/i.test(String(command.message))) {
         void scriptedFastStream(command.message)
       } else if (/\bslow\b/i.test(String(command.message))) {
         // Long pause before the first delta so tests can capture the
         // pre-token "Thinking…" state.
         void scriptedReply(id, command.message, 2500)
+      } else if (/\bgroup tools\b/i.test(String(command.message))) {
+        void scriptedGroupReply(command.message)
       } else if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
         void scriptedBrowserReply(id, command.message)
       } else {
         void scriptedReply(id, command.message)
       }
       break
+    }
     case 'abort':
       streaming = false
       writeLine({ type: 'agent_end', messages: [], willRetry: false })
