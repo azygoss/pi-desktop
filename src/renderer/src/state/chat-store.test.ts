@@ -51,6 +51,8 @@ const fakeApi = {
     onUiRequest: () => () => {},
     onExit: () => () => {},
     onStartupHint: () => () => {},
+    // Stats refresh fires 150ms after a run settles — within a test's waits.
+    getStats: async () => undefined,
     open: async (input: { chatId: string }) =>
       openHandler
         ? await openHandler(input)
