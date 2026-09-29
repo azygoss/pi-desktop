@@ -417,6 +417,67 @@ describe('ChatService', () => {
     }
   })
 
+  function warmClient(pool: PiProcessPool) {
+    return [...Array(10).keys()]
+      .map((i) => pool.get(`__warm__${i}`))
+      .find((client) => client !== undefined)
+  }
+
+  async function writeSession(name: string): Promise<string> {
+    const dir = join(sessionsRoot, 'proj')
+    await mkdir(dir, { recursive: true })
+    const sessionPath = join(dir, `${name}.jsonl`)
+    const lines = [
+      { type: 'session', cwd: tmpdir() },
+      {
+        type: 'message',
+        id: 'm1',
+        parentId: null,
+        message: { role: 'user', content: 'synthetic past prompt', timestamp: 1 }
+      }
+    ]
+    await writeFile(sessionPath, lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+    return sessionPath
+  }
+
+  it('loads a past session into the warm spare via switch_session', async () => {
+    const { service, pool } = makeService()
+    try {
+      const sessionPath = await writeSession('switch')
+      await service.warmCwd({ cwd: tmpdir() })
+      const spare = warmClient(pool)
+      expect(spare?.isRunning).toBe(true)
+      const result = await service.open({ chatId: 'chat-switch', sessionPath })
+      expect(result.cwd).toBe(tmpdir())
+      expect(result.sessionPath).toBe(sessionPath)
+      expect(result.messages).toHaveLength(1)
+      // The spare itself now serves the session — no second process.
+      expect(pool.get('chat-switch')).toBe(spare)
+      expect(service.hasWarmSpare(tmpdir())).toBe(false)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('falls back to spawning pi --session when the switch is cancelled', async () => {
+    const { service, pool } = makeService()
+    process.env['PI_FAKE_PI_SWITCH_CANCEL'] = '1'
+    try {
+      const sessionPath = await writeSession('cancel')
+      await service.warmCwd({ cwd: tmpdir() })
+      const spare = warmClient(pool)
+      expect(spare?.isRunning).toBe(true)
+      const result = await service.open({ chatId: 'chat-cancel', sessionPath })
+      // Messages come from the fresh `--session` spawn, not the vetoed spare.
+      expect(result.messages).toHaveLength(1)
+      expect(pool.get('chat-cancel')).not.toBe(spare)
+      await expect.poll(() => spare?.isRunning, { timeout: 5000 }).toBe(false)
+    } finally {
+      delete process.env['PI_FAKE_PI_SWITCH_CANCEL']
+      await pool.closeAll()
+    }
+  })
+
   it('parks an unprompted chat process on setCwd and reuses it on return', async () => {
     const { service, pool } = makeService()
     try {

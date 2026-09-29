@@ -854,6 +854,9 @@ async function scriptedFastStream(promptMessage) {
   writeLine({ type: 'agent_settled' })
 }
 
+/** Session loaded through switch_session (warm-spare adoption). */
+let switchedSession = null
+
 function getMessages() {
   const raw = process.env['PI_FAKE_PI_MESSAGES']
   if (raw) {
@@ -863,12 +866,14 @@ function getMessages() {
       return []
     }
   }
-  // Spawned with `--session <file>`: serve that session's messages like real
-  // pi does, so transcript restores and post-fork refreshes see history.
+  // Spawned with `--session <file>` (or switched via switch_session): serve
+  // that session's messages like real pi does, so transcript restores and
+  // post-fork refreshes see history.
   const sessionIdx = process.argv.indexOf('--session')
-  if (sessionIdx !== -1) {
+  const sessionFile = switchedSession ?? (sessionIdx !== -1 ? process.argv[sessionIdx + 1] : null)
+  if (sessionFile) {
     try {
-      return readFileSync(process.argv[sessionIdx + 1], 'utf8')
+      return readFileSync(sessionFile, 'utf8')
         .split('\n')
         .filter((l) => l.trim())
         .map((l) => JSON.parse(l))
@@ -897,7 +902,7 @@ function handle(command) {
           isCompacting: false,
           steeringMode: 'one-at-a-time',
           followUpMode: 'one-at-a-time',
-          sessionFile: null,
+          sessionFile: switchedSession,
           sessionId: 'fake-session',
           autoCompactionEnabled: true,
           messageCount: 0,
@@ -1049,6 +1054,19 @@ function handle(command) {
       writeLine({ type: 'agent_end', messages: [], willRetry: false })
       writeLine({ type: 'agent_settled' })
       writeLine({ id, type: 'response', command: 'abort', success: true })
+      break
+    case 'switch_session':
+      // PI_FAKE_PI_SWITCH_CANCEL mimics an extension vetoing the switch.
+      if (process.env['PI_FAKE_PI_SWITCH_CANCEL'] !== '1') {
+        switchedSession = String(command.sessionPath)
+      }
+      writeLine({
+        id,
+        type: 'response',
+        command: 'switch_session',
+        success: true,
+        data: { cancelled: process.env['PI_FAKE_PI_SWITCH_CANCEL'] === '1' }
+      })
       break
     case 'new_session':
       writeLine({

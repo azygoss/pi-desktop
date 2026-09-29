@@ -142,6 +142,8 @@ const EVICT_SWEEP_MS = 60 * 1000
 const MAX_WARM_SPARES = 2
 /** Project spares parked/warmed this long ago are stopped as unused. */
 const SPARE_TTL_MS = 5 * 60 * 1000
+/** A spare that cannot load a session this fast is replaced by a spawn. */
+const SWITCH_SESSION_TIMEOUT_MS = 15_000
 
 /**
  * Translate a pi stderr line into a user-facing startup hint. Covers the
@@ -428,6 +430,59 @@ export class ChatService {
     return true
   }
 
+  /**
+   * Take the warm spare for `cwd` (if one is running) and re-key it to
+   * `chatId`. A pinned spare is replaced in the background.
+   */
+  private adoptSpare(cwd: string, chatId: string): WarmSpare | undefined {
+    const spare = this.spares.get(cwd)
+    if (!spare || !spare.client.isRunning || !this.pool.adopt(spare.id, chatId)) {
+      return undefined
+    }
+    this.bridge?.adopt?.(spare.id, chatId)
+    this.spares.delete(cwd)
+    if (spare.pinned) {
+      void this.warmSpare() // spawn the replacement in the background
+    }
+    // Retries that already fired while the spare warmed still explain a
+    // slow startup — surface the latest one to the new chat.
+    for (let i = spare.client.stderrTail.length - 1; i >= 0; i--) {
+      const hint = startupHintFromStderr(spare.client.stderrTail[i]!)
+      if (hint) {
+        this.broadcast(CHAT_CHANNELS.hint, { chatId, hint })
+        break
+      }
+    }
+    return spare
+  }
+
+  /**
+   * Load a past session into an adopted spare. On failure (or an extension
+   * cancelling the switch) the spare is stopped and false is returned, so
+   * the caller spawns `pi --session` the usual way.
+   */
+  private async switchAdoptedSpare(
+    spare: WarmSpare,
+    chatId: string,
+    sessionPath: string
+  ): Promise<boolean> {
+    try {
+      await spare.warm
+      const result = await spare.client.request<{ cancelled?: boolean }>(
+        { type: 'switch_session', sessionPath },
+        { timeoutMs: SWITCH_SESSION_TIMEOUT_MS }
+      )
+      if (result?.cancelled !== true) {
+        return true
+      }
+    } catch {
+      // fall through to a fresh spawn
+    }
+    this.bridge?.revoke(chatId)
+    await this.pool.close(chatId)
+    return false
+  }
+
   async open(input: ChatOpenInput): Promise<ChatOpenResult> {
     const chatId = validateChatId(input.chatId)
     const sessionPath =
@@ -462,39 +517,28 @@ export class ChatService {
 
       let client: PiRpcClient | undefined
       let spareWarm: Promise<void> | undefined
-      // Drafts adopt a warm spare for their cwd when one is waiting.
-      if (!existing && sessionPath === undefined) {
-        const spare = this.spares.get(cwd)
-        if (spare && spare.client.isRunning) {
-          const adopted = this.pool.adopt(spare.id, chatId)
-          if (adopted) {
-            this.bridge?.adopt?.(spare.id, chatId)
-            spareWarm = spare.warm
-            client = adopted
-            this.spares.delete(cwd)
-            if (spare.pinned) {
-              void this.warmSpare() // spawn the replacement in the background
-            }
-            // Retries that already fired while the spare warmed still explain
-            // a slow startup — surface the latest one to the new chat.
-            for (let i = client.stderrTail.length - 1; i >= 0; i--) {
-              const hint = startupHintFromStderr(client.stderrTail[i]!)
-              if (hint) {
-                this.broadcast(CHAT_CHANNELS.hint, { chatId, hint })
-                break
-              }
-            }
+      // A warm spare for this cwd skips pi's startup (extensions, MCP
+      // servers) and saves a process: drafts adopt it as is, past sessions
+      // load into it through switch_session.
+      if (!existing) {
+        const spare = this.adoptSpare(cwd, chatId)
+        if (spare && sessionPath === undefined) {
+          client = spare.client
+          spareWarm = spare.warm
+        } else if (spare && sessionPath !== undefined) {
+          if (await this.switchAdoptedSpare(spare, chatId, sessionPath)) {
+            client = spare.client
           }
         }
       }
       if (!client) {
         client = await this.pool.open(chatId, { cwd, sessionPath, ...this.bridgeExtras(chatId) })
-        if (this.pendingOpens.get(chatId) !== openGate) {
-          // close() ran (or a newer open superseded us) while pi was
-          // spawning — drop the process instead of resurrecting the chat.
-          void client.stop()
-          throw new Error('Chat closed')
-        }
+      }
+      if (this.pendingOpens.get(chatId) !== openGate) {
+        // close() ran (or a newer open superseded us) while pi was
+        // spawning — drop the process instead of resurrecting the chat.
+        void client.stop()
+        throw new Error('Chat closed')
       }
 
       let record = this.chats.get(chatId)
