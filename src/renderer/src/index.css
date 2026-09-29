@@ -1382,7 +1382,8 @@ body {
 .chat-column {
   max-width: 760px;
   margin: 0 auto;
-  padding: 24px;
+  /* Bottom padding clears the composer dock's 28px fade. */
+  padding: 24px 24px 36px;
   display: flex;
   flex-direction: column;
   gap: 18px;

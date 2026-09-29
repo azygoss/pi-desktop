@@ -22,7 +22,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -330,7 +329,6 @@ function CuaActivityStrip({ chat }: { chat: ChatState }) {
 // the single hottest function while streaming, since every row's meta is
 // recomputed each frame. One shared formatter is ~100x cheaper.
 const timeFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
-const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 function messageMeta(message: DisplayMessage, models: Model[]): string {
   const parts: string[] = []
@@ -941,37 +939,35 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   const messageCount = chat?.messages.length ?? 0
   const streaming = chat?.status === 'streaming'
-  // Follow the bottom as content arrives. While streaming this runs in a
-  // layout effect — same frame as the commit, before paint — so each streamed
-  // update costs one frame instead of two (commit, then a rAF scroll) and the
-  // new text never paints one frame below the fold. The scrollHeight read
-  // lands after React's mutations, when layout is due anyway. Outside a
-  // stream, short hops animate smoothly and long jumps (initial load) snap.
-  // When the user has scrolled up (stick=false) we never yank them down —
-  // the jump button's dot marks new streamed content instead.
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (!el) {
+  // Follow the bottom while the user is there. A ResizeObserver on the
+  // column (and the viewport) pins the scroll whenever the content or the
+  // viewport changes size — streamed text, a new message, and also growth
+  // that happens after React's commit (lazy markdown, code highlighting,
+  // images), which a message-driven effect never saw: sessions used to open
+  // hundreds of pixels short of the bottom. Observer callbacks run after
+  // layout and before paint, so each change costs no extra frame. When the
+  // user has scrolled up (stick=false) we never yank them down — the jump
+  // button's dot marks new streamed content instead.
+  const pinColumn = useCallback((column: HTMLDivElement | null) => {
+    const el = column?.parentElement
+    if (!column || !el) {
       return
     }
-    if (!stickRef.current) {
-      if (streaming) {
-        const raf = requestAnimationFrame(() => setNewContent(true))
-        return () => cancelAnimationFrame(raf)
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current && !jumpAnimRef.current) {
+        el.scrollTop = el.scrollHeight
       }
-      return
-    }
-    if (streaming) {
-      el.scrollTop = el.scrollHeight
-      return
-    }
-    const raf = requestAnimationFrame(() => {
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: !reduceMotionQuery.matches && distance < el.clientHeight * 2 ? 'smooth' : 'auto'
-      })
     })
+    observer.observe(column)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (stickRef.current || !streaming) {
+      return
+    }
+    const raf = requestAnimationFrame(() => setNewContent(true))
     return () => cancelAnimationFrame(raf)
   }, [chat, messageCount, streaming])
 
@@ -1216,7 +1212,7 @@ export function ChatView({ chatId }: { chatId: string }) {
         </div>
       )}
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="chat-column">
+        <div className="chat-column" ref={pinColumn}>
           {chat.hasEarlier && (
             <div className="msg-load-earlier-wrap">
               <button
