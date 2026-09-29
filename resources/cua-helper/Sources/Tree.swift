@@ -19,6 +19,9 @@ struct Snapshot {
     var elements: [Int: AXUIElement] = [:]
     var nodeCount = 0
     var skippedCount = 0
+    /// Set when an element timed out: the walk stops rather than paying the
+    /// messaging timeout again for every remaining node of a hung app.
+    var unresponsive = false
 }
 
 final class SnapshotStore {
@@ -101,6 +104,9 @@ func walk(
     depth: Int,
     windowFrame: CGRect
 ) {
+    if snapshot.unresponsive {
+        return
+    }
     if snapshot.nodeCount >= maxNodes {
         snapshot.skippedCount += 1
         return
@@ -110,6 +116,10 @@ func walk(
         return
     }
     let info = fetchInfo(element)
+    if info.unresponsive {
+        snapshot.unresponsive = true
+        return
+    }
 
     let floats = roleCanFloat(info.role)
     if info.hasFrame && !floats {

@@ -24,6 +24,8 @@ struct ElInfo {
     var identifier: String?
     var children: [AXUIElement] = []
     var actions: [String] = []
+    /// The app did not answer within the messaging timeout (hung/busy).
+    var unresponsive = false
 }
 
 private let batchAttributes: [String] = [
@@ -117,6 +119,10 @@ func fetchInfo(_ element: AXUIElement) -> ElInfo {
     var rawValues: CFArray?
     let error = AXUIElementCopyMultipleAttributeValues(
         element, batchAttributes as CFArray, [], &rawValues)
+    if error == .cannotComplete {
+        info.unresponsive = true
+        return info
+    }
     let values = (error == .success ? rawValues as? [Any] : nil) ?? []
     func field(_ index: Int) -> Any? {
         index < values.count ? values[index] : nil

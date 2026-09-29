@@ -2,6 +2,8 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 // Window-bounded and display screenshots, downscaled to a model-friendly
 // size and JPEG-encoded. `scale` in the result maps image px to window
@@ -11,6 +13,11 @@ import Foundation
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ window: UnsafeMutablePointer<CGWindowID>) -> AXError
 
 let maxScreenshotSide: CGFloat = 1568
+/// Vision models downscale anything larger than ~1.15 megapixels server-side
+/// (Anthropic's documented limit; OpenAI's high-detail tiles land nearby), so
+/// pixels beyond it only add upload size and latency. A 16:10 Retina window
+/// goes from 1568x980 (~470KB) to ~1356x848.
+let maxScreenshotPixels: CGFloat = 1_150_000
 
 struct Shot {
     let jpegBase64: String
@@ -20,41 +27,48 @@ struct Shot {
     let scale: Double
 }
 
+/// Downscale + JPEG-encode with CoreGraphics/ImageIO only (no AppKit
+/// graphics context), so it is safe on the background queue app_state uses
+/// to capture while the AX tree walk runs.
 func encodeShot(_ image: CGImage, pointsWidth: CGFloat, pointsHeight: CGFloat) -> Shot? {
-    let scale = min(1.0, maxScreenshotSide / max(CGFloat(image.width), CGFloat(image.height)))
-    let w = max(1, Int((CGFloat(image.width) * scale).rounded()))
-    let h = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    let iw = CGFloat(image.width)
+    let ih = CGFloat(image.height)
+    let scale = min(
+        1.0, maxScreenshotSide / max(iw, ih), (maxScreenshotPixels / (iw * ih)).squareRoot())
+    let w = max(1, Int((iw * scale).rounded()))
+    let h = max(1, Int((ih * scale).rounded()))
+    var source = image
+    if w != image.width || h != image.height {
+        guard
+            let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let ctx = CGContext(
+                data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                space: space, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+        else {
+            return nil
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let scaled = ctx.makeImage() else {
+            return nil
+        }
+        source = scaled
+    }
+    let data = NSMutableData()
     guard
-        let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: w,
-            pixelsHigh: h,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .calibratedRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )
+        let dest = CGImageDestinationCreateWithData(
+            data, UTType.jpeg.identifier as CFString, 1, nil)
     else {
         return nil
     }
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-    NSGraphicsContext.current?.imageInterpolation = .high
-    NSGraphicsContext.current?.cgContext.draw(
-        image, in: CGRect(x: 0, y: 0, width: w, height: h))
-    NSGraphicsContext.restoreGraphicsState()
-    guard
-        let jpeg = rep.representation(
-            using: .jpeg, properties: [.compressionFactor: 0.7])
-    else {
+    CGImageDestinationAddImage(
+        dest, source, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else {
         return nil
     }
     let ptScale = pointsWidth > 0 ? Double(w) / Double(pointsWidth) : 1
     return Shot(
-        jpegBase64: jpeg.base64EncodedString(), width: w, height: h, scale: ptScale)
+        jpegBase64: (data as Data).base64EncodedString(), width: w, height: h, scale: ptScale)
 }
 
 /// Window-bounded capture: prefer the CGWindowID from the private (but

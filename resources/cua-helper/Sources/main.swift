@@ -89,6 +89,11 @@ func filterByQuery(_ query: String, lines: [String], comparable: [String]) -> [S
     return lines.enumerated().compactMap { keep[$0.offset] ? $0.element : nil }
 }
 
+/// Result slot for the screenshot captured off-thread during app_state.
+private final class ShotBox: @unchecked Sendable {
+    var shot: Shot?
+}
+
 func doAppState(_ args: [String: Any]) throws -> [String: Any] {
     let resolved = try requireApp(args)
     let window = frontWindow(resolved.element)
@@ -97,9 +102,25 @@ func doAppState(_ args: [String: Any]) throws -> [String: Any] {
     var frame = CGRect.zero
     var windowTitle = ""
 
+    // The screenshot (WindowServer + JPEG encode) and the tree walk (IPC to
+    // the target app) are independent: capture on a background queue while
+    // the walk runs, so app_state costs max(walk, capture), not the sum.
+    let wantShot = argBool(args, "screenshot")
+    let canShoot = wantShot && CGPreflightScreenCaptureAccess()
+    let shotBox = ShotBox()
+    let shotDone = DispatchGroup()
+
     if let window {
         frame = windowFrame(window) ?? .zero
         windowTitle = (axAttr(window, kAXTitleAttribute) as? String) ?? ""
+        if canShoot {
+            let captureFrame = frame
+            shotDone.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                shotBox.shot = captureWindow(window, frame: captureFrame)
+                shotDone.leave()
+            }
+        }
         walk(window, into: &snapshot, depth: 0, windowFrame: frame)
         windowInfo = [
             "title": windowTitle,
@@ -112,7 +133,9 @@ func doAppState(_ args: [String: Any]) throws -> [String: Any] {
     for floating in floatingChildren(resolved.element) {
         walk(floating, into: &snapshot, depth: 0, windowFrame: frame)
     }
-    if snapshot.nodeCount >= maxNodes {
+    if snapshot.unresponsive {
+        snapshot.lines.append("… \(resolved.name) is not responding; the tree is incomplete")
+    } else if snapshot.nodeCount >= maxNodes {
         snapshot.lines.append("… truncated \(snapshot.skippedCount) more elements")
     }
 
@@ -155,10 +178,11 @@ func doAppState(_ args: [String: Any]) throws -> [String: Any] {
         "diff": isDiff
     ]
 
-    if argBool(args, "screenshot") {
-        if !CGPreflightScreenCaptureAccess() {
+    if wantShot {
+        shotDone.wait()
+        if !canShoot {
             result["screenshotError"] = "Screen Recording permission not granted"
-        } else if let window, let shot = captureWindow(window, frame: frame) {
+        } else if window != nil, let shot = shotBox.shot {
             result["screenshot"] = [
                 "jpegBase64": shot.jpegBase64,
                 "width": shot.width,
@@ -509,6 +533,12 @@ if CommandLine.arguments.contains("--self-test") {
 // freezes NSWorkspace's runningApplications snapshot and launch callbacks.
 // The main thread stays in dispatchMain() so those updates keep flowing.
 let commandQueue = DispatchQueue(label: "pi-desktop.cua.commands")
+
+// AX calls into a hung app block for the default messaging timeout (6s) —
+// per call, so one beachballing app could stall a tree walk for minutes.
+// Healthy apps answer in milliseconds; 2s still covers slow-but-alive ones,
+// and walk() stops at the first timeout (see Snapshot.unresponsive).
+AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 2.0)
 
 // Warm the LaunchServices activation path: the first NSRunningApplication
 // .activate() in a process blocks ~1s on an XPC handshake. Doing a harmless

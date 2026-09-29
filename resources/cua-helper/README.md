@@ -33,7 +33,8 @@ never appear in `runningApplications`.
 - `list_apps {excludeBundleId|excludeBundleIds}` → running apps first
   (with window titles), then installed apps
 - `app_state {app, full?, screenshot?, query?}` → front-window AX tree
-  (diff by default), window frame, optional JPEG screenshot
+  (diff by default), window frame, optional JPEG screenshot (captured on a
+  background queue while the tree walk runs)
 - `click {app, element?|x+y, button?, count?}` — prefers `AXPress` for
   left single-clicks on elements that support it
 - `set_value {app, element, value}` — checkbox/radio accept "true"/"false"
@@ -43,7 +44,9 @@ never appear in `runningApplications`.
 - `drag {app, fromElement|fromX+fromY, toElement|toX+toY}`
 - `secondary_action {app, element, action}` — short names map back to `AX*`
 - `activate {app}` / `launch {app}`
-- `screenshot {app?|screen?}` — window or main display, JPEG ≤1568px
+- `screenshot {app?|screen?}` — window or main display, JPEG ≤1568px on the
+  long edge and ≤1.15 megapixels (what vision models keep after their own
+  downscaling)
 - `--self-test` — print permission state and app count, exit 0
 
 Element ids come from the latest `app_state` snapshot of that app; they are
