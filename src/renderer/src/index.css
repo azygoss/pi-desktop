@@ -20,6 +20,13 @@
   --shadow: none;
 }
 
+/* Chromium runs the blinking text caret as a continuous 60fps compositor
+ * animation: with the composer focused (nearly always) the GPU process never
+ * idles. A steady caret keeps an idle window at ~0 wakeups. */
+html {
+  caret-animation: manual;
+}
+
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
     --bg: #faf9f6;
