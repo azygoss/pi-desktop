@@ -40,8 +40,16 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  identity: null
-  hardenedRuntime: false
+  # Signing: electron-builder picks the keychain's Developer ID Application
+  # identity (or the one named in CSC_NAME) and signs every Mach-O inside the
+  # bundle — the Swift helpers included, so macOS attributes their
+  # Accessibility / Screen Recording / microphone use to Pi Desktop under one
+  # stable team identity. Without a usable identity (CI) the build stays
+  # unsigned; CSC_IDENTITY_AUTO_DISCOVERY=false forces that.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}

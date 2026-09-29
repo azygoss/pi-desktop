@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the app and everything signed inside it
+  (Electron helpers, the bundled pi runtime's native modules, and the Swift
+  computer-use / dictation helpers).
+  - allow-jit / allow-unsigned-executable-memory: V8 in Electron and in the
+    bundled pi runtime (ELECTRON_RUN_AS_NODE).
+  - disable-library-validation: unpacked node_modules ship native modules
+    (node-pty, clipboard) that pi loads at runtime.
+  - device.audio-input: the dictation helper records from the microphone.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>

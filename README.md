@@ -118,7 +118,7 @@ pnpm test:e2e     # Electron e2e against a synthetic fake pi
 node scripts/energy.mjs  # CPU + wakeups per phase (idle, streaming, tool run)
 pnpm build        # production build
 pnpm dist:dir     # unpacked .app (quick packaging check)
-pnpm dist:mac     # signed-off dmg + zip for macOS
+pnpm dist:mac     # dmg + zip for macOS, signed when a Developer ID is in the keychain
 ```
 
 `PI_DESKTOP_PI_COMMAND=/path/to/pi` overrides runtime resolution (used by
