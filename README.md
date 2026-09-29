@@ -64,6 +64,23 @@ pnpm dist:mac    # release/*.dmg + *.zip (arm64 + x64, unsigned)
 pnpm dist:dir    # release/mac-*/Pi Desktop.app
 ```
 
+### Signed, notarized release builds
+
+`pnpm dist:mac` signs with the keychain's **Developer ID Application**
+identity (hardened runtime, helpers included). Notarization needs
+credentials stored once in the keychain under a notarytool profile:
+
+```bash
+xcrun notarytool store-credentials pi-desktop-notary --team-id <TEAM_ID>
+```
+
+It asks for your Apple ID and an app-specific password (create one at
+account.apple.com → Sign-In and Security → App-Specific Passwords). Then:
+
+```bash
+pnpm dist:mac:release   # sign + notarize + staple (profile: pi-desktop-notary)
+```
+
 ## Requirements
 
 - **pi is optional.** When `pi` is not on `PATH`, Pi Desktop falls back to
