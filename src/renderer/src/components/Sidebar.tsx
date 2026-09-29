@@ -25,6 +25,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { ModalShell } from './CommandModals'
 import { NavButtons } from './TitleBar'
+import { LiveDot } from './LiveIndicators'
 
 const MAX_NESTED_CHATS = 3
 
@@ -281,9 +282,9 @@ function SessionRow({
       )}
       {pinned && <Pin size={10} className="pin-glyph" aria-hidden="true" />}
       {suffix && <span className="sidebar-item-suffix">{suffix}</span>}
-      {LIVE_INPUT(live) && <span className="input-dot" title="Needs your input" />}
+      {LIVE_INPUT(live) && <LiveDot className="input-dot" title="Needs your input" />}
       {!LIVE_INPUT(live) && LIVE_STREAMING(live) && (
-        <span className="live-dot" title="Working…" />
+        <LiveDot className="live-dot" title="Working…" />
       )}
       {!LIVE_INPUT(live) && !LIVE_STREAMING(live) && LIVE_ERROR(live) && (
         <span className="error-dot" title="Stopped with an error" />

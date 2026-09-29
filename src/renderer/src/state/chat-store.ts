@@ -714,6 +714,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         .trim()
         .slice(0, 80)
     }
+    // A fresh prompt starts the run clock (steer/follow-up keep the current one).
+    if (draft.status !== 'streaming') {
+      draft.runStartedAt = Date.now()
+    }
     // Still starting → keep the "Starting pi" status; the send is queued.
     draft.status = draft.piReady === false ? 'starting' : 'streaming'
     publish(chatId)

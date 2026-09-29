@@ -7,7 +7,6 @@ import {
   CircleAlert,
   Copy,
   File,
-  Loader2,
   Pause,
   Pencil,
   Play,
@@ -47,6 +46,7 @@ import { computerGroupApp, summarizeToolRuns } from '../lib/tool-summary'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
+import { Elapsed, LiveDot } from './LiveIndicators'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCard } from './ToolCard'
 
@@ -80,7 +80,9 @@ function AssistantBlock({
     return (
       <ThinkingBlock
         text={block.thinking}
-        streaming={streaming}
+        // thinking_end stamps durationMs, so only the open block is live.
+        streaming={streaming && block.durationMs === undefined}
+        startedAt={block.startedAt}
         durationMs={block.durationMs}
       />
     )
@@ -232,7 +234,17 @@ function ToolGroup({
           </span>
         )}
         <span className="tool-status">
-          {running && <Loader2 size={13} className="spin" />}
+          {running && (
+            <Elapsed
+              since={runs.reduce<number | undefined>(
+                (min, r) =>
+                  r.status === 'running' && r.startedAt !== undefined
+                    ? Math.min(min ?? r.startedAt, r.startedAt)
+                    : min,
+                undefined
+              )}
+            />
+          )}
           {!running && errors === 0 && <Check size={13} />}
           {!running && errors > 0 && <X size={13} />}
         </span>
@@ -274,7 +286,7 @@ function CuaActivityStrip({ chat }: { chat: ChatState }) {
     : `Using ${activity?.app ?? 'an app'}`
   return (
     <div className="cua-strip" role="status">
-      <span className={clsx('cua-strip-dot', { 'is-paused': paused })} />
+      <LiveDot className={clsx('cua-strip-dot', { 'is-paused': paused })} />
       <span className="cua-strip-headline">{headline}</span>
       {activity?.summary && !paused && (
         <span className="cua-strip-summary">{activity.summary}</span>
@@ -1311,7 +1323,14 @@ export function ChatView({ chatId }: { chatId: string }) {
           })()}
           {awaitingFirstToken && (
             <div className="msg-pending" aria-live="polite">
-              <span className="shimmer-text">Thinking…</span>
+              <LiveDot className="composer-status-dot" />
+              <span>Thinking</span>
+              {chat.runStartedAt !== undefined && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <Elapsed since={chat.runStartedAt} />
+                </>
+              )}
             </div>
           )}
           {chat.error && chat.status !== 'exited' && (

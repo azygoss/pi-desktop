@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { LocalServer } from '../../../shared/api'
 import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { toast } from '../state/toast-store'
+import { LiveDot } from './LiveIndicators'
 
 type BrowserTabData = Extract<PanelTab, { kind: 'browser' }>
 
@@ -120,7 +121,7 @@ export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boole
             aria-label="Address"
           />
         </div>
-        {tab.loading && <span className="browser-loading" aria-label="Loading" />}
+        {tab.loading && <LiveDot className="browser-loading" title="Loading" />}
       </div>
       <div className="browser-viewport" ref={hostRef} />
     </div>

@@ -7,6 +7,7 @@ import { useChatStore } from '../state/chat-store'
 import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { BrowserTab, NewTabPage } from './BrowserTab'
 import { DiffPanel } from './DiffPanel'
+import { LiveDot } from './LiveIndicators'
 import { TerminalView } from './TerminalView'
 
 function tabIcon(tab: PanelTab): ReactNode {
@@ -198,7 +199,7 @@ export function RightPanel({ closing }: { closing?: boolean }) {
               >
                 {tabIcon(tab)}
                 <span className="panel-tab-label">{tabTitle(tab)}</span>
-                {tab.kind === 'browser' && tab.loading && <span className="browser-loading" />}
+                {tab.kind === 'browser' && tab.loading && <LiveDot className="browser-loading" />}
                 <span
                   role="button"
                   className="panel-tab-close"

@@ -386,7 +386,7 @@ describe('Pi Desktop e2e', () => {
     expect(lastMarkdown).toContain('Done')
     await page.screenshot({ path: join(SHOTS, 'chat-toolcard.png') })
     // Wait for the run to fully settle — sending while still streaming
-    // becomes a steer and races the next test's pending-shimmer state.
+    // becomes a steer and races the next test's pending-status state.
     await expect
       .poll(async () => {
         const stats = await page.locator('.chat-stats').allTextContents()
@@ -395,12 +395,12 @@ describe('Pi Desktop e2e', () => {
       .toBe(true)
   })
 
-  it('shows the thinking shimmer while a reply starts', async () => {
+  it('shows the pending status with a run timer while a reply starts', async () => {
     // "slow" makes the fake pi pause 2.5s before its first delta, so the
-    // pending shimmer row is on screen long enough to capture.
+    // pending row is on screen long enough to capture.
     await page.locator('.composer-input').fill('slow reply please')
     await page.keyboard.press('Enter')
-    await visible(page, '.msg-pending .shimmer-text')
+    await visible(page, '.msg-pending .elapsed')
     // 'visible' only means rendered — wait until the pending row is actually
     // inside the scroll viewport before shooting.
     // Poll the box via CDP only — page-side JS predicates hit the CSP ban

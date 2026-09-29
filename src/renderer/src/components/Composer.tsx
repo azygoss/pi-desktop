@@ -43,7 +43,9 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
+import { useLiveNow } from '../lib/live-clock'
 import { ModelPicker } from './ModelPicker'
+import { LiveDot } from './LiveIndicators'
 
 const MAX_IMAGES = 8
 const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
@@ -116,15 +118,11 @@ function fileToImage(file: File): Promise<ImageContent | null> {
 
 /** Subtle "Starting pi… Ns" line while the chat's pi process warms up. */
 function StartingPiStatus({ startedAt, hint }: { startedAt?: number; hint?: string }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
+  const now = useLiveNow(true)
   const seconds = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0
   return (
     <div className="composer-status" role="status">
-      <span className="composer-status-dot" />
+      <LiveDot className="composer-status-dot" />
       {seconds > 0 ? `Starting pi… ${seconds}s` : 'Starting pi…'}
       {hint && <span className="composer-status-hint"> — {hint}</span>}
     </div>

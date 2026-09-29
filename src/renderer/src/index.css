@@ -180,22 +180,6 @@ body {
   background-color: var(--shiki-light-bg) !important;
 }
 
-@keyframes thinking-shimmer {
-  0% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.5;
-  }
-}
-
-.thinking-shimmer {
-  animation: thinking-shimmer 1.6s ease-in-out infinite;
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -212,8 +196,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fade-in,
-  .thinking-shimmer {
+  .fade-in {
     animation: none;
   }
 }
@@ -866,7 +849,6 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  animation: composer-status-pulse 1.2s ease-in-out infinite;
 }
 .composer-status-hint {
   opacity: 0.75;
@@ -874,34 +856,13 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-@keyframes composer-status-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 /* Placeholder pill where the model trigger sits until a catalog exists. */
 .model-picker-skeleton {
   width: 92px;
   height: 24px;
   border-radius: 6px;
   background: var(--surface);
-  animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
-@keyframes skeleton-shimmer {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-
 .msg-queued {
   display: block;
   margin-top: 4px;
@@ -1128,11 +1089,9 @@ body {
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  animation: composer-status-pulse 1.2s ease-in-out infinite;
   flex-shrink: 0;
 }
 .cua-strip-dot.is-paused {
-  animation: none;
   background: var(--muted);
 }
 .cua-strip-headline {
@@ -2154,9 +2113,6 @@ body {
   cursor: pointer;
   padding: 2px 0;
 }
-.thinking-row.is-streaming {
-  animation: thinking-shimmer 1.6s ease-in-out infinite;
-}
 .thinking-body {
   color: var(--muted);
   font-size: 13px;
@@ -2220,19 +2176,6 @@ body {
 }
 .tool-error .tool-status {
   color: var(--danger);
-}
-.spin {
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spin {
-    animation-duration: 2s;
-  }
 }
 
 /* Grouped consecutive tool calls: a single card whose header carries the
@@ -3097,19 +3040,13 @@ body {
   font-family: inherit;
   outline: none;
 }
+/* Page load in flight: a hollow accent ring blinking on the live clock. */
 .browser-loading {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
   flex-shrink: 0;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 .browser-viewport {
   flex: 1;
@@ -3342,35 +3279,31 @@ body {
 
 /* Placeholder row while a stream waits for its first token. */
 .msg-pending {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-/* Gradient sweep across the label — reads as motion without layout cost. */
-.shimmer-text {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--muted) 20%,
-    var(--text-2) 50%,
-    var(--muted) 80%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: shimmer-slide 1.5s linear infinite;
-}
-@keyframes shimmer-slide {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
+/* Elapsed time next to live work ("Thinking · 12s", a running tool's "3s").
+   Tabular digits keep the label from jittering as the seconds change. */
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
-/* Sidebar: pulsing dot while a chat streams, solid dot for a finished
-   background run that hasn't been opened yet. */
+/* Live indicators never animate continuously: every repaint keeps Chromium
+   producing frames for ~0.3s, so a CSS pulse costs 10%+ CPU for as long as a
+   run lasts. They blink instead on the shared 1Hz clock (lib/live-clock.ts),
+   all in the same frame. No transition — a fade would add frames. */
+html[data-live-tick='1'] :is(.live-dot, .input-dot, .composer-status-dot, .browser-loading),
+html[data-live-tick='1'] .cua-strip-dot:not(.is-paused) {
+  opacity: 0.3;
+}
+
+/* Sidebar: a hollow blinking ring while a chat works, a solid dot for a
+   finished background run that hasn't been opened yet. */
 .live-dot,
 .unread-dot {
   width: 7px;
@@ -3380,7 +3313,8 @@ body {
   flex-shrink: 0;
 }
 .live-dot {
-  animation: composer-status-pulse 1.2s ease-in-out infinite;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 .input-dot,
 .error-dot {
@@ -3391,23 +3325,6 @@ body {
 }
 .input-dot {
   background: var(--warning);
-  animation: input-dot-ring 1.6s ease-out infinite;
-}
-@keyframes input-dot-ring {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 55%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 5px transparent;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .input-dot {
-    animation: none;
-  }
 }
 .error-dot {
   background: var(--danger);
@@ -3579,7 +3496,6 @@ body {
   border-radius: 7px;
   background: var(--surface-hover);
   margin: 8px;
-  animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }
 
 /* ---------- Focus & motion ---------- */
@@ -3660,15 +3576,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shimmer-text {
-    animation: none;
-    color: var(--muted);
-    background: none;
-  }
-  .live-dot,
-  .sidebar-skeleton,
   .cua-strip,
-  .cua-strip-dot,
   .switch,
   .switch-knob {
     animation: none;

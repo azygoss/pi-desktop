@@ -70,6 +70,8 @@ export interface ToolRun {
   name: string
   args: Record<string, unknown>
   status: 'running' | 'done' | 'error'
+  /** Wall-clock at tool_execution_start (live runs only), for elapsed time. */
+  startedAt?: number
   partialText?: string
   result?: ToolResultPayload
 }
@@ -80,6 +82,8 @@ export interface ChatViewState {
   status: ChatStatus
   messages: DisplayMessage[]
   toolRuns: Record<string, ToolRun>
+  /** Wall-clock at agent_start of the current run; cleared when it settles. */
+  runStartedAt?: number
 }
 
 export function createChatViewState(): ChatViewState {
@@ -356,6 +360,11 @@ function pushNotice(state: ChatViewState, text: string, tone: 'info' | 'error' =
 export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
   switch (event.type) {
     case 'agent_start':
+      // A retry (agent_end willRetry → agent_start) continues the same run;
+      // anything else (incl. a run cut off by a pi exit) starts the clock.
+      if (state.status !== 'streaming' || state.runStartedAt === undefined) {
+        state.runStartedAt = Date.now()
+      }
       state.status = 'streaming'
       return false
 
@@ -370,6 +379,7 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
 
     case 'agent_settled':
       state.status = 'idle'
+      delete state.runStartedAt
       return false
 
     case 'message_start': {
@@ -412,7 +422,8 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         toolCallId: event.toolCallId,
         name: event.toolName,
         args: event.args,
-        status: 'running'
+        status: 'running',
+        startedAt: Date.now()
       }
       return false
 

@@ -5,7 +5,6 @@ import {
   FilePen,
   FileText,
   Globe,
-  Loader2,
   MousePointerClick,
   Search,
   ShieldCheck,
@@ -18,6 +17,7 @@ import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
 import { toolCallSummary } from '../lib/tool-summary'
+import { Elapsed } from './LiveIndicators'
 
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
@@ -296,7 +296,7 @@ export const ToolCard = memo(function ToolCard({
           )}
         </span>
         <span className="tool-status">
-          {run.status === 'running' && <Loader2 size={13} className="spin" />}
+          {run.status === 'running' && <Elapsed since={run.startedAt} />}
           {run.status === 'done' && <Check size={13} />}
           {run.status === 'error' && <X size={13} />}
         </span>
