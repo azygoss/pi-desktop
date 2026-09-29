@@ -18,7 +18,7 @@ function collect(): { batches: PiEvent[][]; emit: (events: PiEvent[]) => void } 
 }
 
 describe('EventCoalescer', () => {
-  it('buffers message_update deltas into one 16ms batch', () => {
+  it('buffers message_update deltas into one 32ms batch', () => {
     vi.useFakeTimers()
     try {
       const { batches, emit } = collect()
@@ -27,7 +27,7 @@ describe('EventCoalescer', () => {
       coalescer.push(delta('b'))
       coalescer.push(delta('c'))
       expect(batches).toHaveLength(0)
-      vi.advanceTimersByTime(16)
+      vi.advanceTimersByTime(32)
       expect(batches).toHaveLength(1)
       expect(batches[0]).toHaveLength(3)
       coalescer.dispose()
@@ -53,9 +53,9 @@ describe('EventCoalescer', () => {
       const { batches, emit } = collect()
       const coalescer = new EventCoalescer(emit)
       coalescer.push(delta('1'))
-      vi.advanceTimersByTime(16)
+      vi.advanceTimersByTime(32)
       coalescer.push(delta('2'))
-      vi.advanceTimersByTime(16)
+      vi.advanceTimersByTime(32)
       expect(batches).toHaveLength(2)
       expect(batches[0]).toHaveLength(1)
       expect(batches[1]).toHaveLength(1)

@@ -260,6 +260,7 @@ function notifyUiRequest(chatId: string, draft: ChatState, title?: string): void
 
 function flushPending(): void {
   flushScheduled = false
+  lastFlushAt = performance.now()
   let statsDirty = false
   for (const [chatId, events] of pendingEvents) {
     const draft = drafts.get(chatId)
@@ -303,8 +304,36 @@ function enqueueEvent(chatId: string, event: PiEvent): void {
   } else {
     pendingEvents.set(chatId, [event])
   }
-  if (!flushScheduled) {
-    flushScheduled = true
+  scheduleFlush()
+}
+
+/**
+ * Streaming commits are capped at ~30/s: text arrives token by token, so
+ * 60Hz re-renders of the transcript cost twice the CPU/GPU for no visible
+ * gain. Hidden windows get no rAF at all — flush on a coarse timer there so
+ * run-settled notifications still fire while the app is in the background.
+ */
+const MIN_FLUSH_INTERVAL_MS = 32
+const HIDDEN_FLUSH_MS = 250
+let lastFlushAt = 0
+
+function scheduleFlush(): void {
+  if (flushScheduled) {
+    return
+  }
+  flushScheduled = true
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    setTimeout(flushPending, HIDDEN_FLUSH_MS)
+    return
+  }
+  // Clamped: a clock jump (sleep/resume) must never stall the transcript.
+  const wait = Math.min(
+    MIN_FLUSH_INTERVAL_MS,
+    MIN_FLUSH_INTERVAL_MS - (performance.now() - lastFlushAt)
+  )
+  if (wait > 8) {
+    setTimeout(() => requestAnimationFrame(flushPending), wait - 8)
+  } else {
     requestAnimationFrame(flushPending)
   }
 }

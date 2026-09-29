@@ -2,6 +2,8 @@ import { Check, Copy } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 const htmlCache = new Map<string, Promise<string>>()
+/** Settled highlights, readable synchronously so a remount paints colored. */
+const resolvedCache = new Map<string, string>()
 
 function highlight(code: string, lang: string): Promise<string> {
   const key = `${lang} ${code}`
@@ -16,11 +18,18 @@ function highlight(code: string, lang: string): Promise<string> {
         })
       )
       .catch(() => '')
+      .then((html) => {
+        if (html && htmlCache.has(key)) {
+          resolvedCache.set(key, html)
+        }
+        return html
+      })
     htmlCache.set(key, cached)
-    if (htmlCache.size > 500) {
+    if (htmlCache.size > 300) {
       const first = htmlCache.keys().next().value
       if (first !== undefined) {
         htmlCache.delete(first)
+        resolvedCache.delete(first)
       }
     }
   }
@@ -35,31 +44,70 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/** Minimum gap between highlight passes while a block is still growing. */
+const HIGHLIGHT_INTERVAL_MS = 300
+
+/**
+ * Shiki HTML for `prev` with the not-yet-highlighted tail of `code` appended
+ * as plain text, so a streaming block keeps its colors instead of flashing
+ * back to plain on every delta.
+ */
+function withPlainTail(prev: { code: string; html: string }, code: string): string {
+  const close = prev.html.lastIndexOf('</code></pre>')
+  if (close === -1) {
+    return ''
+  }
+  const tail = escapeHtml(code.slice(prev.code.length))
+  return prev.html.slice(0, close) + tail + prev.html.slice(close)
+}
+
 export function CodeBlock({ code, language }: { code: string; language?: string }) {
   const lang = language && /^[a-zA-Z0-9#+-]+$/.test(language) ? language : 'text'
-  const cacheKey = `${lang} ${code}`
-  const [htmlState, setHtmlState] = useState<{ key: string; html: string } | null>(null)
+  const [highlighted, setHighlighted] = useState<{
+    lang: string
+    code: string
+    html: string
+  } | null>(null)
   const [copied, setCopied] = useState(false)
-  const mounted = useRef(true)
-  const html = htmlState?.key === cacheKey ? htmlState.html : ''
+  const lastRunAt = useRef(0)
+  const runSeq = useRef(0)
+  const appliedSeq = useRef(0)
 
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
+  let html = resolvedCache.get(`${lang} ${code}`) ?? ''
+  if (!html && highlighted && highlighted.lang === lang) {
+    if (highlighted.code === code) {
+      html = highlighted.html
+    } else if (code.startsWith(highlighted.code)) {
+      html = withPlainTail(highlighted, code)
     }
-  }, [])
+  }
 
+  // While a block streams, `code` changes every frame; highlighting each
+  // partial would run shiki ~60x/s. Throttle to one pass per interval — the
+  // trailing pass always runs, so the settled block ends fully highlighted.
+  // Results are applied newest-wins rather than cancelled on change, or a
+  // growing block would never show any colors until it settled.
   useEffect(() => {
-    let cancelled = false
-    void highlight(code, lang).then((out) => {
-      if (!cancelled && mounted.current && out) {
-        setHtmlState({ key: `${lang} ${code}`, html: out })
-      }
-    })
-    return () => {
-      cancelled = true
+    if (resolvedCache.has(`${lang} ${code}`)) {
+      return
     }
+    const run = () => {
+      lastRunAt.current = Date.now()
+      const seq = ++runSeq.current
+      void highlight(code, lang).then((out) => {
+        if (out && seq > appliedSeq.current) {
+          appliedSeq.current = seq
+          setHighlighted({ lang, code, html: out })
+        }
+      })
+    }
+    const wait = HIGHLIGHT_INTERVAL_MS - (Date.now() - lastRunAt.current)
+    if (wait <= 0) {
+      run()
+      return
+    }
+    const timer = setTimeout(run, wait)
+    return () => clearTimeout(timer)
   }, [code, lang])
 
   async function copy(): Promise<void> {

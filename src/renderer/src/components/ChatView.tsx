@@ -23,6 +23,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -313,6 +314,12 @@ function CuaActivityStrip({ chat }: { chat: ChatState }) {
 }
 
 /** Muted hover metadata in the actions row: "GLM 5.3 · 14:02". */
+// toLocaleTimeString(…, options) builds a fresh Intl.DateTimeFormat per call —
+// the single hottest function while streaming, since every row's meta is
+// recomputed each frame. One shared formatter is ~100x cheaper.
+const timeFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+
 function messageMeta(message: DisplayMessage, models: Model[]): string {
   const parts: string[] = []
   if (message.kind === 'assistant' && message.model) {
@@ -320,12 +327,7 @@ function messageMeta(message: DisplayMessage, models: Model[]): string {
     parts.push(models.find((m) => m.id === message.model)?.name ?? message.model)
   }
   if (message.timestamp) {
-    parts.push(
-      new Date(message.timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    )
+    parts.push(timeFormat.format(message.timestamp))
   }
   return parts.join(' · ')
 }
@@ -927,12 +929,15 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   const messageCount = chat?.messages.length ?? 0
   const streaming = chat?.status === 'streaming'
-  // One rAF per publish instead of a sync scroll during render — avoids
-  // forcing layout while React is still mutating the list. Short hops
-  // animate smoothly; long jumps (initial load) snap. When the user has
-  // scrolled up (stick=false) we never yank them down — the jump button's
-  // dot marks new streamed content instead.
-  useEffect(() => {
+  // Follow the bottom as content arrives. While streaming this runs in a
+  // layout effect — same frame as the commit, before paint — so each streamed
+  // update costs one frame instead of two (commit, then a rAF scroll) and the
+  // new text never paints one frame below the fold. The scrollHeight read
+  // lands after React's mutations, when layout is due anyway. Outside a
+  // stream, short hops animate smoothly and long jumps (initial load) snap.
+  // When the user has scrolled up (stick=false) we never yank them down —
+  // the jump button's dot marks new streamed content instead.
+  useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) {
       return
@@ -944,15 +949,15 @@ export function ChatView({ chatId }: { chatId: string }) {
       }
       return
     }
+    if (streaming) {
+      el.scrollTop = el.scrollHeight
+      return
+    }
     const raf = requestAnimationFrame(() => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       el.scrollTo({
         top: el.scrollHeight,
-        behavior:
-          !reduceMotion && !streaming && distance < el.clientHeight * 2
-            ? 'smooth'
-            : 'auto'
+        behavior: !reduceMotionQuery.matches && distance < el.clientHeight * 2 ? 'smooth' : 'auto'
       })
     })
     return () => cancelAnimationFrame(raf)

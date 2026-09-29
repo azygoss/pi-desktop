@@ -5,6 +5,9 @@ import type { PiEvent } from '../../shared/pi-types'
  * flush window. Any non-delta event flushes immediately so ordering is
  * preserved end to end (deltas of a message always arrive before its
  * `message_end`). `dispose` drops the timer without emitting.
+ *
+ * The 32ms window matches the renderer's ~30fps commit cap: a shorter one
+ * only adds IPC wakeups the renderer would batch again anyway.
  */
 export class EventCoalescer {
   private buffer: PiEvent[] = []
@@ -12,7 +15,7 @@ export class EventCoalescer {
 
   constructor(
     private readonly emit: (events: PiEvent[]) => void,
-    private readonly intervalMs = 16
+    private readonly intervalMs = 32
   ) {}
 
   push(event: PiEvent): void {

@@ -147,8 +147,9 @@ beforeAll(() => {
   g.requestAnimationFrame = (cb) => setTimeout(() => cb(0), 0) as unknown as number
 })
 
+/** Longer than chat-store's streaming commit cap (MIN_FLUSH_INTERVAL_MS). */
 async function flush(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 5))
+  await new Promise((r) => setTimeout(r, 40))
 }
 
 describe('chat-store model switching', () => {
@@ -368,7 +369,7 @@ describe('computer-use activity', () => {
     vi.useFakeTimers()
     const chatId = `cua${++seq}`
     await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(40)
 
     cuaHandler!({
       chatId,
@@ -393,7 +394,7 @@ describe('computer-use activity', () => {
     expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
     await vi.advanceTimersByTimeAsync(3999)
     expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(40)
     expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(false)
   })
 
@@ -401,7 +402,7 @@ describe('computer-use activity', () => {
     vi.useFakeTimers()
     const chatId = `cua${++seq}`
     await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(40)
 
     cuaHandler!({
       chatId,
@@ -413,7 +414,7 @@ describe('computer-use activity', () => {
     expect(useChatStore.getState().chats[chatId]!.cuaActive).toBe(true)
 
     eventHandler!({ chatId, events: [{ type: 'agent_end' }] })
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(40)
     const chat = useChatStore.getState().chats[chatId]!
     expect(chat.cuaActive).toBe(false)
   })
