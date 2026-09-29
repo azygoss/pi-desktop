@@ -652,6 +652,150 @@ async function scriptedGroupReply(promptMessage) {
 }
 
 /**
+ * Energy benchmark: one bash tool call that runs for N seconds ("long tool
+ * for 8s") — the agent is working but nothing streams, which is where live
+ * indicators (dots, timers) dominate the app's energy use.
+ */
+async function scriptedLongTool(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({ type: 'turn_start' })
+  const seconds = Number(/\bfor (\d+)s\b/.exec(String(promptMessage))?.[1] ?? 10)
+  const toolCall = {
+    type: 'toolCall',
+    id: 'call_long_1',
+    name: 'bash',
+    arguments: { command: 'sleep 10 && echo done' }
+  }
+  const callMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Running the long command.' }, toolCall],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...callMessage, content: [] } })
+  writeLine({ type: 'message_end', message: callMessage })
+  writeLine({
+    type: 'tool_execution_start',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    args: toolCall.arguments
+  })
+  await sleep(seconds * 1000)
+  const content = [{ type: 'text', text: 'done' }]
+  writeLine({
+    type: 'tool_execution_end',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    result: { content },
+    isError: false
+  })
+  const toolResult = {
+    role: 'toolResult',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    content,
+    isError: false,
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: toolResult })
+  writeLine({ type: 'message_end', message: toolResult })
+  writeLine({ type: 'turn_end', message: callMessage, toolResults: [toolResult] })
+  const finalMessage = {
+    ...callMessage,
+    content: [{ type: 'text', text: 'The command finished.' }],
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'turn_start' })
+  writeLine({ type: 'message_start', message: { ...finalMessage, content: [] } })
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
+ * Energy benchmark reply: model-paced deltas (~60/s) over several seconds —
+ * a thinking phase, then markdown prose with a fenced code block — so
+ * scripts/energy.mjs can measure CPU while a realistic reply streams.
+ */
+async function scriptedPacedStream(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({ type: 'turn_start' })
+  const base = {
+    role: 'assistant',
+    content: [],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'pending',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: base })
+  const seconds = Number(/\bfor (\d+)s\b/.exec(String(promptMessage))?.[1] ?? 10)
+  const thinkingMs = Math.min(3000, seconds * 250)
+  const emit = async (kind, index, text, durationMs) => {
+    writeLine({
+      type: 'message_update',
+      usage: USAGE,
+      assistantMessageEvent: { type: `${kind}_start`, contentIndex: index }
+    })
+    const chunks = text.match(/.{1,4}/gs) ?? []
+    const gap = Math.max(1, durationMs / chunks.length)
+    for (const delta of chunks) {
+      await sleep(gap)
+      if (!streaming) return
+      writeLine({
+        type: 'message_update',
+        usage: USAGE,
+        assistantMessageEvent: { type: `${kind}_delta`, contentIndex: index, delta }
+      })
+    }
+    writeLine({
+      type: 'message_update',
+      usage: USAGE,
+      assistantMessageEvent: { type: `${kind}_end`, contentIndex: index, content: text }
+    })
+  }
+  const thinking = 'Weighing the options for the synthetic task step by step. '.repeat(6)
+  const para =
+    'The **synthetic** reply walks through a change with `inline code`, a list and a block.\n\n' +
+    '- first point about the approach\n- second point with a [link](https://example.com)\n\n' +
+    '```ts\nexport function add(a: number, b: number): number {\n  return a + b\n}\n```\n\n'
+  const text = para.repeat(Math.max(1, Math.round(seconds / 2)))
+  await emit('thinking', 0, thinking, thinkingMs)
+  await emit('text', 1, text, seconds * 1000 - thinkingMs)
+  const finalMessage = {
+    ...base,
+    content: [
+      { type: 'thinking', thinking },
+      { type: 'text', text }
+    ],
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
  * Perf benchmark reply: ~2000 small text deltas written as fast as stdout
  * drains, then a normal end sequence. Used by scripts/perf.mjs to measure
  * main→renderer IPC throughput.
@@ -881,6 +1025,10 @@ function handle(command) {
       }
       if (/\bask me\b/i.test(String(command.message))) {
         void scriptedAskReply(command.message)
+      } else if (/long tool/i.test(String(command.message))) {
+        void scriptedLongTool(command.message)
+      } else if (/paced stream/i.test(String(command.message))) {
+        void scriptedPacedStream(command.message)
       } else if (/stream perf/i.test(String(command.message))) {
         void scriptedFastStream(command.message)
       } else if (/\bslow\b/i.test(String(command.message))) {
