@@ -3,7 +3,7 @@
 // fixture and a synthetic PI_CODING_AGENT_DIR. No real pi processes or real
 // user data are involved.
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -94,14 +94,18 @@ async function seedAgentDir(dir: string): Promise<void> {
       text: '<skill name="synthetic-skill" location="/Users/example/.pi/skills/synthetic-skill/SKILL.md">Synthetic skill instructions.</skill> Explain the fixture'
     }
   ]
-  for (const s of sessions) {
+  // The sidebar orders sessions by file mtime. Files written back to back
+  // share a millisecond, which left the order (and which row hides behind
+  // "Show 1 more") to chance — stagger mtimes so list order is sidebar order.
+  const now = Date.now()
+  for (const [i, s] of sessions.entries()) {
     const dirName = sessionDirName(s.cwd)
     await mkdir(join(sessionsDir, dirName), { recursive: true })
     const lines = makeSession(s.id, s.cwd, s.created, s.text)
-    await writeFile(
-      join(sessionsDir, dirName, `${s.id}.jsonl`),
-      lines.map((l) => JSON.stringify(l)).join('\n') + '\n'
-    )
+    const file = join(sessionsDir, dirName, `${s.id}.jsonl`)
+    await writeFile(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+    const mtime = new Date(now - i * 1000)
+    await utimes(file, mtime, mtime)
   }
 }
 
