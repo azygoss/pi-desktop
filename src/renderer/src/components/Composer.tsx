@@ -179,8 +179,10 @@ function ContextRing({ chat }: { chat: ChatState }) {
   const tokens = stats?.tokens
   const cost = stats?.cost
   const streaming = chat.status === 'streaming'
-  // r=7 circle in an 18px box.
-  const radius = 7
+  // A filled pie inside a thin outline (18px box): an arc with round caps
+  // read as a loading spinner next to the send button. The pie is a circle
+  // of r=2.75 stroked 5.5px wide, so its dash sweeps out a sector.
+  const radius = 2.75
   const circumference = 2 * Math.PI * radius
   const compact = () => {
     setOpen(false)
@@ -198,7 +200,7 @@ function ContextRing({ chat }: { chat: ChatState }) {
         onClick={() => setOpen(!open)}
       >
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <circle className="ctx-track" cx="9" cy="9" r={radius} />
+          <circle className="ctx-track" cx="9" cy="9" r="7.5" />
           <circle
             className="ctx-arc"
             cx="9"
@@ -1165,7 +1167,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               ? ''
               : recording
                 ? 'Listening…'
-                : (placeholder ?? 'How can I help you today?')
+                : (placeholder ?? 'Describe a task — / for commands, @ for files')
           }
           rows={1}
           spellCheck={false}

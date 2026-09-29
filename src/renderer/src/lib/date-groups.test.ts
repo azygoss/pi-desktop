@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { dateGroupFor, groupByDate } from './date-groups'
-import { capitalizeName, greetingFor } from './greeting'
+import { capitalizeName } from './greeting'
 
 const NOW = new Date('2026-09-27T15:00:00')
 
@@ -28,30 +28,6 @@ describe('groupByDate', () => {
     ]
     const groups = groupByDate(items, NOW)
     expect(groups.map((g) => g.group)).toEqual(['Today', 'Previous 7 days', 'Older'])
-  })
-})
-
-describe('greetingFor', () => {
-  it('greets by time of day', () => {
-    expect(greetingFor('alice', new Date('2026-01-01T09:00:00'), 0.5)).toBe(
-      'Good morning, Alice'
-    )
-    expect(greetingFor('alice', new Date('2026-01-01T14:00:00'), 0.5)).toBe(
-      'Good afternoon, Alice'
-    )
-    expect(greetingFor('alice', new Date('2026-01-01T21:00:00'), 0.5)).toBe(
-      'Good evening, Alice'
-    )
-  })
-
-  it('uses the casual variant for low rolls', () => {
-    expect(greetingFor('alice', new Date('2026-01-01T09:00:00'), 0.05)).toBe(
-      "What's on your mind, Alice?"
-    )
-  })
-
-  it('falls back to "there" for empty names', () => {
-    expect(greetingFor('', new Date('2026-01-01T09:00:00'), 0.5)).toBe('Good morning, there')
   })
 })
 

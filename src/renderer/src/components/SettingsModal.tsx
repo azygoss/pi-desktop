@@ -213,7 +213,7 @@ export function SettingsModal() {
               <div className="settings-row">
                 <div>
                   <div className="settings-label">Display name</div>
-                  <div className="settings-hint">Used in the greeting</div>
+                  <div className="settings-hint">Shown in the sidebar</div>
                 </div>
                 <input
                   className="settings-input"

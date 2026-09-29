@@ -264,14 +264,14 @@ describe('Pi Desktop e2e', () => {
     }
   })
 
-  it('shows the home screen with greeting and composer (dark)', async () => {
+  it('shows the home screen with heading and composer (dark)', async () => {
     // Force dark regardless of the host's system appearance; the setting
     // must reach nativeTheme so the vibrancy material matches.
     await setTheme('dark')
     expect(await nativeThemeState()).toEqual({ themeSource: 'dark', dark: true })
     await visible(page, '.home-greeting h1')
     const greeting = await page.locator('.home-greeting h1').textContent()
-    expect(greeting).toMatch(/Good|mind/)
+    expect(greeting).toBe('What should pi work on?')
     // sidebar nests seeded chats under their projects (4 + 3), plus a
     // synthetic user-added project with no chats at all. Expanded projects
     // cap at 3 chats with a "Show N more" row, so alpha shows 3, beta 3.

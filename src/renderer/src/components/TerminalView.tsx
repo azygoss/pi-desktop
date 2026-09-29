@@ -13,10 +13,10 @@ function cssVar(name: string, fallback: string): string {
 
 function terminalTheme(): Record<string, string> {
   return {
-    background: cssVar('--bg', '#1a1a19'),
-    foreground: cssVar('--text', '#e8e4dd'),
-    cursor: cssVar('--accent', '#e07856'),
-    selectionBackground: cssVar('--surface-hover', '#33302c')
+    background: cssVar('--bg', '#161618'),
+    foreground: cssVar('--text', '#ececef'),
+    cursor: cssVar('--accent', '#5aa5cc'),
+    selectionBackground: cssVar('--active', '#2d2d32')
   }
 }
 

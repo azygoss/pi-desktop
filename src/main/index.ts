@@ -192,7 +192,7 @@ function createWindow(): BrowserWindow {
           // an opaque backgroundColor would cover it, so it stays unset.
           vibrancy: 'sidebar' as const
         }
-      : { backgroundColor: '#1a1a19' }),
+      : { backgroundColor: '#161618' }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

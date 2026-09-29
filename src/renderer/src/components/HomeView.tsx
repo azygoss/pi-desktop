@@ -2,7 +2,6 @@ import { Check, ExternalLink, RotateCcw, Terminal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { CuaPermissions } from '../../../shared/api'
-import { greetingFor } from '../lib/greeting'
 import { openPiTerminal } from '../state/panel-store'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
@@ -21,7 +20,6 @@ function runtimeLine(info: { kind: string; version: string | null } | null): str
 }
 
 export function HomeView() {
-  const userName = useAppStore((s) => s.userName)
   const piAvailable = useAppStore((s) => s.piAvailable)
   const runtimeInfo = useAppStore((s) => s.runtimeInfo)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
@@ -48,8 +46,6 @@ export function HomeView() {
       }
     }
   }, [draftId, piAvailable, workspaceDir])
-
-  const greeting = greetingFor(userName)
 
   // pi started but reported no usable models (get_available_models empty):
   // nothing is signed in. The card replaces the greeting/composer area.
@@ -149,8 +145,8 @@ export function HomeView() {
         ) : (
           <>
             <div className="home-greeting">
-              <PiLogo size={28} />
-              <h1>{greeting}</h1>
+              <PiLogo size={24} />
+              <h1>What should pi work on?</h1>
             </div>
             <Composer
               chat={chat ?? null}

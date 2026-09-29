@@ -1,22 +1,25 @@
 @import 'tailwindcss';
 
+/* Palette: neutral graphite / white surfaces; color comes only from the pi
+ * mark (https://pi.dev/logo.svg) — blue for accent and focus, amber for
+ * "needs you", a coral-derived red for errors. */
 :root {
-  --bg: #1a1a19;
-  --sidebar: #1d1d1c;
-  --border: #2b2b29;
-  --surface: #242422;
-  --surface-hover: #2c2c2a;
-  --active: #30302d;
-  --text: #ecebe5;
-  --text-2: #a8a79f;
-  --muted: #74736c;
-  --accent: #d97757;
-  --accent-hover: #e08a6d;
-  --on-accent: #ffffff;
-  --user-bubble: #2a2a27;
-  --danger: #d15c5c;
-  --success: #5da663;
-  --warning: #d19a4a;
+  --bg: #161618;
+  --sidebar: #1b1b1e;
+  --border: #29292d;
+  --surface: #1f1f22;
+  --surface-hover: #27272b;
+  --active: #2d2d32;
+  --text: #ececef;
+  --text-2: #a3a3ab;
+  --muted: #74747d;
+  --accent: #5aa5cc;
+  --accent-hover: #74b5d8;
+  --on-accent: #0b1620;
+  --user-bubble: #242428;
+  --danger: #e0766a;
+  --success: #6dbb7a;
+  --warning: #f1be58;
   --shadow: none;
 }
 
@@ -29,63 +32,63 @@ html {
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    --bg: #faf9f6;
-    --sidebar: #f3f2ee;
-    --border: #e4e2dc;
+    --bg: #fcfcfd;
+    --sidebar: #f4f4f6;
+    --border: #e4e4e8;
     --surface: #ffffff;
-    --surface-hover: #f0efec;
-    --active: #e9e7e2;
-    --text: #1f1e1b;
-    --text-2: #5c5b55;
-    --muted: #8c8a83;
-    --accent: #c96442;
-    --accent-hover: #b95738;
+    --surface-hover: #f2f2f5;
+    --active: #e9e9ee;
+    --text: #18181b;
+    --text-2: #52525b;
+    --muted: #8b8b94;
+    --accent: #2f7aa6;
+    --accent-hover: #256790;
     --on-accent: #ffffff;
-    --user-bubble: #ecebe6;
-    --danger: #b44a4a;
-    --success: #3d8a4a;
-    --warning: #b07f2e;
-    --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
+    --user-bubble: #f0f0f3;
+    --danger: #c24a3f;
+    --success: #2f8a45;
+    --warning: #b3801f;
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.07), 0 4px 14px rgb(0 0 0 / 0.04);
   }
 }
 
 :root[data-theme='light'] {
-  --bg: #faf9f6;
-  --sidebar: #f3f2ee;
-  --border: #e4e2dc;
+  --bg: #fcfcfd;
+  --sidebar: #f4f4f6;
+  --border: #e4e4e8;
   --surface: #ffffff;
-  --surface-hover: #f0efec;
-  --active: #e9e7e2;
-  --text: #1f1e1b;
-  --text-2: #5c5b55;
-  --muted: #8c8a83;
-  --accent: #c96442;
-  --accent-hover: #b95738;
+  --surface-hover: #f2f2f5;
+  --active: #e9e9ee;
+  --text: #18181b;
+  --text-2: #52525b;
+  --muted: #8b8b94;
+  --accent: #2f7aa6;
+  --accent-hover: #256790;
   --on-accent: #ffffff;
-  --user-bubble: #ecebe6;
-  --danger: #b44a4a;
-  --success: #3d8a4a;
-    --warning: #b07f2e;
-  --shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.05);
+  --user-bubble: #f0f0f3;
+  --danger: #c24a3f;
+  --success: #2f8a45;
+  --warning: #b3801f;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.07), 0 4px 14px rgb(0 0 0 / 0.04);
 }
 
 :root[data-theme='dark'] {
-  --bg: #1a1a19;
-  --sidebar: #1d1d1c;
-  --border: #2b2b29;
-  --surface: #242422;
-  --surface-hover: #2c2c2a;
-  --active: #30302d;
-  --text: #ecebe5;
-  --text-2: #a8a79f;
-  --muted: #74736c;
-  --accent: #d97757;
-  --accent-hover: #e08a6d;
-  --on-accent: #ffffff;
-  --user-bubble: #2a2a27;
-  --danger: #d15c5c;
-  --success: #5da663;
-    --warning: #d19a4a;
+  --bg: #161618;
+  --sidebar: #1b1b1e;
+  --border: #29292d;
+  --surface: #1f1f22;
+  --surface-hover: #27272b;
+  --active: #2d2d32;
+  --text: #ececef;
+  --text-2: #a3a3ab;
+  --muted: #74747d;
+  --accent: #5aa5cc;
+  --accent-hover: #74b5d8;
+  --on-accent: #0b1620;
+  --user-bubble: #242428;
+  --danger: #e0766a;
+  --success: #6dbb7a;
+  --warning: #f1be58;
   --shadow: none;
 }
 
@@ -512,11 +515,11 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #5da663;
+  background: var(--success);
   flex-shrink: 0;
 }
 .runtime-dot.bundled {
-  background: #d9a03f;
+  background: var(--warning);
 }
 .runtime-dot.offline {
   background: var(--danger);
@@ -576,10 +579,10 @@ body {
 }
 .home-greeting h1 {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 34px;
-  font-weight: 400;
-  letter-spacing: -0.02em;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
   color: var(--text);
 }
 .install-card {
@@ -606,10 +609,9 @@ body {
 }
 .install-card h1 {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 24px;
-  font-weight: 400;
-  letter-spacing: -0.02em;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
   color: var(--text);
 }
 .install-card-actions {
@@ -662,7 +664,7 @@ body {
   gap: 8px;
 }
 .onboarding-check {
-  color: var(--success, #5da663);
+  color: var(--success);
   flex-shrink: 0;
 }
 .onboarding-dot {
@@ -1153,16 +1155,16 @@ body {
   cursor: pointer;
   transition: background 150ms, color 150ms;
 }
-.send-btn.send-active {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.send-btn.send-active:hover {
-  background: var(--accent-hover);
-}
+/* Send/stop are ink-on-paper, not accent: the accent marks state (focus,
+   live work, links), and a colored primary button on every screen dilutes it. */
+.send-btn.send-active,
 .composer.is-streaming .send-btn {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--text);
+  color: var(--bg);
+}
+.send-btn.send-active:hover,
+.composer.is-streaming .send-btn:hover {
+  background: color-mix(in srgb, var(--text) 82%, var(--bg));
 }
 .send-btn:disabled {
   cursor: default;
@@ -1788,14 +1790,12 @@ body {
 }
 .ctx-track {
   fill: none;
-  stroke: color-mix(in srgb, var(--text) 18%, transparent);
-  stroke-width: 2.5;
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-width: 1.25;
 }
 .ctx-arc {
   fill: none;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  transition: stroke-dashoffset 200ms ease;
+  stroke-width: 5.5;
 }
 .ctx-muted .ctx-arc {
   stroke: var(--muted);
@@ -1966,10 +1966,31 @@ body {
 .markdown li.task-list-item {
   list-style: none;
 }
+/* Read-only task boxes drawn by hand: the native disabled checkbox renders
+   as a washed-out grey square that looks broken rather than informative. */
 .markdown li.task-list-item > input[type='checkbox'] {
-  margin: 0 6px 1px -17px;
-  accent-color: var(--accent);
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0 7px 2px -18px;
+  border: 1.25px solid color-mix(in srgb, var(--text) 40%, transparent);
+  border-radius: 3.5px;
   vertical-align: middle;
+  display: inline-grid;
+  place-content: center;
+}
+.markdown li.task-list-item > input[type='checkbox']:checked {
+  background: var(--text-2);
+  border-color: var(--text-2);
+}
+.markdown li.task-list-item > input[type='checkbox']:checked::before {
+  content: '';
+  width: 7px;
+  height: 4px;
+  margin-top: -2px;
+  border: solid var(--bg);
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg);
 }
 .markdown li > ul,
 .markdown li > ol {
@@ -1985,22 +2006,27 @@ body {
   max-width: 100%;
   margin: 10px 0;
 }
+/* Tables read as data, not as a grid of boxes: hairline row rules, a
+   quieter header, tabular figures so numeric columns line up. */
 .markdown table {
   border-collapse: collapse;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .markdown th,
 .markdown td {
-  border: 1px solid var(--border);
-  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 16px 6px 0;
   text-align: left;
+  vertical-align: top;
 }
 .markdown th {
-  background: var(--surface);
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom-color: color-mix(in srgb, var(--text) 22%, transparent);
 }
-.markdown tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
+.markdown tbody tr:last-child td {
+  border-bottom: none;
 }
 .markdown a {
   color: var(--accent);
@@ -2016,8 +2042,8 @@ body {
 }
 .markdown blockquote {
   margin: 8px 0;
-  padding: 2px 12px;
-  border-left: 3px solid var(--accent);
+  padding: 2px 14px;
+  border-left: 2px solid color-mix(in srgb, var(--text) 25%, transparent);
   color: var(--text-2);
 }
 .markdown hr {
@@ -2089,7 +2115,7 @@ body {
   font-size: 12.5px;
 }
 .code-block-body .shiki {
-  background: transparent !important;
+  background: transparent;
 }
 
 /* ---------- Thinking ---------- */
@@ -2169,7 +2195,7 @@ body {
   flex-shrink: 0;
 }
 .tool-done .tool-status {
-  color: #5da663;
+  color: var(--success);
 }
 .tool-error .tool-status {
   color: var(--danger);
@@ -2281,14 +2307,14 @@ body {
   color: var(--danger);
 }
 .diff-old {
-  color: #d15c5c;
-  background: rgb(209 92 92 / 0.08);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
   border-radius: 6px;
   padding: 6px 8px;
 }
 .diff-new {
-  color: #5da663;
-  background: rgb(93 166 99 / 0.08);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -3200,7 +3226,7 @@ body {
   font-size: 11px;
 }
 .diff-add-count {
-  color: #5da663;
+  color: var(--success);
 }
 .diff-del-count {
   color: var(--danger);
@@ -3241,12 +3267,12 @@ body {
   padding-right: 10px;
 }
 .diff-add {
-  color: #5da663;
-  background: rgb(93 166 99 / 0.07);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 7%, transparent);
 }
 .diff-del {
-  color: #d15c5c;
-  background: rgb(209 92 92 / 0.07);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
 }
 .diff-ctx {
   color: var(--text-2);
