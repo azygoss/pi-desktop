@@ -5,18 +5,49 @@ const htmlCache = new Map<string, Promise<string>>()
 /** Settled highlights, readable synchronously so a remount paints colored. */
 const resolvedCache = new Map<string, string>()
 
+type Highlighter = Awaited<ReturnType<typeof import('shiki')['createHighlighter']>>
+
+let highlighterPromise: Promise<Highlighter> | null = null
+
+/**
+ * One shared highlighter on shiki's JavaScript regex engine. The default
+ * Oniguruma engine compiles WebAssembly, which the renderer CSP
+ * (script-src 'self') forbids — every highlight used to fail silently and
+ * code blocks rendered plain. Grammars load on first use per language.
+ */
+function getHighlighter(): Promise<Highlighter> {
+  highlighterPromise ??= import('shiki').then((shiki) =>
+    shiki.createHighlighter({
+      themes: ['vitesse-light', 'vitesse-dark'],
+      langs: [],
+      engine: shiki.createJavaScriptRegexEngine()
+    })
+  )
+  return highlighterPromise
+}
+
+async function renderHtml(code: string, lang: string): Promise<string> {
+  const [shiki, highlighter] = await Promise.all([import('shiki'), getHighlighter()])
+  let language = lang.toLowerCase()
+  if (!highlighter.getLoadedLanguages().includes(language)) {
+    if (language in shiki.bundledLanguages) {
+      await highlighter.loadLanguage(language as keyof typeof shiki.bundledLanguages)
+    } else {
+      language = 'text'
+    }
+  }
+  return highlighter.codeToHtml(code, {
+    lang: language,
+    themes: { light: 'vitesse-light', dark: 'vitesse-dark' },
+    defaultColor: false
+  })
+}
+
 function highlight(code: string, lang: string): Promise<string> {
   const key = `${lang} ${code}`
   let cached = htmlCache.get(key)
   if (!cached) {
-    cached = import('shiki')
-      .then((shiki) =>
-        shiki.codeToHtml(code, {
-          lang,
-          themes: { light: 'vitesse-light', dark: 'vitesse-dark' },
-          defaultColor: false
-        })
-      )
+    cached = renderHtml(code, lang)
       .catch(() => '')
       .then((html) => {
         if (html && htmlCache.has(key)) {

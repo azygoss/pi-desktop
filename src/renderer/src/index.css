@@ -161,23 +161,19 @@ body {
   background: transparent;
 }
 
-/* Shiki dual-theme output uses CSS vars */
-.shiki,
+/* Shiki dual-theme output uses CSS vars. Only token colors are taken: the
+ * block surface is ours, and the theme background (inherited as a custom
+ * property) would otherwise paint a box behind every span. */
 .shiki span {
-  color: var(--shiki-dark) !important;
-  background-color: var(--shiki-dark-bg) !important;
+  color: var(--shiki-dark);
 }
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']) .shiki,
   :root:not([data-theme='dark']) .shiki span {
-    color: var(--shiki-light) !important;
-    background-color: var(--shiki-light-bg) !important;
+    color: var(--shiki-light);
   }
 }
-:root[data-theme='light'] .shiki,
 :root[data-theme='light'] .shiki span {
-  color: var(--shiki-light) !important;
-  background-color: var(--shiki-light-bg) !important;
+  color: var(--shiki-light);
 }
 
 @keyframes fade-in {
