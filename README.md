@@ -34,7 +34,7 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 - **Runtime flexibility** — uses your installed `pi`, the bundled pinned
   `@earendil-works/pi-coding-agent`, or a custom path you choose in
   Settings.
-- **Native feel** — warm dark/light themes following the system, native
+- **Native feel** — dark/light themes following the system, native
   menus and dialogs, keyboard shortcuts (⌘N new chat, ⌘B sidebar,
   ⌘[ / ⌘] history, ⌘, settings).
 
@@ -115,6 +115,7 @@ pnpm typecheck    # TypeScript checks (main + renderer)
 pnpm lint         # ESLint
 pnpm test         # Vitest unit tests
 pnpm test:e2e     # Electron e2e against a synthetic fake pi
+node scripts/energy.mjs  # CPU + wakeups per phase (idle, streaming, tool run)
 pnpm build        # production build
 pnpm dist:dir     # unpacked .app (quick packaging check)
 pnpm dist:mac     # signed-off dmg + zip for macOS
