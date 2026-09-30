@@ -60,12 +60,14 @@ colors. Everything below follows from that, so new UI should too.
 - `ContextCells` — context usage as nine cells filling bottom-up.
 - `LevelMeter` — thinking effort as five rising bars (the composer's model
   chip).
-- `EffortDial` (`components/EffortDial.tsx`) — the model popover's effort
-  control, the same metaphor at full size: one bar per level the model
-  offers, rising edge to edge like a staircase. Bars up to the choice light
-  in deepening blue, the chosen bar glows; hovering previews another level
-  (bars, name and a one-line hint follow the pointer) before a click commits
-  it. It is a radiogroup: ←/→, Home and End move the choice.
+- `EffortSlider` (`components/EffortSlider.tsx`) — the model popover's
+  effort control: a track with one stop per level the model offers and a
+  rounded-pixel thumb. Dragging follows the pointer and settles on the
+  nearest stop (the name and a one-line hint of what the level buys follow
+  along); clicking the track or a label jumps; ←/→, Home and End step. At
+  the model's top level the track is *charged*: a hotter fill running to
+  white, a glow on the fill and thumb, a ⚡ by the name, and one light sweep
+  across the fill on arrival — one-shot, never a loop.
 
 ## Tokens (`src/renderer/src/styles/tokens.css`)
 
@@ -79,5 +81,5 @@ both themes.
 ## Motion
 
 One-shot only: popovers rise 3px over 130ms, rows fade in once, the right
-panel slides. No loops, no shimmer, no spinners (see "Performance and
+panel slides, the effort track sweeps once when it charges. No loops, no shimmer, no spinners (see "Performance and
 energy" in `AGENTS.md`), and everything respects `prefers-reduced-motion`.
