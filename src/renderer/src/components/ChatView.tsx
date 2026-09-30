@@ -262,7 +262,7 @@ function ToolGroup({
           )}
         </span>
         <span className="tool-chevron" aria-hidden="true">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronRight size={12} />
         </span>
       </button>
       {open && (
@@ -383,7 +383,7 @@ function WorkGroup({
           {thoughts > 0 && `${thoughts} ${thoughts === 1 ? 'thought' : 'thoughts'}`}
         </span>
         <span className="tool-chevron" aria-hidden="true">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronRight size={12} />
         </span>
       </button>
       {open && <div className="work-body">{children}</div>}

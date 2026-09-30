@@ -1,6 +1,5 @@
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Copy,
   FilePen,
@@ -431,7 +430,7 @@ export const ToolCard = memo(function ToolCard({
           {run.status === 'done' && durationLabel(run)}
         </span>
         <span className="tool-chevron" aria-hidden="true">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronRight size={12} />
         </span>
       </button>
 
