@@ -26,7 +26,8 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
 
 - `src/main/` - Electron main process (pi process management, session index, IPC handlers)
 - `src/preload/` - the only bridge between main and renderer (`contextBridge`, typed API)
-- `src/renderer/` - React UI
+- `src/renderer/` - React UI; styles live in `src/renderer/src/styles/` (`tokens.css` holds
+  the palette and fonts), and the visual language is described in `docs/design.md`
 - `src/shared/` - types and pure helpers shared by main/preload/renderer
 - `resources/pi-extension/` - pi extension loaded into every chat's pi process; registers
   the `browser_*` and `computer_*` tools, which call back into the app over the loopback
@@ -118,7 +119,8 @@ Pi Desktop sits open all day and agent runs last minutes; every frame it paints 
 - Keep `caret-animation: manual` (set on `html`): Chromium's blinking caret is a 60fps
   compositor animation that otherwise keeps the GPU awake whenever the composer is focused.
 - Streaming updates are batched: main coalesces deltas into one IPC payload per 32ms and the
-  chat store commits at most ~30 times a second. Don't add per-delta work to the render path;
+  chat store commits at most ~30 times a second (10 while the window is unfocused, 4 while
+  hidden). Don't add per-delta work to the render path;
   memoize per message/block and keep expensive formatting (e.g. `Intl` formatters) at
   module scope.
 - Verify with `node scripts/energy.mjs` (per-phase CPU and wakeups, window visible).
