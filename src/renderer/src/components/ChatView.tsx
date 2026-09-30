@@ -1186,7 +1186,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   }
 
   // Before the first token lands there is no assistant block to render yet —
-  // show a shimmer placeholder so the stream doesn't look stalled.
+  // show a "Thinking · Ns" status so the stream doesn't look stalled.
   const lastMessage = chat.messages.at(-1)
   const awaitingFirstToken =
     chat.status === 'streaming' &&

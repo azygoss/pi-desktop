@@ -1,6 +1,7 @@
 // pi-desktop-dictation — speech dictation helper for Pi Desktop.
-// JSONL over stdio; the app spawns this as a child so macOS attributes the
-// Microphone and Speech Recognition prompts to Pi Desktop.
+// JSONL over stdio; the app spawns this as a child and signs it with its own
+// identity, so macOS attributes the Microphone and Speech Recognition prompts
+// to Pi Desktop (see README.md).
 //
 // Commands (one per line on stdin):
 //   {"id":N,"cmd":"permissions","args":{}}     -> {"id":N,"ok":true,"result":{microphone,speech}}

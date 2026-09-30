@@ -6,12 +6,26 @@ inspection, screenshots and input synthesis for `pi`'s `computer_*` tools.
 ## Build
 
 ```bash
-pnpm build:cua   # or: bash scripts/build-cua-helper.sh
+pnpm build:cua   # both helpers; or: bash scripts/build-cua-helper.sh
 ```
 
 Produces `bin/pi-desktop-cua` as a universal binary (arm64 + x86_64,
 macOS 13+). No-op on non-Darwin. The `bin/` directory is gitignored and the
 binary is shipped via `extraResources` in `electron-builder.yml`.
+
+## Permissions and signing
+
+The helper needs Accessibility (AX tree, input) and Screen Recording
+(screenshots). The grants belong to Pi Desktop: the app spawns the helper,
+and macOS attributes it to the app only when the helper carries the app's
+signing identity — electron-builder signs it with the same Developer ID
+during `pnpm dist:mac`. An ad-hoc signed build cannot inherit the grants,
+because macOS checks an executable inside the bundle against the app's
+designated requirement (the Electron binary's cdhash when ad-hoc). The
+`permissions` command reports what the helper process itself sees.
+
+AX calls use a 2s messaging timeout; a tree walk stops at the first
+timeout and reports the app as not responding instead of stalling.
 
 ## Protocol
 

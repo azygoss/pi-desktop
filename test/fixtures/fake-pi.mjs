@@ -314,7 +314,7 @@ const SCRIPT_TEXT =
 /**
  * Scripted assistant reply. `preDelayMs` pauses between the empty
  * message_start and the first delta so e2e can capture the
- * "Thinking…" pending state.
+ * "Thinking · Ns" pending state.
  */
 async function scriptedReply(id, promptMessage, preDelayMs = 0) {
   streaming = true
@@ -1038,7 +1038,7 @@ function handle(command) {
         void scriptedFastStream(command.message)
       } else if (/\bslow\b/i.test(String(command.message))) {
         // Long pause before the first delta so tests can capture the
-        // pre-token "Thinking…" state.
+        // pre-token "Thinking · Ns" state.
         void scriptedReply(id, command.message, 2500)
       } else if (/\bgroup tools\b/i.test(String(command.message))) {
         void scriptedGroupReply(command.message)

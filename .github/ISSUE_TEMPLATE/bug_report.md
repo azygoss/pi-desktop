@@ -25,8 +25,9 @@ file contents into this issue.** Log excerpts are fine — redact them.
 
 ## Environment
 
-- Pi Desktop version: <!-- e.g. 0.1.0, or commit sha for dev builds -->
-- macOS version: <!-- e.g. 15.x -->
+- Pi Desktop version: <!-- e.g. 0.5.0, or commit sha for dev builds -->
+- Build: <!-- release download / built from source (signed or unsigned) -->
+- macOS version: <!-- e.g. 26.x -->
 - Chip: <!-- Apple Silicon / Intel -->
 - pi runtime: <!-- Settings → Pi Runtime: installed / bundled / custom, and version shown -->
 - pi version (if installed): <!-- `pi --version` -->

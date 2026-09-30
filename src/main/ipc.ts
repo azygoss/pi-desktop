@@ -217,7 +217,7 @@ function usernameFallback(): string {
 }
 
 /**
- * Best-effort first name for the greeting: on macOS `id -F` returns the
+ * Best-effort first name for the sidebar footer: on macOS `id -F` returns the
  * account's full name; take its first word. Falls back to the username.
  */
 function resolveUserFirstName(): Promise<string> {

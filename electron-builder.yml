@@ -18,9 +18,9 @@ asarUnpack:
 
 # The browser-tools pi extension is loaded by pi itself; the installed
 # runtime (Homebrew node) cannot read inside app.asar, so ship it unpacked.
-# Same for the computer-use and dictation helpers: TCC attributes their
-# AX/screen-recording/microphone prompts to the app, and they must be real
-# executables on disk.
+# Same for the computer-use and dictation helpers: they must be real
+# executables on disk, signed with the app's identity (see mac below) so TCC
+# attributes their AX / screen-recording / microphone use to the app.
 extraResources:
   - from: resources/pi-extension
     to: pi-extension

@@ -48,7 +48,7 @@ export function HomeView() {
   }, [draftId, piAvailable, workspaceDir])
 
   // pi started but reported no usable models (get_available_models empty):
-  // nothing is signed in. The card replaces the greeting/composer area.
+  // nothing is signed in. The card replaces the heading/composer area.
   const noModels = chat?.piReady === true && chat.models.length === 0
   // pi failed to start entirely: show the error with a retry path.
   const runtimeError = chat?.status === 'error'
