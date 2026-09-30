@@ -56,6 +56,13 @@ export default defineConfig({
   renderer: {
     build: {
       outDir: 'out/renderer',
+      // electron-vite leaves renderer output unminified; minified chunks
+      // parse and compile noticeably faster at startup and on lazy loads.
+      minify: 'esbuild',
+      cssMinify: true,
+      // shiki's grammar chunks (cpp, emacs-lisp, wasm…) are big but only load
+      // when a code block in that language appears.
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
           // React + scheduler load as a stable vendor chunk; browsers cache
