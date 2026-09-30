@@ -1,7 +1,7 @@
 {
   "name": "pi-desktop",
   "productName": "Pi Desktop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Desktop GUI for the pi coding agent harness",
   "license": "MIT",
   "author": "Pi Desktop contributors",
