@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global window, document */
+/* global window, document, Event */
 // Energy harness for Pi Desktop. Launches the built app (out/main/index.js)
 // with the window VISIBLE and reports per-process CPU and idle wakeups for
 // the phases that matter for battery life:
@@ -7,6 +7,7 @@
 //   home-idle      home view, nothing running
 //   chat-idle      a chat open with pi ready, nothing running
 //   streaming      a model-paced reply streaming (thinking → markdown/code)
+//   streaming-blurred  the same with the window visible but unfocused
 //   tool-running   the agent working on a long tool call (nothing streams)
 //   after-idle     the same chat after the reply settled
 //   panel-idle     after-idle with the right panel (terminal tab) open
@@ -209,6 +210,22 @@ try {
   results.phases['streaming'] = await measure(app, mainPid, () =>
     page.waitForFunction(() => window.__settled === true, null, { timeout: 120_000 })
   )
+
+  // Same stream with the window visible but not focused (pi working while
+  // you are in another app): commits drop to 10/s.
+  await page.waitForTimeout(1000)
+  await page.evaluate(() => {
+    window.__settled = false
+  })
+  await input.fill(`paced stream for ${PHASE_S}s`)
+  await input.press('Enter')
+  // Playwright emulates focus for every page, so real window blur never
+  // reaches it; send the event the renderer listens for instead.
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+  results.phases['streaming-blurred'] = await measure(app, mainPid, () =>
+    page.waitForFunction(() => window.__settled === true, null, { timeout: 120_000 })
+  )
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
 
   await page.waitForTimeout(1000)
   await page.evaluate(() => {
