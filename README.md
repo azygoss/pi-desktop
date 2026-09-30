@@ -50,8 +50,13 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   Settings. Spare pi processes are kept warm so new chats and reopened
   sessions skip pi's startup.
 - **Easy on the battery** — no looping animations: live indicators share
-  one 1 Hz clock, streaming renders at ~30 fps, and an idle window stays
-  near 0% CPU (`node scripts/energy.mjs` measures it).
+  one 1 Hz clock, streaming renders at ~30 fps (10 fps while you are in
+  another app), and an idle window stays near 0% CPU
+  (`node scripts/energy.mjs` measures it).
+- **Its own look** — content on sheets inset from the window, an IBM Plex
+  Mono instrument layer for times, tokens, models and tool calls, square
+  status pixels in the pi mark's colors, a pixel sigil per project, and
+  agent work shown as a trace on a rail (see `docs/design.md`).
 - **Native feel** — dark/light themes following the system, native
   menus and dialogs, keyboard shortcuts (⌘N new chat, ⌘B sidebar,
   ⌘[ / ⌘] history, ⌘, settings; `/hotkeys` lists them all).
