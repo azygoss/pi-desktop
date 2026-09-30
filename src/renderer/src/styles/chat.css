@@ -227,7 +227,7 @@
   line-height: 1.65;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 .msg-assistant > :is(.markdown, .msg-image, .msg-error) {
   margin: 8px 0;
@@ -241,7 +241,7 @@
 .msg-turn {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 /* Prose that opens a message after trace rows gets its gap back. */
 .msg-turn > * + .msg-assistant > .markdown:first-child {
@@ -697,44 +697,88 @@
 }
 
 /* ---------- Trace: thinking and tool calls ----------
- * Agent work renders as a log on a rail: each step is a row with a status
- * pixel (the node); expanding a step drops its detail down the rail. */
+ * Every step of agent work is a small card: an icon tile that tells its
+ * kind (terminal, file, reasoning…) and, by its color, its state; a one-line
+ * header; the detail opens inside the card. */
 
+.tool-card,
 .thinking-block {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 120ms;
 }
+.tool-card:hover,
+.thinking-block:hover {
+  border-color: var(--border-strong);
+}
+/* Reasoning is quieter than actions: no fill, just the outline. */
+.thinking-block {
+  background: transparent;
+}
+
+.tool-row,
 .thinking-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
-  height: 30px;
+  height: 36px;
   border: none;
   background: transparent;
   color: var(--text-2);
+  font-size: 12.5px;
   font-family: inherit;
-  font-size: 13px;
+  padding: 0 10px 0 7px;
+  border-radius: 0;
   cursor: pointer;
-  padding: 0 8px;
-  border-radius: 6px;
   text-align: left;
   transition: background 120ms;
 }
+.tool-row:hover,
 .thinking-row:hover {
   background: var(--surface-hover);
 }
-.thinking-node {
-  width: 7px;
-  height: 7px;
-  border-radius: 1.5px;
-  box-shadow: inset 0 0 0 1.25px var(--muted);
-  flex-shrink: 0;
+.tool-card.is-open > .tool-row,
+.thinking-block.is-open > .thinking-row {
+  border-bottom: 1px solid var(--border);
 }
-.thinking-block.is-live .thinking-node {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
+
+/* Icon tile: kind glyph; color = state. */
+.step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: var(--active);
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.step-running {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.step-error {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.step-thinking.step-done {
+  background: transparent;
+  color: var(--muted);
+}
+
+.thinking-row {
+  font-size: 13px;
 }
 .thinking-label {
   font-weight: 500;
@@ -747,51 +791,16 @@
   font-size: 11px;
   flex-shrink: 0;
 }
-/* Collapsed thinking: a two-line excerpt hanging off the rail under the
- * label — the tail while live, the opening once done. */
-.thinking-excerpt {
-  margin: -2px 0 4px 11px;
-  padding: 0 8px 0 18px;
-  border-left: 1px solid var(--border-strong);
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-  font-style: italic;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  cursor: pointer;
-  transition: color 120ms;
-}
-.thinking-excerpt:hover {
-  color: var(--text-2);
-}
-.thinking-block.is-live .thinking-excerpt {
-  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
-  color: var(--text-2);
-}
 .thinking-chevron {
   display: inline-flex;
   margin-left: auto;
   color: var(--muted);
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 120ms;
-}
-.thinking-row:hover .thinking-chevron,
-.thinking-block.is-open .thinking-chevron {
-  opacity: 1;
 }
 .thinking-body {
-  margin: 2px 0 4px 11px;
-  padding: 2px 4px 4px 18px;
-  border-left: 1px solid var(--border-strong);
+  padding: 10px 14px 12px 39px;
   max-height: 440px;
   overflow-y: auto;
-}
-.thinking-block.is-live .thinking-body {
-  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
 }
 .thinking-body .markdown {
   color: var(--text-2);
@@ -806,44 +815,6 @@
   line-height: 1.7;
 }
 
-.tool-card {
-  display: flex;
-  flex-direction: column;
-}
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  height: 30px;
-  border: none;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-family: inherit;
-  padding: 0 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: left;
-  transition: background 120ms;
-}
-.tool-row:hover {
-  background: var(--surface-hover);
-}
-.tool-node {
-  width: 7px;
-  height: 7px;
-  border-radius: 1.5px;
-  flex-shrink: 0;
-  background: var(--muted);
-}
-.tool-node-running {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-}
-.tool-node-error {
-  background: var(--danger);
-}
 .tool-name {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -885,19 +856,10 @@
   display: inline-flex;
   color: var(--muted);
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 120ms;
-}
-.tool-row:hover .tool-chevron,
-.tool-card.is-open > .tool-row .tool-chevron {
-  opacity: 1;
 }
 
-/* Grouped consecutive tool calls: one row carrying the aggregate summary;
-   expanding hangs the individual steps off the rail. */
-.tool-group > .tool-row {
-  gap: 10px;
-}
+/* Groups (consecutive tools, folded work): a card whose body lists the
+ * step cards on a slightly recessed ground. */
 .tool-group-count {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -911,12 +873,16 @@
 .tool-group > .tool-row .tool-status {
   margin-left: auto;
 }
-.tool-group-body {
+.tool-group-body,
+.work-body {
   display: flex;
   flex-direction: column;
-  margin-left: 11px;
-  padding: 2px 0 4px 6px;
-  border-left: 1px solid var(--border-strong);
+  gap: 4px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+}
+.work-body .msg-assistant {
+  gap: 4px;
 }
 .tool-group-errors {
   font-family: var(--font-mono);
@@ -945,19 +911,8 @@
   color: var(--muted);
   white-space: nowrap;
 }
-.work-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 2px 0 6px 11px;
-  padding: 2px 0 2px 6px;
-  border-left: 1px solid var(--border-strong);
-}
-.work-body .msg-assistant {
-  gap: 2px;
-}
 
-/* Diff stat inside a tool group header. */
+/* Diff stat on a step or group header. */
 .tool-group-diff {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -966,73 +921,16 @@
 }
 
 .tool-detail {
-  margin: 0 0 4px 11px;
-  padding: 6px 0 6px 18px;
-  border-left: 1px solid var(--border-strong);
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
 }
-/* Collapsed edit/write steps: a few changed lines under the row. */
-.change-peek {
-  margin: -2px 0 4px 11px;
-  padding: 2px 0 2px 18px;
-  border-left: 1px solid var(--border-strong);
-  cursor: pointer;
-  min-width: 0;
-}
-.peek-box {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.65;
-  background: var(--code-bg);
-  transition: border-color 120ms;
-}
-.change-peek:hover .peek-box {
-  border-color: var(--border-strong);
-}
-.peek-line {
-  display: flex;
-  gap: 8px;
-  padding: 0 10px;
-  white-space: pre;
-  min-width: 0;
-}
-.peek-add {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 8%, var(--code-bg));
-}
-.peek-del {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--code-bg));
-}
-.peek-sign {
-  flex-shrink: 0;
-  opacity: 0.75;
-}
-.peek-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.peek-more {
-  padding: 1px 10px 2px;
-  font-size: 10.5px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
-}
 
-/* Shell steps: the row reads as a prompt line, the detail as a terminal. */
-.tool-shell-prompt {
-  color: var(--accent);
-  font-weight: 600;
-}
+/* Shell steps: the header is the command line, the detail a terminal. */
 .tool-shell-cmd {
-  color: var(--text-2);
+  color: var(--text);
   font-size: 12px;
 }
 .tool-row:hover .tool-shell-cmd {
@@ -1523,15 +1421,11 @@
    producing frames for ~0.3s, so a CSS pulse costs 10%+ CPU for as long as a
    run lasts. They blink instead on the shared 1Hz clock (lib/live-clock.ts),
    all in the same frame. No transition — a fade would add frames. */
-html[data-live-tick='1']
-  :is(
-    .live-dot,
-    .input-dot,
-    .composer-status-dot,
-    .browser-loading,
-    .tool-node-running,
-    .thinking-block.is-live .thinking-node
-  ),
+html[data-live-tick='1'] :is(.live-dot, .input-dot, .composer-status-dot, .browser-loading),
 html[data-live-tick='1'] .cua-strip-dot:not(.is-paused) {
   opacity: 0.3;
+}
+/* Running step tiles dim on the same tick, less deeply than a dot. */
+html[data-live-tick='1'] .step-running {
+  opacity: 0.55;
 }

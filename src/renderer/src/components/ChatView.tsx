@@ -7,6 +7,8 @@ import {
   CircleAlert,
   Copy,
   File,
+  Layers,
+  ListTree,
   Pause,
   Pencil,
   Play,
@@ -48,7 +50,7 @@ import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ThinkingBlock } from './ThinkingBlock'
-import { DiffStat, ToolCard, ToolNode } from './ToolCard'
+import { DiffStat, StepIcon, ToolCard } from './ToolCard'
 
 // react-markdown + micromark are ~600KB — split out of the main chunk; the
 // fallback renders the raw text pre-wrap so content is readable instantly.
@@ -237,7 +239,9 @@ function ToolGroup({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <ToolNode status={running ? 'running' : errors > 0 ? 'error' : 'done'} />
+        <StepIcon status={running ? 'running' : errors > 0 ? 'error' : 'done'}>
+          <Layers size={12} />
+        </StepIcon>
         <span className="tool-name tool-group-label">{groupLabel}</span>
         {!running && group.diff && (
           <DiffStat added={group.diff.added} removed={group.diff.removed} />
@@ -362,7 +366,9 @@ function WorkGroup({
         aria-expanded={open}
         onClick={() => setUserOpen(!open)}
       >
-        <ToolNode status={running ? 'running' : summary.failed > 0 ? 'error' : 'done'} />
+        <StepIcon status={running ? 'running' : summary.failed > 0 ? 'error' : 'done'}>
+          <ListTree size={12} />
+        </StepIcon>
         <span className="tool-name tool-group-label work-label">{label}</span>
         {runs.length > 0 && <span className="work-summary">{summary.text}</span>}
         {!running && summary.diff && (

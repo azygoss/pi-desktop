@@ -27,29 +27,26 @@ colors. Everything below follows from that, so new UI should too.
   vibrancy); the main pane and the right panel are sheets (`--bg`) inset by
   8px with a 10px radius and a hairline border. The sidebar sits on the
   chrome directly.
-- **Agent work is a trace.** Thinking and tool calls render as rows with a
-  status pixel; expanding a step drops its detail down a hairline rail.
-  Consecutive tools fold into one group row with a count and diff stats.
-  Finished steps show their duration (hidden under 0.1s).
-  - *Shell steps* read as a prompt line (`$ command`); expanded, they are one
-    terminal surface: the output, then a footer with the exit status
-    (`exit 0` green, `exit N` / `timed out` / `aborted` coral) and a copy
-    button. pi's trailing "Command exited with code N" line becomes that
-    footer instead of output (`lib/trace.ts`).
-  - *Thinking*, collapsed, hangs a two-line italic excerpt off the rail
-    under its label: the tail while pi thinks, the opening (heading plus
-    first sentence) once done. Expanded, the reasoning renders as markdown.
-  - *Edit and write steps*, collapsed, show a peek of up to four changed
-    lines (`−` coral, `+` green) plus "+N more lines", and a `+a −r` stat
-    on the row. Stats count changed lines only: context that an edit's old
-    and new text share at either end is not a change
-    (`changedLines` in `lib/tool-summary.ts`).
+- **Agent work is a stack of step cards.** Every thinking block and tool
+  call is a small bordered card: an icon tile on the left tells its kind
+  (terminal, read, edit, write, browser, reasoning…) and, by its color, its
+  state — blue outline while running (blinking on the 1 Hz clock), coral when
+  it failed, quiet ink when done. The header is one line (the command for
+  shell steps, tool + path otherwise) with a `+a −r` stat for edits and the
+  duration (hidden under 0.1s); the detail opens inside the card. Reasoning
+  cards have no fill so actions stand out. Consecutive tools fold into a
+  group card with a count and diff stats. Stats count changed lines only:
+  context an edit's old and new text share at either end is not a change
+  (`changedLines` in `lib/tool-summary.ts`).
+  - *Shell steps* expand into one terminal surface: the output, then a
+    footer with the exit status (`exit 0` green, `exit N` / `timed out` /
+    `aborted` coral) and a copy button. pi's trailing "Command exited with
+    code N" line becomes that footer instead of output (`lib/trace.ts`).
   - *Work groups*: agents often answer in many small messages that are only
-    thinking and a tool call. Two or more in a row fold into one row —
+    thinking and a tool call. Two or more in a row fold into one card —
     "Worked for 2m 15s · Ran 3 commands, edited a file · 6 tools · 6
     thoughts" — open while the turn is live, folded once it settles (the
-    user's toggle wins; find-in-chat opens them all). Trace rows stack 4px
-    apart; prose keeps its own margins.
+    user's toggle wins; find-in-chat opens them all).
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 
