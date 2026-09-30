@@ -1,8 +1,7 @@
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Brain, ChevronDown, ChevronRight } from 'lucide-react'
 import { Suspense, lazy, memo, useState } from 'react'
 import clsx from 'clsx'
 
-import { thinkingExcerpt } from '../lib/trace'
 import { Elapsed } from './LiveIndicators'
 
 // Same lazy chunk the transcript uses; only loads once a block is opened.
@@ -28,9 +27,6 @@ export const ThinkingBlock = memo(function ThinkingBlock({
     : durationMs !== undefined
       ? `Thought for ${Math.max(1, Math.round(durationMs / 1000))}s`
       : 'Thought'
-  // Collapsed, a two-line excerpt hangs under the label: the tail while
-  // live, the opening (heading + first sentence) once done.
-  const excerpt = open ? '' : thinkingExcerpt(text, live)
   return (
     <div className={clsx('thinking-block', { 'is-open': open, 'is-live': live })}>
       <button
@@ -39,18 +35,18 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <span className="thinking-node" aria-hidden="true" />
+        <span
+          className={clsx('step-icon', 'step-thinking', live ? 'step-running' : 'step-done')}
+          aria-hidden="true"
+        >
+          <Brain size={12} />
+        </span>
         <span className="thinking-label">{label}</span>
         {live && startedAt !== undefined && <Elapsed since={startedAt} />}
         <span className="thinking-chevron" aria-hidden="true">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
-      {excerpt && (
-        <div className="thinking-excerpt" aria-hidden="true" onClick={() => setOpen(true)}>
-          {excerpt}
-        </div>
-      )}
       {open && (
         <div className="thinking-body">
           <Suspense fallback={<div className="markdown markdown-fallback">{text}</div>}>

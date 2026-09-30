@@ -1,12 +1,25 @@
-import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FilePen,
+  FilePlus,
+  FileText,
+  Globe,
+  MousePointerClick,
+  Search,
+  ShieldCheck,
+  SquareTerminal,
+  Wrench
+} from 'lucide-react'
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
 import { summarizeToolRuns, toolCallSummary } from '../lib/tool-summary'
 import {
   MIN_SHOWN_DURATION_MS,
-  changePeek,
   formatDuration,
   shellStatusLabel,
   splitShellStatus
@@ -36,6 +49,31 @@ function toolKind(name: string): ToolKind {
     return 'write'
   }
   return 'other'
+}
+
+/** Kind glyph for a step's icon tile. */
+function toolIcon(name: string): ReactNode {
+  const n = name.toLowerCase()
+  if (n === 'computer_confirm') {
+    return <ShieldCheck size={12} />
+  }
+  if (n.startsWith('computer_')) {
+    return <MousePointerClick size={12} />
+  }
+  switch (toolKind(name)) {
+    case 'bash':
+      return <SquareTerminal size={12} />
+    case 'browser':
+      return <Globe size={12} />
+    case 'read':
+      return <FileText size={12} />
+    case 'edit':
+      return <FilePen size={12} />
+    case 'write':
+      return <FilePlus size={12} />
+    default:
+      return /grep|find|search|glob|ls\b/.test(n) ? <Search size={12} /> : <Wrench size={12} />
+  }
 }
 
 function relativePath(p: string, cwd: string): string {
@@ -366,13 +404,12 @@ export const ToolCard = memo(function ToolCard({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <ToolNode status={run.status} />
+        <StepIcon status={run.status}>{toolIcon(run.name)}</StepIcon>
         {command !== null ? (
           <>
-            <span className="tool-name tool-shell-prompt" title={run.name}>
-              $
+            <span className="tool-summary tool-shell-cmd" title={command}>
+              {command.split('\n')[0]}
             </span>
-            <span className="tool-summary tool-shell-cmd">{command.split('\n')[0]}</span>
           </>
         ) : (
           <>
@@ -398,49 +435,10 @@ export const ToolCard = memo(function ToolCard({
         </span>
       </button>
 
-      {!open && changes && run.status !== 'error' && (
-        <ChangePeek kind={changes} args={run.args} onOpen={() => setOpen(true)} />
-      )}
       {open && <ToolDetail run={run} cwd={cwd} />}
     </div>
   )
 })
-
-/**
- * A few changed lines under a collapsed edit/write row, so a file change
- * reads at a glance without opening the step. Clicking it opens the step.
- */
-function ChangePeek({
-  kind,
-  args,
-  onOpen
-}: {
-  kind: 'edit' | 'write'
-  args: Record<string, unknown>
-  onOpen(): void
-}) {
-  const peek = useMemo(() => changePeek(kind, args), [kind, args])
-  if (!peek) {
-    return null
-  }
-  return (
-    <div className="change-peek" aria-hidden="true" onClick={onOpen}>
-      <div className="peek-box">
-        {peek.lines.map((line, i) => (
-          <div key={i} className={line.sign === '+' ? 'peek-line peek-add' : 'peek-line peek-del'}>
-            <span className="peek-sign">{line.sign === '+' ? '+' : '−'}</span>
-            <span className="peek-text">{line.text || ' '}</span>
-          </div>
-        ))}
-        {peek.more > 0 && (
-          <div className="peek-more">
-            +{peek.more} more {peek.more === 1 ? 'line' : 'lines'}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 /** "+5 −1" line stat for a step or group; zero sides are left out. */
 export function DiffStat({ added, removed }: { added: number; removed: number }) {
@@ -457,9 +455,14 @@ export function DiffStat({ added, removed }: { added: number; removed: number })
 }
 
 /**
- * Status pixel on the trace rail: hollow blue while running (blinks on the
- * shared 1Hz clock), solid ink when done, coral on failure.
+ * The step's icon tile: its kind at a glance, its state in the tile's color
+ * — blue outline while running (blinking on the shared 1Hz clock), coral
+ * when it failed, quiet ink when done.
  */
-export function ToolNode({ status }: { status: ToolRun['status'] }) {
-  return <span className={`tool-node tool-node-${status}`} aria-hidden="true" />
+export function StepIcon({ status, children }: { status: ToolRun['status']; children: ReactNode }) {
+  return (
+    <span className={`step-icon step-${status}`} aria-hidden="true">
+      {children}
+    </span>
+  )
 }
