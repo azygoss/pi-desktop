@@ -14,25 +14,28 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 
 - **One window, all your pi chats** — sessions are indexed, grouped by
   project and date, searchable (⌘K palette, ⌘⇧F sidebar filter), and
-  shared with the pi TUI. Pin chats to the top or archive them.
+  shared with the pi TUI. Pin chats to the top or archive them. The home
+  screen lists your most recent chats across every project.
 - **Full chat engine** — streaming replies, thinking blocks, markdown with
-  syntax highlighting, tool cards (bash/read/edit/write with diffs, grouped
-  when consecutive), retry and compaction notices, stop / steer /
-  follow-up controls, find in chat (⌘F), and live elapsed time while pi
-  works.
+  syntax highlighting, tool calls as a trace (bash/read/edit/write with
+  diffs, consecutive calls folded into one row with diff stats), retry and
+  compaction notices, stop / steer / follow-up controls, find in chat (⌘F),
+  and a live `WORKING` timer in the title bar while pi works.
 - **Composer** — `@` mentions for project files, image and file
-  attachments (drag, paste or ⌘U), a context-usage gauge with session
-  stats, and dictation (⌘⇧D; on-device where macOS supports the language).
+  attachments (drag, paste or ⌘U), a pixel context-usage gauge with
+  session stats, and dictation (⌘⇧D; on-device where macOS supports the language).
 - **Model & thinking-level picker** — live catalog from pi
-  (`get_available_models`), grouped by provider.
+  (`get_available_models`), grouped by provider, with a thinking-effort
+  meter.
 - **Slash commands** — pi's skills, prompt templates and extension
   commands, plus app commands like `/new`, `/name`, `/compact`, `/fork`,
   `/tree`, `/export`, `/model`, `/thinking` and `/hotkeys`.
 - **Session management** — rename, export to HTML, import a `.jsonl`,
   reveal in Finder, copy path, move to Trash, fork from any user message,
   and clone a chat.
-- **Projects and chats** — sessions nest under their project folder;
-  project-less chats run in an app-owned scratch workspace.
+- **Projects and chats** — sessions nest under their project folder, and
+  each project gets its own pixel sigil so it is recognizable in every
+  list; project-less chats run in an app-owned scratch workspace.
 - **Side panel** — browser tabs, a real terminal (`node-pty` + xterm) and
   a live git diff view for the chat's project. ⌘⌥B toggles the panel, ⌃\`
   a terminal, ⌘L the address bar.

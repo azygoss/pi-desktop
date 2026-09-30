@@ -30,6 +30,10 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build
 - Add unit tests for new logic; the e2e suite (`pnpm test:e2e`) runs the
   built app against a synthetic fake pi — extend it for user-visible
   features.
+- UI changes follow [docs/design.md](docs/design.md): colors come from the
+  tokens in `src/renderer/src/styles/tokens.css` (no new raw hex values;
+  the pi mark keeps its own), readouts use the mono font, status marks are square pixels,
+  and both themes must keep text at 4.5:1 contrast.
 - Anything that renders while the app is idle or streaming must stay cheap:
   no looping CSS animations (use the shared live clock), and compare
   `node scripts/energy.mjs` before and after. AGENTS.md explains why.
