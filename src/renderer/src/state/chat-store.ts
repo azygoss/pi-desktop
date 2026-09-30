@@ -312,10 +312,27 @@ function enqueueEvent(chatId: string, event: PiEvent): void {
  * 60Hz re-renders of the transcript cost twice the CPU/GPU for no visible
  * gain. Hidden windows get no rAF at all — flush on a coarse timer there so
  * run-settled notifications still fire while the app is in the background.
+ *
+ * A visible but unfocused window (pi working while you are in your editor)
+ * commits at 10/s: every commit is a frame Chromium composites, and nobody is
+ * reading token by token over there. Focus brings the full rate back on the
+ * next flush.
  */
 const MIN_FLUSH_INTERVAL_MS = 32
+const BLURRED_FLUSH_INTERVAL_MS = 100
 const HIDDEN_FLUSH_MS = 250
 let lastFlushAt = 0
+
+// Tracked from window focus events rather than polled per flush.
+let windowActive = typeof document === 'undefined' || document.hasFocus()
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('focus', () => {
+    windowActive = true
+  })
+  window.addEventListener('blur', () => {
+    windowActive = false
+  })
+}
 
 function scheduleFlush(): void {
   if (flushScheduled) {
@@ -326,11 +343,9 @@ function scheduleFlush(): void {
     setTimeout(flushPending, HIDDEN_FLUSH_MS)
     return
   }
+  const interval = windowActive ? MIN_FLUSH_INTERVAL_MS : BLURRED_FLUSH_INTERVAL_MS
   // Clamped: a clock jump (sleep/resume) must never stall the transcript.
-  const wait = Math.min(
-    MIN_FLUSH_INTERVAL_MS,
-    MIN_FLUSH_INTERVAL_MS - (performance.now() - lastFlushAt)
-  )
+  const wait = Math.min(interval, interval - (performance.now() - lastFlushAt))
   if (wait > 8) {
     setTimeout(() => requestAnimationFrame(flushPending), wait - 8)
   } else {
