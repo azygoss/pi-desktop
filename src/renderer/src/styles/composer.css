@@ -275,6 +275,23 @@
   z-index: 40;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+}
+.folder-popover > * {
+  flex-shrink: 0;
+}
+/* The project list scrolls inside the popover; search, "Without project" and
+   "Add project…" stay put. */
+.folder-popover > .folder-popover-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.project-popover {
+  min-width: 240px;
+  overflow: hidden;
 }
 .folder-row {
   display: flex;
@@ -308,10 +325,6 @@
 }
 .folder-row-current {
   color: var(--accent);
-  flex-shrink: 0;
-}
-.folder-row-check {
-  width: 13px;
   flex-shrink: 0;
 }
 .folder-popover-search {
@@ -597,10 +610,6 @@
   font-family: inherit;
   outline: none;
 }
-.model-popover-below {
-  bottom: auto;
-  top: calc(100% + 8px);
-}
 .model-list {
   flex: 1;
   min-height: 0;
@@ -608,13 +617,10 @@
   padding: 4px;
 }
 .model-provider {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   padding: 9px 8px 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 .model-row {
   display: flex;
@@ -710,11 +716,8 @@
   gap: 12px;
 }
 .effort-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 .effort-value {
@@ -977,12 +980,9 @@
   gap: 7px;
 }
 .ctx-popover-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 .ctx-popover-row {
   display: flex;
@@ -1104,13 +1104,10 @@
   flex-shrink: 0;
 }
 .slash-group-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   padding: 8px 8px 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 .slash-hint {
   font-size: 10.5px;
@@ -1147,4 +1144,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Popovers flip below their anchor when there is more room there (the home
+   composer sits mid-screen); see lib/popover-placement.ts. Last in
+   the file so it beats each popover's own `bottom`. */
+.popover-below {
+  bottom: auto;
+  top: calc(100% + 8px);
 }

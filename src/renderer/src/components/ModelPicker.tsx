@@ -1,17 +1,16 @@
 import { Check, ChevronDown, Search } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
 import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
+import { usePopoverPlacement } from '../lib/popover-placement'
+import { providerLabel } from '../lib/providers'
 import { EffortSlider } from './EffortSlider'
 import { LevelMeter } from './Pixels'
 
-const POPOVER_MAX_HEIGHT = 540
-const POPOVER_MIN_HEIGHT = 220
-/** Title bar (44px) plus breathing room above the popover. */
-const TOP_RESERVE = 56
-const BOTTOM_RESERVE = 12
+/** Room for the whole model list plus the effort slider. */
+const PLACEMENT = { max: 540, min: 220 }
 
 interface ModelPickerProps {
   models: Model[]
@@ -85,31 +84,7 @@ export function ModelPicker({
   // An "openSignal" bump requests the picker to open (e.g. the /model slash
   // command); derived state during render avoids a setState-in-effect cascade.
   const [seenSignal, setSeenSignal] = useState(openSignal ?? 0)
-  const [placement, setPlacement] = useState<{ maxHeight: number; below: boolean }>({
-    maxHeight: POPOVER_MAX_HEIGHT,
-    below: false
-  })
-
-  // The popover opens toward the side with more room: upward from the docked
-  // chat composer, downward from the home composer that sits mid-screen (the
-  // model list would otherwise get only the sliver above it). The height fits
-  // whichever side it takes.
-  function measurePlacement(): void {
-    const rect = rootRef.current?.getBoundingClientRect()
-    if (!rect) {
-      return
-    }
-    const above = rect.top - TOP_RESERVE
-    const below = window.innerHeight - rect.bottom - BOTTOM_RESERVE
-    const openBelow = below > above
-    setPlacement({
-      below: openBelow,
-      maxHeight: Math.max(
-        POPOVER_MIN_HEIGHT,
-        Math.min(POPOVER_MAX_HEIGHT, openBelow ? below : above)
-      )
-    })
-  }
+  const placement = usePopoverPlacement(rootRef, open, PLACEMENT)
 
   if (openSignal !== undefined && openSignal > seenSignal) {
     setSeenSignal(openSignal)
@@ -117,12 +92,6 @@ export function ModelPicker({
     setHighlight(0)
     setOpen(true)
   }
-
-  useLayoutEffect(() => {
-    if (open) {
-      measurePlacement()
-    }
-  }, [open])
 
   function toggleOpen(): void {
     if (!open) {
@@ -189,7 +158,7 @@ export function ModelPicker({
 
       {open && (
         <div
-          className={clsx('model-popover', { 'model-popover-below': placement.below })}
+          className={clsx('model-popover', { 'popover-below': placement.below })}
           style={{ maxHeight: placement.maxHeight }}
           data-testid="model-popover"
         >
@@ -211,7 +180,7 @@ export function ModelPicker({
           <div className="model-list">
             {grouped.map(([provider, list]) => (
               <div key={provider}>
-                <div className="model-provider">{provider}</div>
+                <div className="model-provider">{providerLabel(provider)}</div>
                 {list.map((model) => {
                   flatIndex += 1
                   const idx = flatIndex

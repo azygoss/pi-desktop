@@ -26,6 +26,7 @@ import type { ImageContent, ThinkingLevel } from '../../../shared/pi-types'
 import { executeAppCommand } from '../lib/app-commands'
 import { contextRingVisible } from '../lib/context-ring'
 import { fuzzyFilter } from '../lib/fuzzy'
+import { usePopoverPlacement } from '../lib/popover-placement'
 import {
   appendAttachmentRefs,
   formatMention,
@@ -130,6 +131,10 @@ function StartingPiStatus({ startedAt, hint }: { startedAt?: number; hint?: stri
   )
 }
 
+/** Height limits for the composer's popovers (see usePopoverPlacement). */
+const MENU_PLACEMENT = { max: 420, min: 160 }
+const LIST_PLACEMENT = { max: 320, min: 140 }
+
 function formatTokens(n: number): string {
   if (n < 1000) {
     return `${n}`
@@ -145,6 +150,7 @@ function formatTokens(n: number): string {
 function ContextRing({ chat }: { chat: ChatState }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const placement = usePopoverPlacement(wrapRef, open, MENU_PLACEMENT)
 
   useEffect(() => {
     if (!open) {
@@ -199,7 +205,11 @@ function ContextRing({ chat }: { chat: ChatState }) {
         <span className="ctx-pct">{Math.round(clamped)}%</span>
       </button>
       {open && (
-        <div className="folder-popover ctx-popover" role="dialog">
+        <div
+          className={clsx('folder-popover', 'ctx-popover', { 'popover-below': placement.below })}
+          style={{ maxHeight: placement.maxHeight }}
+          role="dialog"
+        >
           <div className="ctx-popover-title">Context</div>
           {typeof used === 'number' && typeof window_ === 'number' ? (
             <div className="ctx-popover-row ctx-popover-strong">
@@ -289,6 +299,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const folderRef = useRef<HTMLDivElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const computerUseEnabled = useAppStore(
     (s) => s.appSettings.computerUse?.enabled ?? true
@@ -321,6 +332,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   // `@` mention detection at the caret — only meaningful with a project cwd.
   const mention = mentionDismissed ? null : mentionTrigger(text, cursor)
   const mentionOpen = mention !== null
+  const folderPlacement = usePopoverPlacement(folderRef, folderOpen, MENU_PLACEMENT)
+  const plusPlacement = usePopoverPlacement(plusRef, plusOpen, MENU_PLACEMENT)
+  const listPlacement = usePopoverPlacement(rootRef, slashOpen || mentionOpen, LIST_PLACEMENT)
   const mentionItems = useMemo(
     () =>
       mention === null || projectless
@@ -991,6 +1005,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
 
   return (
     <div
+      ref={rootRef}
       className={clsx('composer', { 'is-streaming': streaming, 'is-dragover': dragging })}
       onDragEnter={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
@@ -1058,7 +1073,13 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
       )}
 
       {mentionOpen && (
-        <div className="slash-popover mention-popover" data-testid="mention-popover">
+        <div
+          className={clsx('slash-popover', 'mention-popover', {
+            'popover-below': listPlacement.below
+          })}
+          style={{ maxHeight: listPlacement.maxHeight }}
+          data-testid="mention-popover"
+        >
           {projectless ? (
             <div className="folder-popover-empty">Pick a project to mention files</div>
           ) : mentionItems.length === 0 ? (
@@ -1090,7 +1111,11 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
       )}
 
       {slashOpen && (
-        <div className="slash-popover" data-testid="slash-popover">
+        <div
+          className={clsx('slash-popover', { 'popover-below': listPlacement.below })}
+          style={{ maxHeight: listPlacement.maxHeight }}
+          data-testid="slash-popover"
+        >
           {(() => {
             let flatIndex = -1
             return slashGroups.map((group) => (
@@ -1186,7 +1211,13 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               <Plus size={16} />
             </button>
             {plusOpen && (
-              <div className="folder-popover plus-popover" role="menu">
+              <div
+                className={clsx('folder-popover', 'plus-popover', {
+                  'popover-below': plusPlacement.below
+                })}
+                style={{ maxHeight: plusPlacement.maxHeight }}
+                role="menu"
+              >
                 <button
                   type="button"
                   role="menuitem"
@@ -1345,7 +1376,13 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               </button>
             )}
             {folderOpen && !cwdReadOnly && (
-              <div className="folder-popover">
+              <div
+                className={clsx('folder-popover', 'project-popover', {
+                  'popover-below': folderPlacement.below
+                })}
+                style={{ maxHeight: folderPlacement.maxHeight }}
+                data-testid="project-popover"
+              >
                 <div className="folder-popover-search">
                   <Search size={12} />
                   <input
@@ -1366,34 +1403,33 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                     }
                   }}
                 >
-                  {projectless ? (
-                    <Check size={13} />
-                  ) : (
-                    <span className="folder-row-check" />
-                  )}
-                  <span>Without project</span>
+                  <ScratchSigil size={12} />
+                  <span className="folder-row-name">Without project</span>
+                  {projectless && <Check size={13} className="folder-row-current" />}
                 </button>
                 <div className="folder-popover-divider" />
-                {filteredProjects.map((p) => (
-                  <button
-                    key={p.cwd}
-                    type="button"
-                    className="folder-row"
-                    title={p.cwd}
-                    onMouseEnter={() => warmProjectSoon(p.cwd)}
-                    onClick={() => {
-                      setFolderOpen(false)
-                      changeChatCwd(p.cwd)
-                    }}
-                  >
-                    <ProjectSigil seed={p.cwd} size={12} />
-                    <span className="folder-row-name">{p.name}</span>
-                    {cwd === p.cwd && <Check size={13} className="folder-row-current" />}
-                  </button>
-                ))}
-                {filteredProjects.length === 0 && (
-                  <div className="folder-popover-empty">No projects</div>
-                )}
+                <div className="folder-popover-list">
+                  {filteredProjects.map((p) => (
+                    <button
+                      key={p.cwd}
+                      type="button"
+                      className="folder-row"
+                      title={p.cwd}
+                      onMouseEnter={() => warmProjectSoon(p.cwd)}
+                      onClick={() => {
+                        setFolderOpen(false)
+                        changeChatCwd(p.cwd)
+                      }}
+                    >
+                      <ProjectSigil seed={p.cwd} size={12} />
+                      <span className="folder-row-name">{p.name}</span>
+                      {cwd === p.cwd && <Check size={13} className="folder-row-current" />}
+                    </button>
+                  ))}
+                  {filteredProjects.length === 0 && (
+                    <div className="folder-popover-empty">No projects</div>
+                  )}
+                </div>
                 <div className="folder-popover-divider" />
                 <button type="button" className="folder-row" onClick={() => void chooseFolder()}>
                   <FolderPlus size={13} />
