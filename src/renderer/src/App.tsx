@@ -205,7 +205,7 @@ export function App() {
   }, [])
 
   return (
-    <div className="app-shell">
+    <div className={ready && !sidebarCollapsed ? 'app-shell' : 'app-shell sidebar-hidden'}>
       {ready && !sidebarCollapsed && <Sidebar />}
       <main className="main-pane">
         <MainTopBar />

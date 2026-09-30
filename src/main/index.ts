@@ -186,8 +186,9 @@ function createWindow(): BrowserWindow {
     ...(process.platform === 'darwin'
       ? {
           titleBarStyle: 'hiddenInset' as const,
-          // Traffic lights vertically centered on the 44px top strips.
-          trafficLightPosition: { x: 14, y: 16 },
+          // Traffic lights vertically centered on the 44px top strips, which
+          // start 8px down (the sheets are inset from the window chrome).
+          trafficLightPosition: { x: 16, y: 24 },
           // Sidebar material shows through where the renderer is transparent;
           // an opaque backgroundColor would cover it, so it stays unset.
           vibrancy: 'sidebar' as const

@@ -47,7 +47,7 @@ import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ThinkingBlock } from './ThinkingBlock'
-import { ToolCard } from './ToolCard'
+import { ToolCard, ToolNode } from './ToolCard'
 
 // react-markdown + micromark are ~600KB — split out of the main chunk; the
 // fallback renders the raw text pre-wrap so content is readable instantly.
@@ -135,6 +135,11 @@ function groupToolCalls(blocks: DisplayBlock[]): RenderItem[] {
   return items
 }
 
+/** True when an assistant message has any text to copy. */
+function hasAssistantText(message: DisplayMessage): boolean {
+  return message.kind === 'assistant' && message.blocks.some((b) => b.type === 'text')
+}
+
 /** Plain markdown text of an assistant message (text blocks only). */
 function assistantText(message: DisplayMessage): string {
   if (message.kind !== 'assistant') {
@@ -147,8 +152,12 @@ function assistantText(message: DisplayMessage): string {
     .trim()
 }
 
-/** Hover action: copy to clipboard, flip to a check for 1.2s. */
-function CopyButton({ text }: { text: string }) {
+/**
+ * Hover action: copy to clipboard, flip to a check for 1.2s. `text` may be a
+ * getter so long turns are only joined when actually copied, not on every
+ * streamed frame.
+ */
+function CopyButton({ text }: { text: string | (() => string) }) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => {
@@ -162,7 +171,7 @@ function CopyButton({ text }: { text: string }) {
       className="icon-btn msg-action"
       title={copied ? 'Copied' : 'Copy'}
       onClick={() => {
-        void navigator.clipboard.writeText(text)
+        void navigator.clipboard.writeText(typeof text === 'function' ? text() : text)
         setCopied(true)
         if (timer.current) {
           clearTimeout(timer.current)
@@ -215,23 +224,28 @@ function ToolGroup({
         ? `Running ${runs.length} tools…`
         : group.text
   return (
-    <div className={clsx('tool-card', 'tool-group', { 'tool-error': errors > 0 && !running })}>
-      <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
-        <span className="tool-chevron">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </span>
-        <span className="tool-name">{groupLabel}</span>
+    <div
+      className={clsx('tool-card', 'tool-group', {
+        'tool-error': errors > 0 && !running,
+        'is-open': open
+      })}
+    >
+      <button
+        type="button"
+        className="tool-row"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <ToolNode status={running ? 'running' : errors > 0 ? 'error' : 'done'} />
+        <span className="tool-name tool-group-label">{groupLabel}</span>
         {!running && group.diff && (
           <span className="tool-group-diff">
             <span className="diff-add-count">+{group.diff.added}</span>{' '}
             <span className="diff-del-count">−{group.diff.removed}</span>
           </span>
         )}
-        {errors > 0 && (
-          <span className="tool-group-errors">
-            ({errors} failed)
-          </span>
-        )}
+        <span className="tool-group-count">{runs.length}</span>
+        {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
         <span className="tool-status">
           {running && (
             <Elapsed
@@ -244,8 +258,9 @@ function ToolGroup({
               )}
             />
           )}
-          {!running && errors === 0 && <Check size={13} />}
-          {!running && errors > 0 && <X size={13} />}
+        </span>
+        <span className="tool-chevron" aria-hidden="true">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
       {open && (
@@ -330,7 +345,26 @@ function CuaActivityStrip({ chat }: { chat: ChatState }) {
 // recomputed each frame. One shared formatter is ~100x cheaper.
 const timeFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
 
+// Rows re-render on every streamed commit; meta strings are cached per
+// message object (and per model catalog) so each row compares the same
+// string instead of rebuilding it.
+const metaCache = new WeakMap<Model[], WeakMap<DisplayMessage, string>>()
+
 function messageMeta(message: DisplayMessage, models: Model[]): string {
+  let byMessage = metaCache.get(models)
+  if (!byMessage) {
+    byMessage = new WeakMap()
+    metaCache.set(models, byMessage)
+  }
+  let meta = byMessage.get(message)
+  if (meta === undefined) {
+    meta = buildMessageMeta(message, models)
+    byMessage.set(message, meta)
+  }
+  return meta
+}
+
+function buildMessageMeta(message: DisplayMessage, models: Model[]): string {
   const parts: string[] = []
   if (message.kind === 'assistant' && message.model) {
     // Sessions persist the model id; show the catalog's display name.
@@ -376,7 +410,8 @@ function MessageRow({
   cwd,
   midx,
   userIndex,
-  copyText,
+  copyFrom,
+  turnText,
   meta,
   pinnedActions,
   onFork,
@@ -390,7 +425,11 @@ function MessageRow({
   /** Position among user messages; defined for user rows only. */
   userIndex?: number
   /** Text the Copy action writes; omitted when the row has no actions. */
-  copyText?: string
+  /** First transcript index of this row's turn; set on the turn's last row
+   *  when the turn has text to copy. */
+  copyFrom?: number
+  /** Joins the turn's text on demand (stable identity). */
+  turnText?: (from: number, to: number) => string
   /** Muted "model · time" metadata in the actions row. */
   meta?: string
   /** Keep the actions row visible without hover (last assistant turn). */
@@ -486,9 +525,11 @@ function MessageRow({
           )
         )}
         {message.errorMessage && <div className="msg-error">{message.errorMessage}</div>}
-        {!message.streaming && (copyText || onRetry || meta) && (
+        {!message.streaming && (copyFrom !== undefined || onRetry || meta) && (
           <div className={clsx('msg-actions', { 'is-pinned': pinnedActions })}>
-            {copyText && <CopyButton text={copyText} />}
+            {copyFrom !== undefined && turnText && (
+              <CopyButton text={() => turnText(copyFrom, midx)} />
+            )}
             {onRetry && (
               <button
                 type="button"
@@ -541,7 +582,8 @@ const MemoMessageRow = memo(
       prev.onRetry !== next.onRetry ||
       prev.midx !== next.midx ||
       prev.cwd !== next.cwd ||
-      prev.copyText !== next.copyText ||
+      prev.copyFrom !== next.copyFrom ||
+      prev.turnText !== next.turnText ||
       prev.meta !== next.meta ||
       prev.pinnedActions !== next.pinnedActions
     ) {
@@ -926,6 +968,19 @@ export function ChatView({ chatId }: { chatId: string }) {
     useChatStore.getState().markRead(chatId)
   }, [chatId])
 
+  // Copy for a whole assistant turn, joined only when the button is used.
+  const turnText = useCallback(
+    (from: number, to: number) => {
+      const messages = useChatStore.getState().chats[chatId]?.messages ?? []
+      return messages
+        .slice(from, to + 1)
+        .map(assistantText)
+        .filter(Boolean)
+        .join('\n\n')
+    },
+    [chatId]
+  )
+
   // Stable identity: an inline closure would defeat row memoization.
   const onForkMessage = useCallback(
     (userIdx: number) => {
@@ -1256,10 +1311,7 @@ export function ChatView({ chatId }: { chatId: string }) {
                 const turnMidx = item.midxs[item.midxs.length - 1]!
                 const turnLast = chat.messages[turnMidx]!
                 const isLastTurn = turnMidx === chat.messages.length - 1
-                const copyText = item.midxs
-                  .map((mi) => assistantText(chat.messages[mi]!))
-                  .filter(Boolean)
-                  .join('\n\n')
+                const hasCopy = item.midxs.some((mi) => hasAssistantText(chat.messages[mi]!))
                 const meta = messageMeta(turnLast, chat.models)
                 const retryUserIdx = userIndex >= 0 ? userIndex : undefined
                 return (
@@ -1274,7 +1326,8 @@ export function ChatView({ chatId }: { chatId: string }) {
                             toolRuns={chat.toolRuns}
                             cwd={chat.cwd}
                             midx={midx}
-                            copyText={isLast ? copyText : undefined}
+                            copyFrom={isLast && hasCopy ? item.midxs[0] : undefined}
+                            turnText={turnText}
                             meta={isLast ? meta : undefined}
                             pinnedActions={isLast && isLastTurn}
                             onRetry={

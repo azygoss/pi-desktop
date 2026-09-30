@@ -4,6 +4,7 @@ import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
 import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
+import { LevelMeter } from './Pixels'
 
 const POPOVER_MAX_HEIGHT = 420
 const POPOVER_MIN_HEIGHT = 220
@@ -175,8 +176,13 @@ export function ModelPicker({
         data-testid="model-picker-trigger"
       >
         <span className="model-picker-name">{currentLabel}</span>
-        {thinkingLabel && <span className="model-picker-thinking">{thinkingLabel}</span>}
-        <ChevronDown size={13} className="model-picker-chevron" />
+        {thinkingLabel && thinkingLevel && (
+          <span className="model-picker-thinking" title={`Thinking: ${thinkingLabel}`}>
+            <LevelMeter level={thinkingLevel} />
+            {thinkingLabel}
+          </span>
+        )}
+        <ChevronDown size={12} className="model-picker-chevron" />
       </button>
 
       {open && (
@@ -247,6 +253,7 @@ export function ModelPicker({
                   })}
                   onClick={() => onThinkingChange(level)}
                 >
+                  <LevelMeter level={level} />
                   {thinkingLevelLabel(level)}
                 </button>
               ))}

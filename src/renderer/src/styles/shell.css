@@ -1,0 +1,607 @@
+/* ---------- App shell ---------- */
+
+/* The window is chrome; content lives on sheets inset from it. The sidebar
+ * sits directly on the chrome, the main pane and the right panel are sheets. */
+.app-shell {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: var(--chrome);
+}
+/* The 8px strip above the sheets still drags the window. */
+.app-shell::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  -webkit-app-region: drag;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.main-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 8px 8px 8px 0;
+  background: var(--bg);
+  border: 1px solid var(--sheet-border);
+  border-radius: 10px;
+  overflow: hidden;
+  /* Its own layer: streamed repaints stay inside the sheet. */
+  contain: layout paint;
+}
+.app-shell.sidebar-hidden .main-pane {
+  margin-left: 8px;
+}
+
+.main-topbar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.nav-buttons {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 78px; /* macOS traffic lights */
+  padding-right: 4px;
+}
+/* Collapsed sidebar: the sheet starts 8px in, so the traffic lights need
+ * less clearance inside it. */
+.main-topbar .nav-buttons {
+  padding-left: 70px;
+}
+
+.sidebar-topbar .nav-buttons {
+  padding-right: 0;
+}
+
+.icon-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    color 120ms,
+    background 120ms;
+}
+.icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.icon-btn:active:not(:disabled) {
+  background: var(--active);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.kbd {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  width: 264px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar);
+  font-size: 13px;
+}
+
+.sidebar-topbar {
+  /* Centered on the traffic lights (y=24, 12px tall), level with the 44px
+   * top strip of the sheets that start 8px down. */
+  height: 44px;
+  margin-top: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+.sidebar-item:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.sidebar-item.is-active {
+  background: var(--active);
+  color: var(--text);
+}
+.sidebar-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-item-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.sidebar-item-chevron {
+  color: var(--muted);
+  flex-shrink: 0;
+  opacity: 0;
+}
+.sidebar-item:hover .sidebar-item-chevron {
+  opacity: 1;
+}
+.sidebar-item-more {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: none;
+  color: var(--muted);
+}
+.sidebar-item:hover .sidebar-item-more,
+.sidebar-item:focus-within .sidebar-item-more {
+  display: inline-flex;
+}
+.sidebar-item-more:hover {
+  color: var(--text);
+}
+.sidebar-session:is(:hover, :focus-within) .sidebar-item-meta,
+.sidebar-project-row:is(:hover, :focus-within) .sidebar-project-count {
+  display: none;
+}
+.sidebar-rename-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  outline: 1px solid var(--accent);
+}
+
+/* "New chat" is a keycap: the one bordered control in the sidebar. */
+.sidebar-item.new-chat {
+  color: var(--text);
+  height: 34px;
+  margin-bottom: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow:
+    inset 0 -1px 0 color-mix(in srgb, var(--border-strong) 70%, transparent),
+    var(--shadow);
+  font-weight: 500;
+}
+.sidebar-item.new-chat:hover {
+  background: var(--raised);
+  border-color: color-mix(in srgb, var(--border-strong) 60%, var(--muted));
+}
+.sidebar-item.new-chat:active {
+  transform: translateY(0.5px);
+  box-shadow: none;
+}
+.sidebar-item-muted {
+  color: var(--muted);
+}
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 4px 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--muted);
+  margin: 2px 0 6px;
+  flex-shrink: 0;
+}
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.sidebar-search input::placeholder {
+  color: var(--muted);
+}
+
+/* Section labels are instrument labels: mono, uppercase, tracked. */
+.sidebar-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-right: 2px;
+  flex-shrink: 0;
+}
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+button.sidebar-section-header:hover {
+  color: var(--text-2);
+}
+.sidebar-section-count {
+  color: var(--faint);
+  letter-spacing: 0;
+}
+:root[data-theme='light'] .sidebar-section-count {
+  color: var(--muted);
+}
+.sidebar-section-add {
+  width: 22px;
+  height: 22px;
+}
+
+.sidebar-date-group {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.8;
+  padding: 10px 8px 3px;
+}
+
+/* Active row: a single accent pixel on the left edge. */
+.active-dot {
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.sidebar-empty {
+  padding: 8px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sidebar-empty-nested {
+  padding: 4px 8px 4px 32px;
+}
+
+.sidebar-project-row {
+  gap: 7px;
+  padding-left: 4px;
+}
+.sidebar-chevron {
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.sidebar-project-row:hover .sidebar-chevron {
+  color: var(--muted);
+}
+/* Nested chats hang off a hairline tree rail under the project sigil. */
+.sidebar-project-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  position: relative;
+  margin-bottom: 4px;
+}
+.sidebar-project-chats::before {
+  content: '';
+  position: absolute;
+  left: 29px;
+  top: 2px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border-strong);
+}
+.sidebar-session-nested {
+  padding-left: 38px;
+}
+.sidebar-session-nested .active-dot {
+  left: 28px;
+  width: 3px;
+  height: 12px;
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
+  padding: 10px 12px 12px;
+}
+.avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--active);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.sidebar-footer-name {
+  font-size: 12.5px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.runtime-badge {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.runtime-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--success);
+  flex-shrink: 0;
+}
+.runtime-dot.bundled {
+  background: var(--warning);
+}
+.runtime-dot.offline {
+  background: var(--danger);
+}
+
+/* New-release pill in the sidebar footer. */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 6px;
+  background: var(--accent-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.update-pill-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 2px 4px 2px 8px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.update-pill-dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 2px 6px 2px 2px;
+  display: inline-flex;
+  cursor: pointer;
+}
+.update-pill-dismiss:hover {
+  color: var(--text-2);
+}
+
+/* Status pixels on session rows. Blue hollow = working (blinks on the
+ * shared 1Hz clock), amber = needs you, coral = error, blue solid = unread. */
+.live-dot,
+.unread-dot,
+.input-dot,
+.error-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  flex-shrink: 0;
+}
+.unread-dot {
+  background: var(--accent);
+}
+.live-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.input-dot {
+  background: var(--warning);
+}
+.error-dot {
+  background: var(--danger);
+}
+.pin-glyph {
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+/* The suffix (project name, "Archived" tag) gives room to the title first. */
+.sidebar-item-suffix {
+  flex: 0 2 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-archived {
+  width: 100%;
+  text-align: left;
+}
+
+/* Skeleton rows while the session index hasn't answered yet. */
+.sidebar-skeleton {
+  height: 12px;
+  border-radius: 3px;
+  background: var(--surface-hover);
+  margin: 9px 8px;
+}
+
+/* ---------- Main top bar ---------- */
+
+.chat-topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 20px;
+  min-width: 0;
+  flex: 1;
+}
+.main-topbar .nav-buttons + .chat-topbar-inner {
+  padding-left: 8px;
+}
+.chat-title {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Project readout next to the title: sigil + mono name. */
+.chat-cwd {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  padding: 2px 7px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.chat-cwd .sigil {
+  width: 11px;
+  height: 11px;
+}
+.chat-title-input {
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  outline: 1px solid var(--accent);
+  min-width: 200px;
+}
+.chat-menu-btn {
+  flex-shrink: 0;
+}
+/* Live run readout on the right of the title bar: "WORKING 0:42". */
+.topbar-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.topbar-status .elapsed {
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+}
+.topbar-status-input {
+  color: var(--warning);
+}
+.panel-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.topbar-status ~ .panel-toggle,
+.chat-topbar-inner ~ .panel-toggle {
+  margin-left: 0;
+}

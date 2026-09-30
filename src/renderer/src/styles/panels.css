@@ -1,0 +1,1083 @@
+/* ---------- Modal shell (settings, command modals) ---------- */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--chrome) 60%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+.settings-modal {
+  display: flex;
+  width: 700px;
+  max-width: calc(100vw - 96px);
+  height: 480px;
+  max-height: calc(100vh - 96px);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-pop);
+}
+.settings-nav {
+  width: 176px;
+  flex-shrink: 0;
+  background: var(--chrome);
+  border-right: 1px solid var(--border);
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings-nav-title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 2px 10px 12px;
+}
+.settings-nav-item {
+  position: relative;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings-nav-item:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.settings-nav-item.is-active {
+  background: var(--active);
+  color: var(--text);
+}
+.settings-nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 3px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 26px;
+  overflow-y: auto;
+  position: relative;
+}
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+.settings-section h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row:last-child {
+  border-bottom: none;
+}
+.settings-row-top {
+  align-items: flex-start;
+}
+.settings-label {
+  font-size: 13px;
+  color: var(--text);
+}
+.settings-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.settings-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 14px;
+}
+.settings-input {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 7px;
+  padding: 6px 10px;
+  min-width: 180px;
+  outline: none;
+}
+.settings-input:focus {
+  border-color: var(--accent);
+}
+.settings-select {
+  max-width: 220px;
+}
+.settings-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--chrome);
+}
+.settings-segment {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings-segment:hover {
+  color: var(--text);
+}
+.settings-segment.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--border-strong);
+}
+.settings-radio {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.settings-radio input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.settings-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-path {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-hidden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+.settings-hidden-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 36px;
+  text-align: center;
+}
+.settings-about h2 {
+  margin: 6px 0 0;
+}
+/* Right-aligned pill + buttons on permission rows; the text column wraps. */
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.settings-note-top {
+  margin-top: 0;
+}
+.perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.perm-actions .ui-btn {
+  white-space: nowrap;
+}
+/* Permission status pill (Settings → Computer use). */
+.perm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.perm-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+.perm-pill.is-granted {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+}
+.perm-pill.is-granted::before {
+  background: var(--success);
+}
+
+/* ---------- Command modals ---------- */
+
+.cmd-modal {
+  width: 540px;
+  max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-pop);
+}
+.cmd-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cmd-modal-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+}
+.cmd-modal-body {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+.cmd-modal-hint {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+.cmd-modal-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  padding: 8px 0;
+}
+.cmd-modal-row {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cmd-modal-row:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.session-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 18px;
+  margin: 0;
+  font-size: 13px;
+}
+.session-info dt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.session-info dd {
+  margin: 0;
+  min-width: 0;
+}
+.session-info .mono,
+.session-path {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.session-actions {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.tree-role {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  flex-shrink: 0;
+  min-width: 70px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tree-role-user {
+  color: var(--accent);
+}
+.tree-snippet {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.tree-fork {
+  padding: 2px 8px;
+  min-height: 24px;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.hotkeys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hotkeys-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+.hotkeys-row:last-child {
+  border-bottom: none;
+}
+.hotkeys-row .kbd {
+  margin-left: 0;
+  min-width: 96px;
+  color: var(--text);
+}
+
+/* Archived-chats modal */
+.archived-search {
+  margin-bottom: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+}
+.archived-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+.archived-row:hover {
+  background: var(--surface-hover);
+}
+.archived-row-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.archived-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archived-row-project {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.archived-row-btn {
+  flex-shrink: 0;
+}
+
+/* ---------- Toasts ---------- */
+
+.toasts {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 90;
+  align-items: flex-end;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+}
+.toast-action {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  padding: 0;
+  cursor: pointer;
+}
+.toast-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- Right panel ---------- */
+
+/* A second sheet beside the main one. */
+.right-panel {
+  position: relative;
+  width: 400px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 8px 8px 8px 0;
+  background: var(--bg);
+  border: 1px solid var(--sheet-border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    width 180ms ease-out,
+    margin 180ms ease-out,
+    border-color 180ms ease-out;
+}
+/* Open/close: the sheet collapses to nothing, including its edge gap. */
+.right-panel.is-animating {
+  margin-right: 0;
+  border-color: transparent;
+}
+/* The inner column keeps the final width while the aside animates, so
+   open/close slides the panel rather than squishing its content. */
+.panel-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+@media (prefers-reduced-motion: reduce) {
+  .right-panel {
+    transition: none;
+  }
+}
+/* Panel header shares the window's 44px drag strip. */
+.panel-header {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-header .panel-tab,
+.panel-header .icon-btn {
+  -webkit-app-region: no-drag;
+}
+.panel-close {
+  flex-shrink: 0;
+}
+.panel-tabs-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.panel-tabs-wrap::before,
+.panel-tabs-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.panel-tabs-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg), transparent);
+}
+.panel-tabs-wrap::after {
+  right: 32px;
+  background: linear-gradient(to left, var(--bg), transparent);
+}
+.panel-tabs-wrap:has(.panel-tabs[data-fade-left='on'])::before {
+  opacity: 1;
+}
+.panel-tabs-wrap:has(.panel-tabs[data-fade-right='on'])::after {
+  opacity: 1;
+}
+.panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  scrollbar-width: none;
+}
+.panel-tabs::-webkit-scrollbar {
+  display: none;
+}
+.panel-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 0 8px;
+  height: 28px;
+  border-radius: 7px;
+  cursor: pointer;
+  max-width: 170px;
+  flex-shrink: 0;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+.panel-tab:hover {
+  color: var(--text-2);
+  background: var(--surface-hover);
+}
+.panel-tab.is-active {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+/* Agent-owned tabs get an accent underline + bot badge so they can never
+   be mistaken for a user tab with the same page title. */
+.panel-tab-agent {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.panel-tab-bot {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.panel-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-tab-close {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 140ms ease 50ms;
+}
+.panel-tab:hover .panel-tab-close {
+  opacity: 1;
+}
+.panel-tab-close:hover {
+  color: var(--text);
+  background: var(--active);
+}
+.panel-tab-add {
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0 4px;
+}
+.panel-tab-favicon {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.panel-tab-content {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+}
+.panel-tab-content.is-active {
+  visibility: visible;
+}
+.panel-empty {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.terminal-view {
+  height: 100%;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.terminal-view .xterm {
+  height: 100%;
+}
+.panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.panel-resize-handle:hover {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 60%, transparent) 0 2px,
+    transparent 2px
+  );
+}
+
+/* ---------- Browser tab ---------- */
+
+.browser-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+}
+.browser-address {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 0 9px;
+  color: var(--muted);
+}
+.browser-address input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  outline: none;
+}
+/* Page load in flight: a hollow accent pixel blinking on the live clock. */
+.browser-loading {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  flex-shrink: 0;
+}
+/* The page sits inset in the sheet as its own card; the native view gets
+   the same corner radius from main. */
+.browser-viewport {
+  flex: 1;
+  min-height: 0;
+  margin: 0 6px 6px;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+/* New-tab page: centered narrow column starting about a third down. */
+.newtab-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 24px;
+}
+.newtab-inner {
+  /* Never wider than the panel, even at the 320px minimum. */
+  width: min(520px, 100% - 32px);
+  margin: 20vh auto 0;
+  padding-bottom: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.newtab-omnibox {
+  flex: none;
+  width: 100%;
+  height: 40px;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.newtab-omnibox input {
+  font-size: 12.5px;
+}
+.newtab-section {
+  display: flex;
+  flex-direction: column;
+}
+.newtab-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 8px 5px;
+}
+.newtab-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.newtab-row:hover {
+  background: var(--surface-hover);
+}
+.newtab-row-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.newtab-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.newtab-row-meta {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 10.5px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Diff tab ---------- */
+
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.diff-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px 12px;
+}
+.diff-file {
+  border-bottom: 1px solid var(--border);
+}
+.diff-file-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 8px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.diff-file-header:hover {
+  background: var(--surface-hover);
+}
+.diff-file-header-static {
+  cursor: default;
+}
+.diff-file-header-static:hover {
+  background: transparent;
+}
+.diff-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+.diff-counts {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.diff-add-count {
+  color: var(--success);
+}
+.diff-del-count {
+  color: var(--danger);
+}
+.diff-status-label {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.diff-hunks {
+  margin: 0 0 8px;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.diff-hunk-header {
+  display: block;
+  color: var(--accent);
+  opacity: 0.8;
+  padding: 2px 10px;
+}
+.diff-line {
+  display: flex;
+  white-space: pre;
+}
+.diff-lineno {
+  display: inline-block;
+  width: 36px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--muted);
+  user-select: none;
+  opacity: 0.6;
+}
+.diff-line-text {
+  flex: 1;
+  padding-right: 10px;
+}
+.diff-add {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+.diff-del {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.diff-ctx {
+  color: var(--text-2);
+}
+.diff-binary {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.diff-fallback-hint {
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.diff-fallback .tool-output {
+  margin: 8px 10px;
+}
+
+/* ---------- Focus & motion ---------- */
+
+/* One consistent focus ring: the accent at 45% opacity. */
+:is(button, [role='button'], a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+/* Inputs that already show focus through a border/accent outline. */
+.sidebar-rename-input:focus-visible,
+.chat-title-input:focus-visible,
+.ui-dialog-input:focus-visible,
+.settings-input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+/* Bare text inputs inside rounded containers must not draw the generic
+   rectangular ring; the container's border shows focus instead. */
+.composer-input:focus-visible,
+.sidebar-search input:focus-visible,
+.browser-address input:focus-visible {
+  outline: none;
+}
+.sidebar-search,
+.browser-address {
+  transition: border-color 150ms;
+}
+.sidebar-search:focus-within,
+.browser-address:focus-within {
+  border-color: color-mix(in srgb, var(--border-strong) 40%, var(--muted));
+}
+/* Search fields at the top of popovers: the open popover is the focus
+   context, a ring around the bare input only adds noise. */
+.model-search input:focus-visible,
+.folder-popover-search input:focus-visible,
+.palette-input:focus-visible {
+  outline: none;
+}
+
+/* Modals and popovers settle in with a short rise. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.settings-modal,
+.cmd-modal,
+.slash-popover,
+.model-popover,
+.folder-popover,
+.ui-dialog,
+.toast {
+  animation: pop-in 130ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.settings-overlay {
+  animation: fade-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cua-strip,
+  .switch,
+  .switch-knob {
+    animation: none;
+    transition: none;
+  }
+  .settings-modal,
+  .cmd-modal,
+  .slash-popover,
+  .model-popover,
+  .folder-popover,
+  .ui-dialog,
+  .toast,
+  .settings-overlay {
+    animation: none;
+  }
+  .jump-btn {
+    transition: none;
+  }
+}
+
+/* ---------- macOS vibrancy ---------- */
+
+/* With `vibrancy: 'sidebar'` the window material shows through wherever the
+   page is transparent: the chrome around the sheets and the sidebar. The
+   tint is kept heavy so text contrast stays correct over whatever desktop
+   tint the material picks up; the sheets paint `--bg`. */
+:root[data-platform='darwin'] body {
+  background: transparent;
+}
+:root[data-platform='darwin'] .app-shell {
+  background: color-mix(in srgb, var(--chrome) 82%, transparent);
+}
+:root[data-platform='darwin'] .sidebar {
+  background: transparent;
+}

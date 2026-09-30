@@ -1,0 +1,1290 @@
+/* ---------- Chat view ---------- */
+
+.chat-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.chat-column {
+  max-width: 780px;
+  margin: 0 auto;
+  /* Bottom padding clears the composer dock's 28px fade. */
+  padding: 20px 28px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
+/* Long chats: skip layout/paint for off-screen rows; the intrinsic size
+   estimate keeps the scrollbar stable while they are skipped. */
+.msg-user-row,
+.msg-assistant,
+.msg-notice,
+.tool-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+
+.msg-load-earlier-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+/* Placeholder for transcript rows outside the rendered window. */
+.msg-window-note {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 0 10px;
+}
+
+/* --- User prompt: a terminal-style prompt block, not a chat bubble. The
+ * caret in the gutter marks every turn; the block reads as the heading of
+ * what follows. */
+.msg-user-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.msg-user-row:not(:first-child) {
+  margin-top: 6px;
+}
+.msg-user {
+  position: relative;
+  background: var(--user-bubble);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 14px 9px 36px;
+  white-space: pre-wrap;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.msg-user::before {
+  content: '›';
+  position: absolute;
+  left: 14px;
+  top: 8px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 23px;
+  color: var(--muted);
+}
+.msg-user-text {
+  white-space: pre-wrap;
+}
+.msg-queued {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--warning);
+}
+
+/* Hover actions below a message (Copy, Edit & resend) — invisible until the
+   row is hovered or a button inside has focus. */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 140ms ease 50ms;
+}
+.msg-user-row:hover .msg-actions,
+.msg-turn:hover .msg-actions,
+.msg-actions.is-pinned,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+/* Prompt actions float in the block's top-right corner instead of taking
+ * a row of their own under every prompt. */
+.msg-user-row .msg-actions {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding-left: 8px;
+  border-radius: 6px;
+  background: var(--user-bubble);
+  box-shadow: -12px 0 10px -4px var(--user-bubble);
+}
+.msg-action {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+.msg-action:hover {
+  color: var(--text);
+}
+.msg-assistant .msg-actions {
+  margin-top: -4px;
+  margin-left: -5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-actions {
+    transition: none;
+  }
+}
+/* Muted metadata in the message actions row ("model · 14:02"). */
+.msg-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  align-self: center;
+  white-space: nowrap;
+  margin-left: 6px;
+}
+
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.skill-details summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.skill-body {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--code-bg);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* @path chips inside prompt blocks. */
+.msg-path-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  vertical-align: baseline;
+}
+.msg-path-chip svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.msg-image {
+  max-width: 240px;
+  max-height: 170px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+  margin: 2px 0;
+}
+
+/* --- Assistant turn. */
+.msg-assistant {
+  font-size: 14.5px;
+  line-height: 1.65;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* Notices (compaction, retries, model switches): a centered mono readout
+ * between hairlines. */
+.msg-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  padding: 2px 0;
+  white-space: pre-wrap;
+}
+.msg-notice::before,
+.msg-notice::after {
+  content: '';
+  flex: 1 1 24px;
+  height: 1px;
+  background: var(--border);
+}
+.msg-notice > * {
+  flex: 0 1 auto;
+}
+.msg-notice-error {
+  color: var(--danger);
+}
+
+/* Placeholder row while a stream waits for its first token. */
+.msg-pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  padding-left: 8px;
+}
+
+/* Elapsed time next to live work ("Thinking 12s", a running tool's "3s").
+   Tabular digits keep the label from jittering as the seconds change. */
+.elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.jump-btn {
+  position: absolute;
+  bottom: 124px;
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-pop);
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+.jump-btn.is-visible {
+  opacity: 1;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.jump-btn:hover {
+  color: var(--text);
+}
+/* Accent pixel: new streamed content arrived while scrolled up. */
+.jump-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
+}
+
+/* Find-in-chat bar (⌘F), pinned top-right of the chat pane. */
+.find-bar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px 6px;
+  z-index: 30;
+}
+.find-bar-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.find-bar-input {
+  width: 170px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  padding: 2px 0;
+}
+.find-bar-input::placeholder {
+  color: var(--muted);
+}
+.find-bar-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: right;
+}
+.find-bar-btn {
+  padding: 3px;
+}
+
+::highlight(find) {
+  background-color: color-mix(in srgb, var(--warning) 32%, transparent);
+  color: inherit;
+}
+::highlight(find-current) {
+  background-color: var(--warning);
+  color: #1a1305;
+}
+
+.chat-composer-dock {
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 28px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+/* Soft fade so scrolled content slides under the docked composer instead
+   of clipping against its top edge. */
+.chat-composer-dock::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+}
+.chat-stats {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Thin banner above an archived chat's transcript. */
+.archived-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.archived-banner-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+/* ---------- Markdown ---------- */
+
+.markdown > *:first-child {
+  margin-top: 0;
+}
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 20px 0 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+.markdown h1 {
+  font-size: 21px;
+  letter-spacing: -0.02em;
+}
+.markdown h2 {
+  font-size: 17.5px;
+}
+.markdown h3 {
+  font-size: 15.5px;
+}
+.markdown h4 {
+  font-size: 14.5px;
+}
+.markdown h5,
+.markdown h6 {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.markdown p {
+  margin: 8px 0;
+}
+.markdown strong {
+  font-weight: 600;
+  color: var(--text);
+}
+.markdown ul,
+.markdown ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+/* The preflight reset strips markers — restore them inside messages. */
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown ul ul {
+  list-style: circle;
+}
+.markdown ul ul ul {
+  list-style: square;
+}
+.markdown li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+.markdown li::marker {
+  color: var(--muted);
+}
+.markdown ol > li::marker {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+/* GFM task lists: checkbox sits in the marker gutter. */
+.markdown li.task-list-item {
+  list-style: none;
+}
+/* Read-only task boxes drawn by hand: the native disabled checkbox renders
+   as a washed-out grey square that looks broken rather than informative. */
+.markdown li.task-list-item > input[type='checkbox'] {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0 8px 2px -20px;
+  border: 1.25px solid color-mix(in srgb, var(--text) 40%, transparent);
+  border-radius: 3px;
+  vertical-align: middle;
+  display: inline-grid;
+  place-content: center;
+}
+.markdown li.task-list-item > input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.markdown li.task-list-item > input[type='checkbox']:checked::before {
+  content: '';
+  width: 7px;
+  height: 4px;
+  margin-top: -2px;
+  border: solid var(--on-accent);
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg);
+}
+.markdown li > ul,
+.markdown li > ol {
+  margin: 4px 0;
+}
+.markdown li > p {
+  margin: 4px 0;
+}
+/* Wide tables scroll horizontally inside the wrapper instead of
+   overflowing the chat column. */
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 12px 0;
+}
+/* Tables read as data: hairline row rules, a mono uppercase header,
+   tabular figures so numeric columns line up. */
+.markdown table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.markdown th,
+.markdown td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 20px 7px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom-color: var(--border-strong);
+}
+.markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+.markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.markdown a:hover {
+  text-decoration-color: var(--accent);
+}
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.markdown blockquote {
+  margin: 10px 0;
+  padding: 2px 16px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+}
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 18px 0;
+}
+/* Shown while the lazily-loaded markdown chunk arrives. */
+.markdown-fallback {
+  white-space: pre-wrap;
+  color: var(--text-2);
+}
+
+.inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+.code-block {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--code-bg);
+  margin: 6px 0;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.code-lang {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.code-copy {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+.code-copy:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.code-block-body {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.code-block-body pre,
+.code-block-body code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.code-block-body .shiki {
+  background: transparent;
+}
+
+/* ---------- Trace: thinking and tool calls ----------
+ * Agent work renders as a log on a rail: each step is a row with a status
+ * pixel (the node); expanding a step drops its detail down the rail. */
+
+.thinking-block {
+  display: flex;
+  flex-direction: column;
+}
+.thinking-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  align-self: flex-start;
+  max-width: 100%;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 0 8px;
+  border-radius: 6px;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+.thinking-row:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+.thinking-node {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  box-shadow: inset 0 0 0 1.25px var(--muted);
+  flex-shrink: 0;
+}
+.thinking-node.is-live {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.thinking-chevron {
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.thinking-row:hover .thinking-chevron,
+.thinking-block.is-open .thinking-chevron {
+  opacity: 1;
+}
+.thinking-body {
+  margin-left: 11px;
+  padding: 4px 0 6px 18px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms;
+}
+.tool-row:hover {
+  background: var(--surface-hover);
+}
+.tool-node {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.tool-node-running {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.tool-node-error {
+  background: var(--danger);
+}
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.tool-group-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.tool-status {
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.tool-error > .tool-row .tool-status {
+  color: var(--danger);
+}
+.tool-chevron {
+  display: inline-flex;
+  color: var(--muted);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.tool-row:hover .tool-chevron,
+.tool-card.is-open > .tool-row .tool-chevron {
+  opacity: 1;
+}
+
+/* Grouped consecutive tool calls: one row carrying the aggregate summary;
+   expanding hangs the individual steps off the rail. */
+.tool-group > .tool-row {
+  gap: 10px;
+}
+.tool-group-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+.tool-group > .tool-row .tool-status {
+  margin-left: auto;
+}
+.tool-group-body {
+  display: flex;
+  flex-direction: column;
+  margin-left: 11px;
+  padding: 2px 0 4px 6px;
+  border-left: 1px solid var(--border-strong);
+}
+.tool-group-errors {
+  font-family: var(--font-mono);
+  color: var(--danger);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+/* Diff stat inside a tool group header. */
+.tool-group-diff {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tool-detail {
+  margin: 0 0 4px 11px;
+  padding: 6px 0 6px 18px;
+  border-left: 1px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.tool-command {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.tool-command-prompt {
+  color: var(--accent);
+}
+.tool-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.tool-args,
+.tool-output,
+.tool-diff pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-args,
+.tool-output {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.tool-args {
+  color: var(--text-2);
+}
+.tool-output {
+  max-height: 320px;
+  overflow-y: auto;
+  color: var(--text-2);
+}
+.tool-output.is-error {
+  color: var(--danger);
+}
+.tool-diff {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.diff-old {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--code-bg));
+  padding: 6px 10px;
+}
+.diff-new {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--code-bg));
+  padding: 6px 10px;
+}
+.tool-show-all {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 0;
+}
+.tool-show-all:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tool-image {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  cursor: zoom-in;
+  padding: 4px;
+}
+.tool-image img {
+  display: block;
+  max-width: 180px;
+  max-height: 120px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.tool-image.is-expanded {
+  cursor: zoom-out;
+}
+.tool-image.is-expanded img {
+  max-width: 100%;
+  max-height: none;
+}
+
+/* pi-exited inline card. */
+.exit-card {
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px 12px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exit-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--danger);
+}
+.exit-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.exit-card-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.exit-card-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.exit-card-details summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.exit-card-stderr {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--code-bg);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* ---------- UI dialogs (extension confirm/select/input) ---------- */
+
+.ui-dialog {
+  max-width: 724px;
+  margin: 0 auto 12px;
+  width: calc(100% - 56px);
+  background: var(--raised);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border-strong));
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 30;
+}
+.ui-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.ui-dialog-title::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+.ui-dialog-body {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+.ui-dialog-input {
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  border-radius: 7px;
+  padding: 7px 10px;
+  outline: none;
+}
+.ui-dialog-input:focus {
+  border-color: var(--accent);
+}
+.ui-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ui-dialog-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ui-dialog-options .ui-btn {
+  justify-content: flex-start;
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 5px 12px;
+  min-height: 28px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms,
+    border-color 120ms;
+}
+.ui-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.ui-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ui-btn-primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.ui-btn-primary:hover {
+  background: color-mix(in srgb, var(--text) 85%, var(--bg));
+  border-color: transparent;
+  color: var(--bg);
+}
+
+/* ---------- ⌘K command palette ---------- */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: color-mix(in srgb, var(--chrome) 55%, transparent);
+  animation: palette-in 120ms ease-out;
+}
+@keyframes palette-in {
+  from {
+    opacity: 0;
+  }
+}
+.palette-modal {
+  width: 600px;
+  max-width: calc(100vw - 48px);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: palette-modal-in 140ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes palette-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-backdrop,
+  .palette-modal {
+    animation: none;
+  }
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 50px;
+  flex-shrink: 0;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+}
+.palette-input::placeholder {
+  color: var(--muted);
+}
+.palette-input-row .kbd {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 18px;
+}
+.palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-section {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 10px 8px 4px;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+}
+.palette-row.is-highlight {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.palette-row.is-highlight::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.palette-row-icon {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  width: 16px;
+}
+.palette-slash {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent);
+}
+.palette-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-row-hint {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 10.5px;
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Live indicators never animate continuously: every repaint keeps Chromium
+   producing frames for ~0.3s, so a CSS pulse costs 10%+ CPU for as long as a
+   run lasts. They blink instead on the shared 1Hz clock (lib/live-clock.ts),
+   all in the same frame. No transition — a fade would add frames. */
+html[data-live-tick='1']
+  :is(
+    .live-dot,
+    .input-dot,
+    .composer-status-dot,
+    .browser-loading,
+    .tool-node-running,
+    .thinking-node.is-live
+  ),
+html[data-live-tick='1'] .cua-strip-dot:not(.is-paused) {
+  opacity: 0.3;
+}

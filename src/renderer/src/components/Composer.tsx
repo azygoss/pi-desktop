@@ -5,7 +5,7 @@ import {
   File as FileIcon,
   FileCode,
   FileText,
-  Folder,
+  ChevronDown,
   FolderPlus,
   Globe,
   Image as ImageIcon,
@@ -46,6 +46,7 @@ import { toast } from '../state/toast-store'
 import { useLiveNow } from '../lib/live-clock'
 import { ModelPicker } from './ModelPicker'
 import { LiveDot } from './LiveIndicators'
+import { ContextCells, ProjectSigil, ScratchSigil } from './Pixels'
 
 const MAX_IMAGES = 8
 const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
@@ -179,11 +180,6 @@ function ContextRing({ chat }: { chat: ChatState }) {
   const tokens = stats?.tokens
   const cost = stats?.cost
   const streaming = chat.status === 'streaming'
-  // A filled pie inside a thin outline (18px box): an arc with round caps
-  // read as a loading spinner next to the send button. The pie is a circle
-  // of r=2.75 stroked 5.5px wide, so its dash sweeps out a sector.
-  const radius = 2.75
-  const circumference = 2 * Math.PI * radius
   const compact = () => {
     setOpen(false)
     void window.piDesktop.chat.compact({ chatId: chat.chatId }).catch(() => {})
@@ -199,18 +195,8 @@ function ContextRing({ chat }: { chat: ChatState }) {
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <circle className="ctx-track" cx="9" cy="9" r="7.5" />
-          <circle
-            className="ctx-arc"
-            cx="9"
-            cy="9"
-            r={radius}
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - clamped / 100)}
-            transform="rotate(-90 9 9)"
-          />
-        </svg>
+        <ContextCells percent={clamped} />
+        <span className="ctx-pct">{Math.round(clamped)}%</span>
       </button>
       {open && (
         <div className="folder-popover ctx-popover" role="dialog">
@@ -1340,7 +1326,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
           <div className="folder-chip-wrap" ref={folderRef}>
             {cwdReadOnly ? (
               <span className="folder-chip folder-chip-readonly" title={cwd}>
-                <Folder size={13} />
+                {projectless ? <ScratchSigil size={12} /> : <ProjectSigil seed={cwd} size={12} />}
                 <span>{cwdBase}</span>
               </span>
             ) : (
@@ -1353,8 +1339,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                 }}
                 title={cwd}
               >
-                <Folder size={13} />
+                {projectless ? <ScratchSigil size={12} /> : <ProjectSigil seed={cwd} size={12} />}
                 <span>{cwdBase}</span>
+                <ChevronDown size={11} className="folder-chip-chevron" />
               </button>
             )}
             {folderOpen && !cwdReadOnly && (
@@ -1399,12 +1386,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
                       changeChatCwd(p.cwd)
                     }}
                   >
-                    {cwd === p.cwd ? (
-                      <Check size={13} />
-                    ) : (
-                      <Folder size={13} />
-                    )}
-                    <span>{p.name}</span>
+                    <ProjectSigil seed={p.cwd} size={12} />
+                    <span className="folder-row-name">{p.name}</span>
+                    {cwd === p.cwd && <Check size={13} className="folder-row-current" />}
                   </button>
                 ))}
                 {filteredProjects.length === 0 && (

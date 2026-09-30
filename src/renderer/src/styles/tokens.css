@@ -1,0 +1,389 @@
+/* ==========================================================================
+ * Pi Desktop design tokens
+ *
+ * The identity comes from the pi mark: squares on a grid in three colors.
+ *  - Color is signal, never decoration. Blue = pi is working / active,
+ *    amber = pi needs you, coral = error or stop. Everything else is ink on
+ *    graphite (dark) or ink on paper (light).
+ *  - Status marks are squares (pixels), never dots.
+ *  - An instrument layer of IBM Plex Mono carries every readout: times,
+ *    tokens, models, tool names, section labels and code. Prose stays in the
+ *    system face.
+ *  - Content lives on sheets inset from the window chrome.
+ * Every text/background pair used for text meets WCAG AA (4.5:1).
+ * ========================================================================== */
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  /* Local files load in a few ms; block avoids a fallback-font reflow. */
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-ext-400-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-ext-500-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url('@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-ext-600-normal.woff2')
+    format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+/* Dark — graphite. The chrome (window frame, sidebar) sits a step below the
+ * sheet so the working surface reads as lifted. */
+:root {
+  color-scheme: dark;
+  --chrome: #0e0f11;
+  --bg: #141517;
+  --sidebar: #0e0f11;
+  --surface: #1a1b1e;
+  --raised: #1f2023;
+  --surface-hover: #222327;
+  --active: #292a2f;
+  --border: #242529;
+  --border-strong: #33343a;
+  --sheet-border: #212226;
+  --code-bg: #111214;
+  --text: #ececee;
+  --text-2: #b4b5ba;
+  --muted: #8a8b91;
+  --faint: #45464c;
+  --accent: #62b0dc;
+  --accent-hover: #7cc0e6;
+  --on-accent: #06121b;
+  --accent-soft: rgb(98 176 220 / 0.14);
+  --user-bubble: #1c1d20;
+  --danger: #f09082;
+  --success: #77c690;
+  --warning: #e9b04e;
+  --shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.35), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --sigil-1: #f09082;
+  --sigil-2: #62b0dc;
+  --sigil-3: #e9b04e;
+  --sigil-4: #86c79a;
+  --sigil-5: #b59cf0;
+  --sigil-6: #6fc6c0;
+}
+
+/* Chromium runs the blinking text caret as a continuous 60fps compositor
+ * animation: with the composer focused (nearly always) the GPU process never
+ * idles. A steady caret keeps an idle window at ~0 wakeups. */
+html {
+  caret-animation: manual;
+}
+
+/* Light — paper. Same structure, warm-neutral whites and deeper signals. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --chrome: #ecece9;
+    --bg: #fbfbfa;
+    --sidebar: #ecece9;
+    --surface: #ffffff;
+    --raised: #ffffff;
+    --surface-hover: #f1f1ee;
+    --active: #e7e7e3;
+    --border: #e7e7e3;
+    --border-strong: #d4d4cf;
+    --sheet-border: #dededa;
+    --code-bg: #f5f5f2;
+    --text: #16171a;
+    --text-2: #46474c;
+    --muted: #6a6b70;
+    --faint: #c8c8c3;
+    --accent: #2a77aa;
+    --accent-hover: #21648f;
+    --on-accent: #ffffff;
+    --accent-soft: rgb(42 119 170 / 0.1);
+    --user-bubble: #f3f3f0;
+    --danger: #b8463a;
+    --success: #2c8445;
+    --warning: #8f6210;
+    --shadow: 0 1px 2px rgb(20 20 18 / 0.05);
+    --shadow-pop: 0 0 0 1px rgb(20 20 18 / 0.06), 0 12px 32px -6px rgb(20 20 18 / 0.16);
+    --sigil-1: #d9604f;
+    --sigil-2: #2f86bd;
+    --sigil-3: #c98a14;
+    --sigil-4: #3f9a5c;
+    --sigil-5: #7d5fd0;
+    --sigil-6: #2a9a93;
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --chrome: #ecece9;
+  --bg: #fbfbfa;
+  --sidebar: #ecece9;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --surface-hover: #f1f1ee;
+  --active: #e7e7e3;
+  --border: #e7e7e3;
+  --border-strong: #d4d4cf;
+  --sheet-border: #dededa;
+  --code-bg: #f5f5f2;
+  --text: #16171a;
+  --text-2: #46474c;
+  --muted: #6a6b70;
+  --faint: #c8c8c3;
+  --accent: #2a77aa;
+  --accent-hover: #21648f;
+  --on-accent: #ffffff;
+  --accent-soft: rgb(42 119 170 / 0.1);
+  --user-bubble: #f3f3f0;
+  --danger: #b8463a;
+  --success: #2c8445;
+  --warning: #8f6210;
+  --shadow: 0 1px 2px rgb(20 20 18 / 0.05);
+  --shadow-pop: 0 0 0 1px rgb(20 20 18 / 0.06), 0 12px 32px -6px rgb(20 20 18 / 0.16);
+  --sigil-1: #d9604f;
+  --sigil-2: #2f86bd;
+  --sigil-3: #c98a14;
+  --sigil-4: #3f9a5c;
+  --sigil-5: #7d5fd0;
+  --sigil-6: #2a9a93;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --chrome: #0e0f11;
+  --bg: #141517;
+  --sidebar: #0e0f11;
+  --surface: #1a1b1e;
+  --raised: #1f2023;
+  --surface-hover: #222327;
+  --active: #292a2f;
+  --border: #242529;
+  --border-strong: #33343a;
+  --sheet-border: #212226;
+  --code-bg: #111214;
+  --text: #ececee;
+  --text-2: #b4b5ba;
+  --muted: #8a8b91;
+  --faint: #45464c;
+  --accent: #62b0dc;
+  --accent-hover: #7cc0e6;
+  --on-accent: #06121b;
+  --accent-soft: rgb(98 176 220 / 0.14);
+  --user-bubble: #1c1d20;
+  --danger: #f09082;
+  --success: #77c690;
+  --warning: #e9b04e;
+  --shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 0 0 1px rgb(0 0 0 / 0.35), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --sigil-1: #f09082;
+  --sigil-2: #62b0dc;
+  --sigil-3: #e9b04e;
+  --sigil-4: #86c79a;
+  --sigil-5: #b59cf0;
+  --sigil-6: #6fc6c0;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
+  --color-border: var(--border);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-active: var(--active);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-user-bubble: var(--user-bubble);
+  --color-danger: var(--danger);
+  --font-sans: -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-display: -apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--chrome);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* The instrument layer: small mono readouts and section labels. */
+.mono {
+  font-family: var(--font-mono);
+}
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Overlay-style scrollbars: thin, rounded, invisible until the scrollable
+   area is hovered (or the thumb itself is dragged). */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Shiki dual-theme output uses CSS vars. Only token colors are taken: the
+ * block surface is ours, and the theme background (inherited as a custom
+ * property) would otherwise paint a box behind every span. */
+.shiki span {
+  color: var(--shiki-dark);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .shiki span {
+    color: var(--shiki-light);
+  }
+}
+:root[data-theme='light'] .shiki span {
+  color: var(--shiki-light);
+}
+
+/* Pixel glyphs (components/Pixels.tsx). */
+.sigil {
+  display: block;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+.sigil-scratch {
+  color: var(--muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-dasharray: 2 1.6;
+}
+.ctx-cells,
+.level-meter {
+  display: block;
+  flex-shrink: 0;
+}
+.cell-off {
+  fill: var(--faint);
+}
+.cell-on {
+  fill: currentColor;
+}
+
+/* Status pixels: squares keyed to the mark's colors. */
+.px {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  flex-shrink: 0;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fade-in {
+  animation: fade-in 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in {
+    animation: none;
+  }
+}

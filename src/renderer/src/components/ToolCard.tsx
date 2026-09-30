@@ -1,17 +1,4 @@
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  FilePen,
-  FileText,
-  Globe,
-  MousePointerClick,
-  Search,
-  ShieldCheck,
-  Terminal,
-  Wrench,
-  X
-} from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { memo, useMemo, useState } from 'react'
 import clsx from 'clsx'
 
@@ -42,35 +29,6 @@ function toolKind(name: string): ToolKind {
     return 'write'
   }
   return 'other'
-}
-
-function toolIcon(name: string) {
-  const n = name.toLowerCase()
-  if (n === 'computer_confirm') {
-    return <ShieldCheck size={13} />
-  }
-  if (n.startsWith('computer_')) {
-    return <MousePointerClick size={13} />
-  }
-  switch (toolKind(name)) {
-    case 'bash':
-      return <Terminal size={13} />
-    case 'browser':
-      return <Globe size={13} />
-    case 'read':
-      return <FileText size={13} />
-    case 'edit':
-    case 'write':
-      return <FilePen size={13} />
-    default:
-      return name.toLowerCase().includes('grep') ||
-        name.toLowerCase().includes('find') ||
-        name.toLowerCase().includes('search') ? (
-        <Search size={13} />
-      ) : (
-        <Wrench size={13} />
-      )
-  }
 }
 
 function relativePath(p: string, cwd: string): string {
@@ -280,12 +238,14 @@ export const ToolCard = memo(function ToolCard({
   const [open, setOpen] = useState(false)
 
   return (
-    <div className={clsx('tool-card', `tool-${run.status}`, className)}>
-      <button type="button" className="tool-row" onClick={() => setOpen(!open)}>
-        <span className="tool-chevron">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </span>
-        <span className="tool-icon">{toolIcon(run.name)}</span>
+    <div className={clsx('tool-card', `tool-${run.status}`, { 'is-open': open }, className)}>
+      <button
+        type="button"
+        className="tool-row"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <ToolNode status={run.status} />
         <span className="tool-name">{run.name}</span>
         <span className="tool-summary">
           {toolCallSummary(
@@ -297,8 +257,10 @@ export const ToolCard = memo(function ToolCard({
         </span>
         <span className="tool-status">
           {run.status === 'running' && <Elapsed since={run.startedAt} />}
-          {run.status === 'done' && <Check size={13} />}
-          {run.status === 'error' && <X size={13} />}
+          {run.status === 'error' && 'failed'}
+        </span>
+        <span className="tool-chevron" aria-hidden="true">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
 
@@ -306,3 +268,11 @@ export const ToolCard = memo(function ToolCard({
     </div>
   )
 })
+
+/**
+ * Status pixel on the trace rail: hollow blue while running (blinks on the
+ * shared 1Hz clock), solid ink when done, coral on failure.
+ */
+export function ToolNode({ status }: { status: ToolRun['status'] }) {
+  return <span className={`tool-node tool-node-${status}`} aria-hidden="true" />
+}

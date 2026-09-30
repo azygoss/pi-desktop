@@ -2,7 +2,6 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
-  Folder,
   MoreHorizontal,
   Pin,
   Plus,
@@ -26,6 +25,7 @@ import { useChatStore } from '../state/chat-store'
 import { ModalShell } from './CommandModals'
 import { NavButtons } from './TitleBar'
 import { LiveDot } from './LiveIndicators'
+import { ProjectSigil } from './Pixels'
 
 const MAX_NESTED_CHATS = 3
 
@@ -43,7 +43,7 @@ function projectSuffix(cwd: string, workspaceDir: string): string | undefined {
   return cwd.split('/').filter(Boolean).pop() ?? undefined
 }
 
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) {
     return ''
@@ -374,9 +374,16 @@ function ProjectRow({
           void contextMenu()
         }}
       >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Folder size={15} />
+        <span className="sidebar-chevron" aria-hidden="true">
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </span>
+        <ProjectSigil seed={cwd} />
         <span className="sidebar-item-label">{name}</span>
+        {projectSessions.length > 0 && (
+          <span className="sidebar-item-meta sidebar-project-count">
+            {projectSessions.length}
+          </span>
+        )}
         <button
           type="button"
           className="icon-btn sidebar-item-more"
@@ -674,8 +681,8 @@ export function Sidebar() {
           {!filtering && pinnedSessions.length > 0 && (
             <div className="sidebar-section">
               <div className="sidebar-section-header" style={{ cursor: 'default' }}>
-                <Pin size={11} />
                 <span>Pinned</span>
+                <span className="sidebar-section-count">{pinnedSessions.length}</span>
               </div>
             </div>
           )}
@@ -697,8 +704,8 @@ export function Sidebar() {
                   className="sidebar-section-header"
                   onClick={() => setProjectsCollapsed(!projectsCollapsed)}
                 >
-                  {projectsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                   <span>Projects</span>
+                  {projectsCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
                 </button>
                 <button
                   type="button"
@@ -723,9 +730,12 @@ export function Sidebar() {
                 <div className="sidebar-empty">No projects yet</div>
               )}
 
-              <div className="sidebar-section" style={{ marginTop: 8 }}>
+              <div className="sidebar-section">
                 <div className="sidebar-section-header" style={{ cursor: 'default' }}>
                   <span>Chats</span>
+                  {projectLessSessions.length > 0 && (
+                    <span className="sidebar-section-count">{projectLessSessions.length}</span>
+                  )}
                 </div>
               </div>
             </>
@@ -769,7 +779,9 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-footer">
-          <div className="avatar">{capitalizeName(userName).charAt(0)}</div>
+          <div className="avatar" aria-hidden="true">
+            {capitalizeName(userName).charAt(0)}
+          </div>
           <span className="sidebar-footer-name">{capitalizeName(userName)}</span>
           {runtimeInfo && (
             <span

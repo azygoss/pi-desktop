@@ -23,20 +23,22 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       ? `Thought for ${Math.max(1, Math.round(durationMs / 1000))}s`
       : 'Thinking'
   return (
-    <div className="thinking-block">
+    <div className={open ? 'thinking-block is-open' : 'thinking-block'}>
       <button
         type="button"
         className="thinking-row"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span
+          className={streaming ? 'thinking-node is-live' : 'thinking-node'}
+          aria-hidden="true"
+        />
         <span>{label}</span>
-        {streaming && startedAt !== undefined && (
-          <>
-            <span aria-hidden="true">·</span>
-            <Elapsed since={startedAt} />
-          </>
-        )}
+        {streaming && startedAt !== undefined && <Elapsed since={startedAt} />}
+        <span className="thinking-chevron" aria-hidden="true">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
       </button>
       {open && <div className="thinking-body">{text}</div>}
     </div>
