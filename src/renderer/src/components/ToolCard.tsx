@@ -3,9 +3,10 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
-import { toolCallSummary } from '../lib/tool-summary'
+import { summarizeToolRuns, toolCallSummary } from '../lib/tool-summary'
 import {
   MIN_SHOWN_DURATION_MS,
+  changePeek,
   formatDuration,
   shellStatusLabel,
   splitShellStatus
@@ -331,7 +332,16 @@ export const ToolCard = memo(function ToolCard({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const command = toolKind(run.name) === 'bash' ? commandOf(run) : null
+  const kind = toolKind(run.name)
+  const command = kind === 'bash' ? commandOf(run) : null
+  const changes = kind === 'edit' || kind === 'write' ? kind : null
+  const diff = useMemo(
+    () =>
+      changes
+        ? summarizeToolRuns([{ name: run.name, args: run.args, status: run.status }]).diff
+        : null,
+    [changes, run.name, run.args, run.status]
+  )
   // A failed shell step shows its exit code instead of a bare "failed".
   const shellStatus = useMemo(
     () =>
@@ -346,7 +356,7 @@ export const ToolCard = memo(function ToolCard({
       className={clsx(
         'tool-card',
         `tool-${run.status}`,
-        { 'is-open': open, 'tool-shell': command !== null },
+        { 'is-open': open, 'tool-shell': command !== null, 'tool-change': changes !== null },
         className
       )}
     >
@@ -377,6 +387,7 @@ export const ToolCard = memo(function ToolCard({
             </span>
           </>
         )}
+        {diff && <DiffStat added={diff.added} removed={diff.removed} />}
         <span className="tool-status">
           {run.status === 'running' && <Elapsed since={run.startedAt} />}
           {run.status === 'error' && (shellStatus ? shellStatusLabel(shellStatus) : 'failed')}
@@ -387,10 +398,63 @@ export const ToolCard = memo(function ToolCard({
         </span>
       </button>
 
+      {!open && changes && run.status !== 'error' && (
+        <ChangePeek kind={changes} args={run.args} onOpen={() => setOpen(true)} />
+      )}
       {open && <ToolDetail run={run} cwd={cwd} />}
     </div>
   )
 })
+
+/**
+ * A few changed lines under a collapsed edit/write row, so a file change
+ * reads at a glance without opening the step. Clicking it opens the step.
+ */
+function ChangePeek({
+  kind,
+  args,
+  onOpen
+}: {
+  kind: 'edit' | 'write'
+  args: Record<string, unknown>
+  onOpen(): void
+}) {
+  const peek = useMemo(() => changePeek(kind, args), [kind, args])
+  if (!peek) {
+    return null
+  }
+  return (
+    <div className="change-peek" aria-hidden="true" onClick={onOpen}>
+      <div className="peek-box">
+        {peek.lines.map((line, i) => (
+          <div key={i} className={line.sign === '+' ? 'peek-line peek-add' : 'peek-line peek-del'}>
+            <span className="peek-sign">{line.sign === '+' ? '+' : '−'}</span>
+            <span className="peek-text">{line.text || ' '}</span>
+          </div>
+        ))}
+        {peek.more > 0 && (
+          <div className="peek-more">
+            +{peek.more} more {peek.more === 1 ? 'line' : 'lines'}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** "+5 −1" line stat for a step or group; zero sides are left out. */
+export function DiffStat({ added, removed }: { added: number; removed: number }) {
+  if (added === 0 && removed === 0) {
+    return null
+  }
+  return (
+    <span className="tool-group-diff">
+      {added > 0 && <span className="diff-add-count">+{added}</span>}
+      {added > 0 && removed > 0 && ' '}
+      {removed > 0 && <span className="diff-del-count">−{removed}</span>}
+    </span>
+  )
+}
 
 /**
  * Status pixel on the trace rail: hollow blue while running (blinks on the

@@ -779,8 +779,9 @@ describe('Pi Desktop e2e', () => {
       })
       .toBe('Edited a file, created a file, ran a command')
     await visible(page, '.tool-group-diff')
-    expect(await page.locator('.diff-add-count').textContent()).toBe('+6')
-    expect(await page.locator('.diff-del-count').textContent()).toBe('−2')
+    // Changed lines only: the edit's shared first line is context.
+    expect(await page.locator('.diff-add-count').textContent()).toBe('+5')
+    expect(await page.locator('.diff-del-count').textContent()).toBe('−1')
     expect(await page.locator('.tool-group-errors').textContent()).toContain(
       '1 failed'
     )

@@ -747,25 +747,29 @@
   font-size: 11px;
   flex-shrink: 0;
 }
-/* One line of the reasoning beside the label: the line being written while
- * live, the opening line once done. */
-.thinking-preview {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Collapsed thinking: a two-line excerpt hanging off the rail under the
+ * label — the tail while live, the opening once done. */
+.thinking-excerpt {
+  margin: -2px 0 4px 11px;
+  padding: 0 8px 0 18px;
+  border-left: 1px solid var(--border-strong);
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
   font-style: italic;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  cursor: pointer;
+  transition: color 120ms;
 }
-.thinking-preview::before {
-  content: '—';
-  margin-right: 8px;
-  font-style: normal;
-  color: var(--faint);
+.thinking-excerpt:hover {
+  color: var(--text-2);
 }
-:root[data-theme='light'] .thinking-preview::before {
-  color: var(--muted);
+.thinking-block.is-live .thinking-excerpt {
+  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  color: var(--text-2);
 }
 .thinking-chevron {
   display: inline-flex;
@@ -970,6 +974,58 @@
   gap: 8px;
   min-width: 0;
 }
+/* Collapsed edit/write steps: a few changed lines under the row. */
+.change-peek {
+  margin: -2px 0 4px 11px;
+  padding: 2px 0 2px 18px;
+  border-left: 1px solid var(--border-strong);
+  cursor: pointer;
+  min-width: 0;
+}
+.peek-box {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.65;
+  background: var(--code-bg);
+  transition: border-color 120ms;
+}
+.change-peek:hover .peek-box {
+  border-color: var(--border-strong);
+}
+.peek-line {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: pre;
+  min-width: 0;
+}
+.peek-add {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--code-bg));
+}
+.peek-del {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--code-bg));
+}
+.peek-sign {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.peek-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-more {
+  padding: 1px 10px 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
 /* Shell steps: the row reads as a prompt line, the detail as a terminal. */
 .tool-shell-prompt {
   color: var(--accent);

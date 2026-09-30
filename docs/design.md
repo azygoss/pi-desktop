@@ -36,9 +36,14 @@ colors. Everything below follows from that, so new UI should too.
     (`exit 0` green, `exit N` / `timed out` / `aborted` coral) and a copy
     button. pi's trailing "Command exited with code N" line becomes that
     footer instead of output (`lib/trace.ts`).
-  - *Thinking* carries one italic line beside its label: the line being
-    written while pi thinks, the opening line once done. Expanded, the
-    reasoning renders as markdown on the rail.
+  - *Thinking*, collapsed, hangs a two-line italic excerpt off the rail
+    under its label: the tail while pi thinks, the opening (heading plus
+    first sentence) once done. Expanded, the reasoning renders as markdown.
+  - *Edit and write steps*, collapsed, show a peek of up to four changed
+    lines (`−` coral, `+` green) plus "+N more lines", and a `+a −r` stat
+    on the row. Stats count changed lines only: context that an edit's old
+    and new text share at either end is not a change
+    (`changedLines` in `lib/tool-summary.ts`).
   - *Work groups*: agents often answer in many small messages that are only
     thinking and a tool call. Two or more in a row fold into one row —
     "Worked for 2m 15s · Ran 3 commands, edited a file · 6 tools · 6

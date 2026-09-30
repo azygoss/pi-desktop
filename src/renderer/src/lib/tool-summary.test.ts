@@ -153,19 +153,20 @@ describe('summarizeToolRuns', () => {
     )
   })
 
-  it('counts edit and write lines into a diff stat', () => {
+  it('counts changed edit lines and written lines into a diff stat', () => {
+    // The shared "a" is anchoring context, not a change.
     const s = summarizeToolRuns([
       run('edit', { oldText: 'a\nb', newText: 'a\nc\nd' }),
       run('write', { content: 'x\ny' })
     ])
-    expect(s.diff).toEqual({ added: 5, removed: 2 })
+    expect(s.diff).toEqual({ added: 4, removed: 1 })
   })
 
   it('supports the edits[] arg shape', () => {
     const s = summarizeToolRuns([
       run('edit', { edits: [{ oldText: 'a', newText: 'a\nb' }, { newText: 'c' }] })
     ])
-    expect(s.diff).toEqual({ added: 3, removed: 1 })
+    expect(s.diff).toEqual({ added: 2, removed: 0 })
   })
 
   it('omits the diff when no edits or writes ran', () => {

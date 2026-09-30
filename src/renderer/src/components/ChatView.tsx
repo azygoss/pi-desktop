@@ -48,7 +48,7 @@ import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ThinkingBlock } from './ThinkingBlock'
-import { ToolCard, ToolNode } from './ToolCard'
+import { DiffStat, ToolCard, ToolNode } from './ToolCard'
 
 // react-markdown + micromark are ~600KB — split out of the main chunk; the
 // fallback renders the raw text pre-wrap so content is readable instantly.
@@ -240,10 +240,7 @@ function ToolGroup({
         <ToolNode status={running ? 'running' : errors > 0 ? 'error' : 'done'} />
         <span className="tool-name tool-group-label">{groupLabel}</span>
         {!running && group.diff && (
-          <span className="tool-group-diff">
-            <span className="diff-add-count">+{group.diff.added}</span>{' '}
-            <span className="diff-del-count">−{group.diff.removed}</span>
-          </span>
+          <DiffStat added={group.diff.added} removed={group.diff.removed} />
         )}
         <span className="tool-group-count">{runs.length}</span>
         {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
@@ -369,10 +366,7 @@ function WorkGroup({
         <span className="tool-name tool-group-label work-label">{label}</span>
         {runs.length > 0 && <span className="work-summary">{summary.text}</span>}
         {!running && summary.diff && (
-          <span className="tool-group-diff">
-            <span className="diff-add-count">+{summary.diff.added}</span>{' '}
-            <span className="diff-del-count">−{summary.diff.removed}</span>
-          </span>
+          <DiffStat added={summary.diff.added} removed={summary.diff.removed} />
         )}
         {summary.failed > 0 && (
           <span className="tool-group-errors">{summary.failed} failed</span>

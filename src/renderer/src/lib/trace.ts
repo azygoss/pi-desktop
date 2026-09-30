@@ -3,6 +3,8 @@
  * previews.
  */
 
+import { changedLines, editEntries } from './tool-summary'
+
 export type ShellStatus =
   { kind: 'exit'; code: number } | { kind: 'timeout'; seconds: number } | { kind: 'aborted' }
 
@@ -54,7 +56,7 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`
 }
 
-const PREVIEW_CHARS = 140
+const EXCERPT_CHARS = 260
 
 function cleanLine(line: string): string {
   return line
@@ -64,29 +66,85 @@ function cleanLine(line: string): string {
     .trim()
 }
 
+/** A line that is only a heading ("## Plan", "**Plan**"). */
+const HEADING_LINE = /^\s{0,3}(?:#{1,6}\s+\S.*|\*\*[^*]+\*\*:?)\s*$/
+
+/** Markdown-ish lines flattened into one run of prose; headings lead with a dash. */
+function flatten(lines: string[]): string {
+  let out = ''
+  for (const raw of lines) {
+    const line = cleanLine(raw)
+    if (!line) {
+      continue
+    }
+    if (out) {
+      out += /[.!?:…—]$/.test(out) ? ' ' : HEADING_LINE.test(raw) ? '. ' : ' '
+    }
+    out += HEADING_LINE.test(raw) ? `${line.replace(/:$/, '')} —` : line
+  }
+  return out.replace(/ —$/, '').replace(/— \./g, '—')
+}
+
 /**
- * One line to show beside a collapsed thinking block: while it streams, the
- * line being written (what pi is considering right now); once done, its
- * opening line (usually a heading like "Planning the refactor").
+ * A short excerpt of a thinking block for its collapsed state (the UI clamps
+ * it to two lines): while it streams, the tail — what pi is considering right
+ * now; once done, the opening, usually a heading plus its first sentence.
  */
-export function thinkingPreview(text: string, live: boolean): string {
+export function thinkingExcerpt(text: string, live: boolean): string {
   if (live) {
     // Only the tail matters; don't split a long block on every delta.
-    const lines = text.slice(-PREVIEW_CHARS * 3).split('\n')
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = cleanLine(lines[i]!)
-      if (line) {
-        return line.length > PREVIEW_CHARS ? `…${line.slice(-PREVIEW_CHARS)}` : line
-      }
-    }
-    return ''
+    const tail = flatten(text.slice(-EXCERPT_CHARS * 2).split('\n'))
+    return tail.length > EXCERPT_CHARS ? `…${tail.slice(-EXCERPT_CHARS).trimStart()}` : tail
   }
-  const head = text.slice(0, PREVIEW_CHARS * 3).split('\n')
-  for (const raw of head) {
-    const line = cleanLine(raw)
-    if (line) {
-      return line.length > PREVIEW_CHARS ? `${line.slice(0, PREVIEW_CHARS)}…` : line
+  const head = flatten(text.slice(0, EXCERPT_CHARS * 2).split('\n'))
+  return head.length > EXCERPT_CHARS ? `${head.slice(0, EXCERPT_CHARS).trimEnd()}…` : head
+}
+
+export interface PeekLine {
+  sign: '+' | '-'
+  text: string
+}
+
+const PEEK_PER_SIDE = 2
+const PEEK_WRITE_LINES = 3
+
+function linesOf(text: unknown): string[] {
+  return typeof text === 'string' && text.length > 0 ? text.replace(/\n$/, '').split('\n') : []
+}
+
+/**
+ * A few changed lines for a collapsed edit/write row. Edits drop the context
+ * lines old and new share at either end, so the peek shows the change itself.
+ */
+export function changePeek(
+  kind: 'edit' | 'write',
+  args: Record<string, unknown>
+): { lines: PeekLine[]; more: number } | null {
+  if (kind === 'write') {
+    const lines = linesOf(args['content'])
+    if (lines.length === 0) {
+      return null
+    }
+    return {
+      lines: lines.slice(0, PEEK_WRITE_LINES).map((text) => ({ sign: '+', text })),
+      more: Math.max(0, lines.length - PEEK_WRITE_LINES)
     }
   }
-  return ''
+  let total = 0
+  let first: { removed: string[]; added: string[] } | null = null
+  for (const entry of editEntries(args)) {
+    const lines = changedLines(entry.oldText, entry.newText)
+    total += lines.removed.length + lines.added.length
+    if (!first && lines.removed.length + lines.added.length > 0) {
+      first = lines
+    }
+  }
+  if (!first) {
+    return null
+  }
+  const lines: PeekLine[] = [
+    ...first.removed.slice(0, PEEK_PER_SIDE).map((text) => ({ sign: '-' as const, text })),
+    ...first.added.slice(0, PEEK_PER_SIDE).map((text) => ({ sign: '+' as const, text }))
+  ]
+  return { lines, more: Math.max(0, total - lines.length) }
 }

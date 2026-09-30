@@ -41,12 +41,44 @@ function countLines(text: string | undefined): number {
   return text.split('\n').length
 }
 
-interface EditEntry {
+export interface EditEntry {
   oldText?: string
   newText?: string
 }
 
-function editEntries(args: Record<string, unknown>): EditEntry[] {
+/**
+ * The lines an edit actually changes: context that old and new text share
+ * at either end (models pass it to anchor the replacement) is dropped.
+ */
+export function changedLines(
+  oldText: unknown,
+  newText: unknown
+): { removed: string[]; added: string[] } {
+  const split = (text: unknown): string[] =>
+    typeof text === 'string' && text.length > 0 ? text.replace(/\n$/, '').split('\n') : []
+  let removed = split(oldText)
+  let added = split(newText)
+  let lead = 0
+  while (lead < removed.length && lead < added.length && removed[lead] === added[lead]) {
+    lead += 1
+  }
+  removed = removed.slice(lead)
+  added = added.slice(lead)
+  let trail = 0
+  while (
+    trail < removed.length &&
+    trail < added.length &&
+    removed[removed.length - 1 - trail] === added[added.length - 1 - trail]
+  ) {
+    trail += 1
+  }
+  return {
+    removed: removed.slice(0, removed.length - trail),
+    added: added.slice(0, added.length - trail)
+  }
+}
+
+export function editEntries(args: Record<string, unknown>): EditEntry[] {
   if (Array.isArray(args['edits'])) {
     return args['edits'] as EditEntry[]
   }
@@ -95,8 +127,9 @@ export function summarizeToolRuns(
     }
     if (cat === 'edit') {
       for (const entry of editEntries(run.args)) {
-        removed += countLines(entry.oldText)
-        added += countLines(entry.newText)
+        const lines = changedLines(entry.oldText, entry.newText)
+        removed += lines.removed.length
+        added += lines.added.length
         hasDiff = true
       }
     } else if (cat === 'create') {
