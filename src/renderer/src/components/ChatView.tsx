@@ -42,6 +42,7 @@ import { splitMentions } from '../lib/mentions'
 import { setSessionArchived } from '../lib/session-actions'
 import { Perf } from '../lib/perf'
 import { computerGroupApp, summarizeToolRuns } from '../lib/tool-summary'
+import { formatDuration } from '../lib/trace'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
@@ -281,6 +282,111 @@ function ToolGroup({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Assistant messages made only of reasoning and tool calls (no prose). */
+function isTraceOnly(message: DisplayMessage): boolean {
+  return (
+    message.kind === 'assistant' &&
+    !message.errorMessage &&
+    message.blocks.length > 0 &&
+    message.blocks.every((b) => b.type === 'thinking' || b.type === 'toolCall')
+  )
+}
+
+/** Consecutive trace-only messages folded into one work row. */
+const WORK_GROUP_MIN = 2
+
+/**
+ * A stretch of agent work inside a turn — many small messages that are only
+ * thinking and tool calls — folded into one row: "Worked for 2m 10s · Read 4
+ * files, ran 3 commands". Open while the turn is live, folded once it
+ * settles; the user's toggle wins either way.
+ */
+function WorkGroup({
+  messages,
+  toolRuns,
+  startedAt,
+  endedAt,
+  live,
+  forceOpen,
+  children
+}: {
+  messages: DisplayMessage[]
+  toolRuns: Record<string, ToolRun>
+  startedAt?: number
+  endedAt?: number
+  live: boolean
+  forceOpen: boolean
+  children: React.ReactNode
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = forceOpen || (userOpen ?? live)
+  let thoughts = 0
+  const runs: { name: string; args: Record<string, unknown>; status: ToolRun['status'] }[] = []
+  for (const message of messages) {
+    if (message.kind !== 'assistant') {
+      continue
+    }
+    for (const block of message.blocks) {
+      if (block.type === 'thinking') {
+        thoughts += 1
+      } else if (block.type === 'toolCall') {
+        const run = toolRuns[block.id]
+        runs.push({
+          name: run?.name ?? block.name,
+          args: run && Object.keys(run.args).length > 0 ? run.args : block.arguments,
+          status: run?.status ?? 'done'
+        })
+      }
+    }
+  }
+  const summary = summarizeToolRuns(runs)
+  const running = summary.running > 0
+  const span =
+    startedAt !== undefined && endedAt !== undefined ? endedAt - startedAt : undefined
+  const label = live
+    ? 'Working'
+    : span !== undefined && span >= 1000
+      ? `Worked for ${formatDuration(span)}`
+      : 'Worked'
+  return (
+    <div
+      className={clsx('tool-card', 'tool-group', 'work-group', {
+        'tool-error': summary.failed > 0 && !running,
+        'is-open': open
+      })}
+    >
+      <button
+        type="button"
+        className="tool-row"
+        aria-expanded={open}
+        onClick={() => setUserOpen(!open)}
+      >
+        <ToolNode status={running ? 'running' : summary.failed > 0 ? 'error' : 'done'} />
+        <span className="tool-name tool-group-label work-label">{label}</span>
+        {runs.length > 0 && <span className="work-summary">{summary.text}</span>}
+        {!running && summary.diff && (
+          <span className="tool-group-diff">
+            <span className="diff-add-count">+{summary.diff.added}</span>{' '}
+            <span className="diff-del-count">−{summary.diff.removed}</span>
+          </span>
+        )}
+        {summary.failed > 0 && (
+          <span className="tool-group-errors">{summary.failed} failed</span>
+        )}
+        <span className="work-counts">
+          {runs.length > 0 && `${runs.length} ${runs.length === 1 ? 'tool' : 'tools'}`}
+          {runs.length > 0 && thoughts > 0 && ' · '}
+          {thoughts > 0 && `${thoughts} ${thoughts === 1 ? 'thought' : 'thoughts'}`}
+        </span>
+        <span className="tool-chevron" aria-hidden="true">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+      </button>
+      {open && <div className="work-body">{children}</div>}
     </div>
   )
 }
@@ -1327,41 +1433,80 @@ export function ChatView({ chatId }: { chatId: string }) {
                 const hasCopy = item.midxs.some((mi) => hasAssistantText(chat.messages[mi]!))
                 const meta = messageMeta(turnLast, chat.models)
                 const retryUserIdx = userIndex >= 0 ? userIndex : undefined
+                const renderRow = (midx: number, k: number) => {
+                  const m = chat.messages[midx]!
+                  const isLast = k === item.midxs.length - 1
+                  return (
+                    <Perf key={m.key} id="MessageRow">
+                      <MemoMessageRow
+                        message={m}
+                        toolRuns={chat.toolRuns}
+                        cwd={chat.cwd}
+                        midx={midx}
+                        copyFrom={isLast && hasCopy ? item.midxs[0] : undefined}
+                        turnText={turnText}
+                        meta={isLast ? meta : undefined}
+                        pinnedActions={isLast && isLastTurn}
+                        onRetry={
+                          canFork &&
+                          isLast &&
+                          isLastTurn &&
+                          turnMidx === lastAssistantMidx &&
+                          retryUserIdx !== undefined
+                            ? () => {
+                                stickRef.current = true
+                                void useChatStore
+                                  .getState()
+                                  .retryFromUserMessage(chatId, retryUserIdx)
+                                  .catch(() => {})
+                              }
+                            : undefined
+                        }
+                      />
+                    </Perf>
+                  )
+                }
+                // Fold runs of reasoning/tool-only messages into work rows.
+                // The turn's last message stays out: it carries the actions.
+                const parts: React.ReactNode[] = []
+                let run: number[] = []
+                const flush = (): void => {
+                  if (run.length >= WORK_GROUP_MIN) {
+                    const first = chat.messages[run[0]!]!
+                    const next = chat.messages[run[run.length - 1]! + 1]
+                    const ks = run.map((mi) => item.midxs.indexOf(mi))
+                    parts.push(
+                      <WorkGroup
+                        key={`work-${first.key}`}
+                        messages={run.map((mi) => chat.messages[mi]!)}
+                        toolRuns={chat.toolRuns}
+                        startedAt={first.timestamp}
+                        endedAt={next?.timestamp}
+                        live={streaming && isLastTurn}
+                        forceOpen={findOpen}
+                      >
+                        {run.map((mi, j) => renderRow(mi, ks[j]!))}
+                      </WorkGroup>
+                    )
+                  } else {
+                    for (const mi of run) {
+                      parts.push(renderRow(mi, item.midxs.indexOf(mi)))
+                    }
+                  }
+                  run = []
+                }
+                item.midxs.forEach((midx, k) => {
+                  if (k < item.midxs.length - 1 && isTraceOnly(chat.messages[midx]!)) {
+                    run.push(midx)
+                    return
+                  }
+                  flush()
+                  parts.push(renderRow(midx, k))
+                })
+                flush()
                 return (
                   <div className="msg-turn" key={`turn-${turnLast.key}`}>
-                    {item.midxs.map((midx, k) => {
-                      const m = chat.messages[midx]!
-                      const isLast = k === item.midxs.length - 1
-                      return (
-                        <Perf key={m.key} id="MessageRow">
-                          <MemoMessageRow
-                            message={m}
-                            toolRuns={chat.toolRuns}
-                            cwd={chat.cwd}
-                            midx={midx}
-                            copyFrom={isLast && hasCopy ? item.midxs[0] : undefined}
-                            turnText={turnText}
-                            meta={isLast ? meta : undefined}
-                            pinnedActions={isLast && isLastTurn}
-                            onRetry={
-                              canFork &&
-                              isLast &&
-                              isLastTurn &&
-                              turnMidx === lastAssistantMidx &&
-                              retryUserIdx !== undefined
-                                ? () => {
-                                    stickRef.current = true
-                                    void useChatStore
-                                      .getState()
-                                      .retryFromUserMessage(chatId, retryUserIdx)
-                                      .catch(() => {})
-                                  }
-                                : undefined
-                            }
-                          />
-                        </Perf>
-                      )
-                    })}
+                    {parts}
                   </div>
                 )
               }

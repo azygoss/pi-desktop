@@ -39,6 +39,12 @@ colors. Everything below follows from that, so new UI should too.
   - *Thinking* carries one italic line beside its label: the line being
     written while pi thinks, the opening line once done. Expanded, the
     reasoning renders as markdown on the rail.
+  - *Work groups*: agents often answer in many small messages that are only
+    thinking and a tool call. Two or more in a row fold into one row —
+    "Worked for 2m 15s · Ran 3 commands, edited a file · 6 tools · 6
+    thoughts" — open while the turn is live, folded once it settles (the
+    user's toggle wins; find-in-chat opens them all). Trace rows stack 4px
+    apart; prose keeps its own margins.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 
