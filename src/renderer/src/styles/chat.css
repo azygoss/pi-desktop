@@ -685,29 +685,28 @@
 .thinking-block {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .thinking-row {
   display: flex;
   align-items: center;
   gap: 9px;
-  align-self: flex-start;
-  max-width: 100%;
-  height: 28px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
   border: none;
   background: transparent;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
   cursor: pointer;
   padding: 0 8px;
   border-radius: 6px;
-  transition:
-    background 120ms,
-    color 120ms;
+  text-align: left;
+  transition: background 120ms;
 }
 .thinking-row:hover {
   background: var(--surface-hover);
-  color: var(--text-2);
 }
 .thinking-node {
   width: 7px;
@@ -716,11 +715,45 @@
   box-shadow: inset 0 0 0 1.25px var(--muted);
   flex-shrink: 0;
 }
-.thinking-node.is-live {
+.thinking-block.is-live .thinking-node {
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.thinking-label {
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.thinking-block.is-live .thinking-label {
+  color: var(--text);
+}
+.thinking-row .elapsed {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+/* One line of the reasoning beside the label: the line being written while
+ * live, the opening line once done. */
+.thinking-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-style: italic;
+}
+.thinking-preview::before {
+  content: '—';
+  margin-right: 8px;
+  font-style: normal;
+  color: var(--faint);
+}
+:root[data-theme='light'] .thinking-preview::before {
+  color: var(--muted);
 }
 .thinking-chevron {
   display: inline-flex;
+  margin-left: auto;
+  color: var(--muted);
+  flex-shrink: 0;
   opacity: 0;
   transition: opacity 120ms;
 }
@@ -729,13 +762,26 @@
   opacity: 1;
 }
 .thinking-body {
-  margin-left: 11px;
-  padding: 4px 0 6px 18px;
+  margin: 2px 0 4px 11px;
+  padding: 2px 4px 4px 18px;
   border-left: 1px solid var(--border-strong);
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  max-height: 440px;
+  overflow-y: auto;
+}
+.thinking-block.is-live .thinking-body {
+  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+}
+.thinking-body .markdown {
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.thinking-body .markdown strong {
+  color: var(--text-2);
+}
+.thinking-body .markdown-fallback {
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 
 .tool-card {
@@ -873,14 +919,108 @@
   gap: 8px;
   min-width: 0;
 }
-.tool-command {
+/* Shell steps: the row reads as a prompt line, the detail as a terminal. */
+.tool-shell-prompt {
+  color: var(--accent);
+  font-weight: 600;
+}
+.tool-shell-cmd {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.tool-row:hover .tool-shell-cmd {
+  color: var(--text);
+}
+.term {
+  position: relative;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+.term.is-failed {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+.term-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 6px 8px 12px;
+  line-height: 20px;
+}
+.term-line + .term-output {
+  border-top: 1px solid var(--border);
+}
+.term-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+.term-prompt {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.term-cmd {
+  flex: 1;
+  min-width: 0;
   color: var(--text);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tool-command-prompt {
-  color: var(--accent);
+.term-copy {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.term:hover .term-copy,
+.term-copy:focus-visible {
+  opacity: 1;
+}
+.term-output {
+  margin: 0;
+  padding: 9px 12px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Static block cursor while the command runs (no blink: see live-clock). */
+.term-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.term-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  padding: 2px 4px 2px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 60%, var(--code-bg));
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.term-status {
+  color: var(--danger);
+  font-weight: 500;
+}
+.term-status.is-ok {
+  color: var(--success);
 }
 .tool-path {
   font-family: var(--font-mono);
@@ -1283,7 +1423,7 @@ html[data-live-tick='1']
     .composer-status-dot,
     .browser-loading,
     .tool-node-running,
-    .thinking-node.is-live
+    .thinking-block.is-live .thinking-node
   ),
 html[data-live-tick='1'] .cua-strip-dot:not(.is-paused) {
   opacity: 0.3;

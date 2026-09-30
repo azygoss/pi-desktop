@@ -127,6 +127,20 @@ describe('reducePiEvent', () => {
     })
   })
 
+  it('records how long a live tool run took', () => {
+    const state = reduceAll([
+      { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: {} },
+      {
+        type: 'tool_execution_end',
+        toolCallId: 'c1',
+        toolName: 'bash',
+        result: { content: [] },
+        isError: false
+      }
+    ])
+    expect(state.toolRuns['c1']!.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
   it('marks failed tool runs as error', () => {
     const state = reduceAll([
       { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: {} },

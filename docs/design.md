@@ -30,6 +30,15 @@ colors. Everything below follows from that, so new UI should too.
 - **Agent work is a trace.** Thinking and tool calls render as rows with a
   status pixel; expanding a step drops its detail down a hairline rail.
   Consecutive tools fold into one group row with a count and diff stats.
+  Finished steps show their duration (hidden under 0.1s).
+  - *Shell steps* read as a prompt line (`$ command`); expanded, they are one
+    terminal surface: the output, then a footer with the exit status
+    (`exit 0` green, `exit N` / `timed out` / `aborted` coral) and a copy
+    button. pi's trailing "Command exited with code N" line becomes that
+    footer instead of output (`lib/trace.ts`).
+  - *Thinking* carries one italic line beside its label: the line being
+    written while pi thinks, the opening line once done. Expanded, the
+    reasoning renders as markdown on the rail.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 
