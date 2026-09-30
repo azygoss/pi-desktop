@@ -1,5 +1,5 @@
 import { Check, ExternalLink, RotateCcw, Terminal } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { CuaPermissions } from '../../../shared/api'
 import { openPiTerminal } from '../state/panel-store'
@@ -7,6 +7,8 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { Composer } from './Composer'
 import { PiLogo } from './PiLogo'
+import { ProjectSigil, ScratchSigil } from './Pixels'
+import { isProjectless, openSession, relativeTime } from './Sidebar'
 
 const PROVIDERS_DOCS_URL = 'https://pi.dev/docs/latest/providers'
 
@@ -145,7 +147,7 @@ export function HomeView() {
         ) : (
           <>
             <div className="home-greeting">
-              <PiLogo size={24} />
+              <PiLogo size={22} />
               <h1>What should pi work on?</h1>
             </div>
             <Composer
@@ -160,11 +162,77 @@ export function HomeView() {
                 navigate({ kind: 'chat', chatId: draftId })
               }}
             />
+            <div className="home-hints" aria-hidden="true">
+              <span>
+                <kbd>/</kbd> commands
+              </span>
+              <span>
+                <kbd>@</kbd> files
+              </span>
+              <span>
+                <kbd>⌘K</kbd> palette
+              </span>
+              <span>
+                <kbd>⌃`</kbd> terminal
+              </span>
+            </div>
             <WelcomeChecklist modelCount={chat?.models.length ?? 0} />
+            <RecentChats />
           </>
         )}
       </div>
     </div>
+  )
+}
+
+const RECENT_LIMIT = 5
+
+/**
+ * The last few chats across every project, so picking up yesterday's work
+ * is one click from the home screen.
+ */
+function RecentChats() {
+  const sessions = useAppStore((s) => s.sessions)
+  const sessionMeta = useAppStore((s) => s.sessionMeta)
+  const sessionsLoaded = useAppStore((s) => s.sessionsLoaded)
+  const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const recent = useMemo(
+    () =>
+      sessions
+        .filter((s) => sessionMeta[s.path]?.archived === undefined)
+        .slice(0, RECENT_LIMIT),
+    [sessions, sessionMeta]
+  )
+  if (!sessionsLoaded || recent.length === 0) {
+    return null
+  }
+  return (
+    <section className="home-recent" aria-label="Recent chats">
+      <div className="home-recent-head">
+        <span className="label-mono">Recent</span>
+        <span className="home-recent-rule" />
+      </div>
+      {recent.map((session) => {
+        const projectless = isProjectless(session.cwd, workspaceDir)
+        const project = projectless
+          ? 'no project'
+          : (session.cwd.split('/').filter(Boolean).pop() ?? session.cwd)
+        return (
+          <button
+            key={session.path}
+            type="button"
+            className="home-recent-row"
+            title={session.title}
+            onClick={() => openSession(session)}
+          >
+            {projectless ? <ScratchSigil size={12} /> : <ProjectSigil seed={session.cwd} size={12} />}
+            <span className="home-recent-title">{session.title}</span>
+            <span className="home-recent-project">{project}</span>
+            <span className="home-recent-time">{relativeTime(session.modified)}</span>
+          </button>
+        )
+      })}
+    </section>
   )
 }
 

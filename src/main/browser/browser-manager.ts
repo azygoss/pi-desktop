@@ -102,6 +102,8 @@ export class BrowserManager {
       }
     })
     view.setBackgroundColor('#1a1a19')
+    // Matches .browser-viewport: the page sits inset in the panel sheet.
+    view.setBorderRadius(7)
     const record: TabRecord = { view, url: '', title: 'New Tab', loading: false }
     this.tabs.set(id, record)
     this.wireEvents(id, record)

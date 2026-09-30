@@ -1,8 +1,6 @@
 import {
   Archive,
   FileDiff,
-  Folder,
-  MessageSquare,
   Pin,
   PanelLeft,
   PanelRight,
@@ -25,6 +23,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { newChatInProject, openSession } from './Sidebar'
+import { ProjectSigil, ScratchSigil } from './Pixels'
 
 interface PaletteItem {
   id: string
@@ -79,7 +78,7 @@ function buildItems(
     const project = projectName(session.cwd, workspaceDir)
     add(
       'Chats',
-      <MessageSquare size={13} />,
+      project ? <ProjectSigil seed={session.cwd} size={12} /> : <ScratchSigil size={12} />,
       session.title,
       () => openSession(session),
       project ?? undefined
@@ -146,7 +145,7 @@ function buildItems(
   for (const project of projects) {
     add(
       'Projects',
-      <Folder size={13} />,
+      <ProjectSigil seed={project.cwd} size={12} />,
       `New chat in ${project.name}`,
       () => {
         const s = useAppStore.getState()

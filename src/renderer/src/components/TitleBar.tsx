@@ -6,6 +6,8 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
+import { Elapsed, LiveDot } from './LiveIndicators'
+import { ProjectSigil } from './Pixels'
 
 /**
  * Navigation buttons that live in the 44px window drag strip: sidebar toggle
@@ -77,7 +79,14 @@ export function MainTopBar() {
         title: c.title,
         cwd: c.cwd,
         sessionPath: c.sessionPath,
-        hasMessages: c.messages.length > 0
+        hasMessages: c.messages.length > 0,
+        streaming: c.status === 'streaming',
+        runStartedAt: c.runStartedAt,
+        needsInput:
+          c.uiRequest?.method === 'confirm' ||
+          c.uiRequest?.method === 'select' ||
+          c.uiRequest?.method === 'input' ||
+          c.uiRequest?.method === 'editor'
       }
     })
   )
@@ -229,7 +238,12 @@ export function MainTopBar() {
               <span className="chat-title">{chat.title}</span>
             ) : null
           )}
-          {cwdBase && <span className="chat-cwd">{cwdBase}</span>}
+          {cwdBase && (
+            <span className="chat-cwd" title={chat.cwd}>
+              <ProjectSigil seed={chat.cwd} />
+              {cwdBase}
+            </span>
+          )}
           <button
             type="button"
             className="icon-btn chat-menu-btn"
@@ -238,6 +252,20 @@ export function MainTopBar() {
           >
             <MoreHorizontal size={15} />
           </button>
+          {chat.needsInput ? (
+            <span className="topbar-status topbar-status-input" role="status">
+              <LiveDot className="input-dot" />
+              Needs you
+            </span>
+          ) : (
+            chat.streaming && (
+              <span className="topbar-status" role="status">
+                <LiveDot className="live-dot" />
+                Working
+                <Elapsed since={chat.runStartedAt} />
+              </span>
+            )
+          )}
         </div>
       )}
       <button
