@@ -258,7 +258,6 @@ function SessionRow({
         void contextMenu()
       }}
     >
-      {active && <span className="active-dot" />}
       {renaming ? (
         <input
           className="sidebar-rename-input"

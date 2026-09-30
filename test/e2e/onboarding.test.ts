@@ -297,7 +297,7 @@ describe('wave 4: pi runtime failure', () => {
       const card = page.locator('[data-testid="runtime-error-card"]')
       const buttons = await card.locator('button').allTextContents()
       expect(buttons.join(' ')).toContain('Retry')
-      expect(buttons.join(' ')).toContain('Settings → Pi Runtime')
+      expect(buttons.join(' ')).toContain('Settings → Pi runtime')
       await shot(page, 'runtime-error-card.png')
     } finally {
       await close(ctx)

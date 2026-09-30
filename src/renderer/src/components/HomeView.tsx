@@ -102,7 +102,7 @@ export function HomeView() {
                 className="ui-btn"
                 onClick={() => useAppStore.getState().openSettings('runtime')}
               >
-                Settings → Pi Runtime
+                Settings → Pi runtime
               </button>
             </div>
             <span className="runtime-line">{runtimeLine(runtimeInfo)}</span>
@@ -209,7 +209,7 @@ function RecentChats() {
   return (
     <section className="home-recent" aria-label="Recent chats">
       <div className="home-recent-head">
-        <span className="label-mono">Recent</span>
+        <span className="section-label">Recent</span>
         <span className="home-recent-rule" />
       </div>
       {recent.map((session) => {

@@ -280,17 +280,14 @@
   flex-shrink: 0;
 }
 .sidebar-section-header {
+  font-size: 12px;
+  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 6px;
   border: none;
   background: transparent;
   color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   padding: 4px 8px;
   cursor: pointer;
 }
@@ -299,7 +296,6 @@ button.sidebar-section-header:hover {
 }
 .sidebar-section-count {
   color: var(--faint);
-  letter-spacing: 0;
 }
 :root[data-theme='light'] .sidebar-section-count {
   color: var(--muted);
@@ -310,26 +306,13 @@ button.sidebar-section-header:hover {
 }
 
 .sidebar-date-group {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--muted);
   opacity: 0.8;
   padding: 10px 8px 3px;
 }
 
-/* Active row: a single accent pixel on the left edge. */
-.active-dot {
-  position: absolute;
-  left: -6px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 12px;
-  border-radius: 1px;
-  background: var(--accent);
-}
 
 .sidebar-empty {
   padding: 8px 8px;
@@ -373,11 +356,6 @@ button.sidebar-section-header:hover {
 }
 .sidebar-session-nested {
   padding-left: 38px;
-}
-.sidebar-session-nested .active-dot {
-  left: 28px;
-  width: 3px;
-  height: 12px;
 }
 
 .sidebar-footer {
@@ -582,16 +560,12 @@ button.sidebar-section-header:hover {
   align-items: center;
   gap: 7px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .topbar-status .elapsed {
-  letter-spacing: 0;
-  text-transform: none;
   color: var(--text-2);
 }
 .topbar-status-input {
