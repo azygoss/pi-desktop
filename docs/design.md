@@ -21,8 +21,13 @@ colors. Everything below follows from that, so new UI should too.
 - **Two voices of type.** Prose, titles and controls use the system face
   (SF Pro on macOS). Every *readout* uses IBM Plex Mono: times, token
   counts, model names, tool names and arguments, project names in chips,
-  keyboard hints, section labels and code. Section labels are mono,
-  uppercase, tracked (`.label-mono`).
+  keyboard hints and code. Section labels ("Projects", "Recent", a
+  palette group) are plain sentence case in the system face, 12px medium,
+  muted (`.section-label`) — no all-caps, no letter-spacing.
+- **One selection mark.** The current row (a chat in the sidebar, a
+  palette row, a settings page) is shown by its ground (`--active` /
+  `--surface-hover`) alone — no accent stripe on the edge. Blue is kept for
+  signal.
 - **Sheets on chrome.** The window is chrome (`--chrome`, with macOS
   vibrancy); the main pane and the right panel are sheets (`--bg`) inset by
   8px with a 10px radius and a hairline border. The sidebar sits on the
@@ -35,7 +40,9 @@ colors. Everything below follows from that, so new UI should too.
   sits on that ground with its detail inside, and its chevron turns. The
   header is one line (the command for shell steps, tool + path otherwise)
   with a `+a −r` stat for edits and the duration (hidden under 0.1s).
-  Consecutive tools fold into a group row with a count and diff stats.
+  Consecutive tools fold into a group row with a tool count and diff
+  stats. An open edit or write shows the change itself; its "ok" result
+  line is left out.
   Stats count changed lines only: context an edit's old and new text share
   at either end is not a change (`changedLines` in `lib/tool-summary.ts`).
   - *Shell steps* expand into one terminal surface: the output, then a
@@ -47,6 +54,11 @@ colors. Everything below follows from that, so new UI should too.
     "Worked for 2m 15s · Ran 3 commands, edited a file · 6 tools · 6
     thoughts" — open while the turn is live, folded once it settles (the
     user's toggle wins; find-in-chat opens them all).
+- **Popovers open toward the room.** A composer popover (model, project,
+  `+`, context, `/` and `@` lists) opens upward from the docked chat
+  composer and downward from the home composer, which sits mid-screen, and
+  its height fits that side (`lib/popover-placement.ts`). Long lists scroll
+  inside the popover; its search and footer actions stay put.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 

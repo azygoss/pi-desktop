@@ -17,7 +17,7 @@ type Section = SettingsSection
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'computer', label: 'Computer use' },
-  { id: 'runtime', label: 'Pi Runtime' },
+  { id: 'runtime', label: 'Pi runtime' },
   { id: 'data', label: 'Data' },
   { id: 'about', label: 'About' }
 ]
@@ -494,7 +494,7 @@ export function SettingsModal() {
 
           {section === 'runtime' && (
             <div className="settings-section">
-              <h2>Pi Runtime</h2>
+              <h2>Pi runtime</h2>
               {RUNTIME_MODES.map((m) => (
                 <label key={m.value} className="settings-radio">
                   <input

@@ -246,7 +246,9 @@ function ToolGroup({
         {!running && group.diff && (
           <DiffStat added={group.diff.added} removed={group.diff.removed} />
         )}
-        <span className="tool-group-count">{runs.length}</span>
+        <span className="tool-group-count">
+          {runs.length} tool{runs.length === 1 ? '' : 's'}
+        </span>
         {errors > 0 && <span className="tool-group-errors">{errors} failed</span>}
         <span className="tool-status">
           {running && (
@@ -1638,7 +1640,7 @@ export function ChatView({ chatId }: { chatId: string }) {
         </Perf>
         {streaming && (
           <div className="chat-stats">
-            Enter to steer · Alt+Enter to queue follow-up
+            Enter to steer · ⌥Enter to queue a follow-up
           </div>
         )}
       </div>

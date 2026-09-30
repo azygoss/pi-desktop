@@ -75,14 +75,6 @@ function toolIcon(name: string): ReactNode {
   }
 }
 
-function relativePath(p: string, cwd: string): string {
-  if (cwd && p.startsWith(cwd)) {
-    const rest = p.slice(cwd.length).replace(/^[/\\]/, '')
-    return rest || p
-  }
-  return p
-}
-
 function argPath(args: Record<string, unknown>): string | undefined {
   const p = args['path'] ?? args['file'] ?? args['filePath'] ?? args['file_path']
   return typeof p === 'string' ? p : undefined
@@ -260,15 +252,15 @@ function ShellDetail({ run, command }: { run: ToolRun; command: string }) {
   )
 }
 
-function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
+function ToolDetail({ run }: { run: ToolRun }) {
   const command = commandOf(run)
   if (toolKind(run.name) === 'bash' && command !== null) {
     return <ShellDetail run={run} command={command} />
   }
-  return <GenericDetail run={run} cwd={cwd} />
+  return <GenericDetail run={run} />
 }
 
-function GenericDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
+function GenericDetail({ run }: { run: ToolRun }) {
   const [showAll, setShowAll] = useState(false)
   const [showArgs, setShowArgs] = useState(false)
   const [showTree, setShowTree] = useState(false)
@@ -280,7 +272,6 @@ function GenericDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   const truncated = !showAll && output.length > OUTPUT_LIMIT
   const shownOutput = truncated ? `${output.slice(0, OUTPUT_LIMIT)}\n…` : output
   const isError = run.status === 'error'
-  const path = argPath(run.args)
   const edits = editEntries(run.args)
   const detailsDiff =
     run.result?.details &&
@@ -289,12 +280,15 @@ function GenericDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
       ? ((run.result.details as { diff: string }).diff as string)
       : null
   const writeContent = typeof run.args['content'] === 'string' ? run.args['content'] : null
+  // A successful edit or write already shows what changed; its "ok" result
+  // line would only repeat that.
+  const changeShown =
+    !isError &&
+    ((kind === 'edit' && (edits.length > 0 || detailsDiff !== null)) ||
+      (kind === 'write' && writeContent !== null))
 
   return (
     <div className="tool-detail">
-      {(kind === 'read' || kind === 'write' || kind === 'edit') && path && (
-        <div className="tool-path">{relativePath(path, cwd)}</div>
-      )}
 
       {kind === 'edit' &&
         edits.map((entry, i) => (
@@ -315,6 +309,7 @@ function GenericDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
       )}
       {kind !== 'read' &&
         output &&
+        !changeShown &&
         (run.name === 'computer_state' ? (
           // The accessibility tree is bulky; keep it behind a second fold.
           <div>
@@ -413,7 +408,7 @@ export const ToolCard = memo(function ToolCard({
         ) : (
           <>
             <span className="tool-name">{run.name}</span>
-            <span className="tool-summary">
+            <span className="tool-summary" title={argPath(run.args)}>
               {toolCallSummary(
                 run.name,
                 run.args,
@@ -434,7 +429,7 @@ export const ToolCard = memo(function ToolCard({
         </span>
       </button>
 
-      {open && <ToolDetail run={run} cwd={cwd} />}
+      {open && <ToolDetail run={run} />}
     </div>
   )
 })

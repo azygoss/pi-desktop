@@ -586,12 +586,8 @@
   vertical-align: top;
 }
 .markdown th {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--text);
   border-bottom-color: var(--border-strong);
 }
 .markdown tbody tr:last-child td {
@@ -658,8 +654,6 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 .code-copy {
@@ -880,12 +874,9 @@
  * open, the steps list inside the group's soft ground. */
 .tool-group-count {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-  border-radius: 5px;
-  padding: 0 6px;
-  line-height: 17px;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 .tool-group > .tool-row .tool-status {
@@ -1076,11 +1067,6 @@
 }
 .term-status.is-ok {
   color: var(--success);
-}
-.tool-path {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
 }
 .tool-args,
 .tool-output,
@@ -1392,12 +1378,9 @@
   padding: 6px;
 }
 .palette-section {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   padding: 10px 8px 4px;
 }
 .palette-row {
@@ -1419,17 +1402,6 @@
 .palette-row.is-highlight {
   background: var(--surface-hover);
   color: var(--text);
-}
-.palette-row.is-highlight::before {
-  content: '';
-  position: absolute;
-  left: -6px;
-  top: 50%;
-  width: 3px;
-  height: 14px;
-  margin-top: -7px;
-  border-radius: 1px;
-  background: var(--accent);
 }
 .palette-row-icon {
   display: flex;

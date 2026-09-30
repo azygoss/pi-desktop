@@ -21,7 +21,7 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   terminal cards with exit status, edits with line stats, consecutive calls
   folded into one row with diff stats, long runs folded into a "Worked for 2m 15s"
   summary), retry and compaction notices, stop / steer / follow-up
-  controls, find in chat (⌘F), and a live `WORKING` timer in the title bar
+  controls, find in chat (⌘F), and a live "Working 0:42" timer in the title bar
   while pi works.
 - **Composer** — `@` mentions for project files, image and file
   attachments (drag, paste or ⌘U), a pixel context-usage gauge with
@@ -126,7 +126,7 @@ pnpm dist:mac:release   # sign + notarize + staple (profile: pi-desktop-notary)
 ## pi runtime and sign-in
 
 - **pi is optional.** When `pi` is not on `PATH`, Pi Desktop falls back to
-  a bundled, pinned pi runtime (see Settings → Pi Runtime to force a mode
+  a bundled, pinned pi runtime (see Settings → Pi runtime to force a mode
   or point at a custom executable).
 - **Authentication** is handled by pi itself: run `pi` once in a terminal
   and use `/login`, or configure API keys per the

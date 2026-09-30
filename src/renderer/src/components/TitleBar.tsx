@@ -63,6 +63,7 @@ export function MainTopBar() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const view = useAppStore((s) => s.view)
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
+  const homeDir = useAppStore((s) => s.appInfo?.homeDir ?? '')
   // Pick only the fields the strip renders — a whole-chat subscription would
   // re-render the title bar on every streamed delta.
   const chat = useChatStore(
@@ -95,9 +96,10 @@ export function MainTopBar() {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
 
-  // Project-less chats run in the app scratch dir — show no project label.
+  // Project-less chats run in the app scratch dir (or the home folder) — show
+  // no project label, matching the composer's "Without project".
   const cwdBase =
-    chat?.cwd && chat.cwd !== '/' && chat.cwd !== workspaceDir
+    chat?.cwd && chat.cwd !== '/' && chat.cwd !== workspaceDir && chat.cwd !== homeDir
       ? (chat.cwd.split('/').filter(Boolean).pop() ?? chat.cwd)
       : null
 
