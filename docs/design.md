@@ -58,7 +58,14 @@ colors. Everything below follows from that, so new UI should too.
   project appears. `ScratchSigil` (a dashed square) marks chats without a
   project.
 - `ContextCells` — context usage as nine cells filling bottom-up.
-- `LevelMeter` — thinking effort as five rising bars.
+- `LevelMeter` — thinking effort as five rising bars (the composer's model
+  chip).
+- `EffortDial` (`components/EffortDial.tsx`) — the model popover's effort
+  control, the same metaphor at full size: one bar per level the model
+  offers, rising edge to edge like a staircase. Bars up to the choice light
+  in deepening blue, the chosen bar glows; hovering previews another level
+  (bars, name and a one-line hint follow the pointer) before a click commits
+  it. It is a radiogroup: ←/→, Home and End move the choice.
 
 ## Tokens (`src/renderer/src/styles/tokens.css`)
 
