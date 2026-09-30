@@ -552,7 +552,20 @@ function MessageRow({
       name: 'bash',
       args: { command: message.command },
       status: message.cancelled || (message.exitCode ?? 0) !== 0 ? 'error' : 'done',
-      result: { content: [{ type: 'text', text: message.output }] }
+      // Same trailing status line pi's bash tool writes, so the terminal
+      // card shows "exit N" / "aborted" for `!command` runs too.
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: message.cancelled
+              ? `${message.output}\n\nCommand aborted`
+              : (message.exitCode ?? 0) !== 0
+                ? `${message.output}\n\nCommand exited with code ${message.exitCode}`
+                : message.output
+          }
+        ]
+      }
     }
     return (
       <div data-midx={midx}>

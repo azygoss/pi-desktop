@@ -72,6 +72,8 @@ export interface ToolRun {
   status: 'running' | 'done' | 'error'
   /** Wall-clock at tool_execution_start (live runs only), for elapsed time. */
   startedAt?: number
+  /** tool_execution_end minus startedAt (live runs only). */
+  durationMs?: number
   partialText?: string
   result?: ToolResultPayload
 }
@@ -457,6 +459,9 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         status: 'done' as const
       }
       const next: ToolRun = { ...run, status: event.isError ? 'error' : 'done', result: event.result }
+      if (run.startedAt !== undefined) {
+        next.durationMs = Date.now() - run.startedAt
+      }
       delete next.partialText
       state.toolRuns[event.toolCallId] = next
       return false

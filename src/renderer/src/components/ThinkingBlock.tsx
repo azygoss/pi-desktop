@@ -1,7 +1,12 @@
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { memo, useState } from 'react'
+import { Suspense, lazy, memo, useState } from 'react'
+import clsx from 'clsx'
 
+import { thinkingPreview } from '../lib/trace'
 import { Elapsed } from './LiveIndicators'
+
+// Same lazy chunk the transcript uses; only loads once a block is opened.
+const LazyMarkdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })))
 
 export const ThinkingBlock = memo(function ThinkingBlock({
   text,
@@ -17,30 +22,38 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   durationMs?: number
 }) {
   const [open, setOpen] = useState(false)
-  const label = streaming
+  const live = streaming === true
+  const label = live
     ? 'Thinking'
     : durationMs !== undefined
       ? `Thought for ${Math.max(1, Math.round(durationMs / 1000))}s`
-      : 'Thinking'
+      : 'Thought'
+  // Collapsed, the row carries one line of the reasoning: the line being
+  // written while live, the opening line once done.
+  const preview = open ? '' : thinkingPreview(text, live)
   return (
-    <div className={open ? 'thinking-block is-open' : 'thinking-block'}>
+    <div className={clsx('thinking-block', { 'is-open': open, 'is-live': live })}>
       <button
         type="button"
         className="thinking-row"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <span
-          className={streaming ? 'thinking-node is-live' : 'thinking-node'}
-          aria-hidden="true"
-        />
-        <span>{label}</span>
-        {streaming && startedAt !== undefined && <Elapsed since={startedAt} />}
+        <span className="thinking-node" aria-hidden="true" />
+        <span className="thinking-label">{label}</span>
+        {live && startedAt !== undefined && <Elapsed since={startedAt} />}
+        {preview && <span className="thinking-preview">{preview}</span>}
         <span className="thinking-chevron" aria-hidden="true">
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
-      {open && <div className="thinking-body">{text}</div>}
+      {open && (
+        <div className="thinking-body">
+          <Suspense fallback={<div className="markdown markdown-fallback">{text}</div>}>
+            <LazyMarkdown text={text} />
+          </Suspense>
+        </div>
+      )}
     </div>
   )
 })

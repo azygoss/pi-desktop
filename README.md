@@ -17,8 +17,10 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   shared with the pi TUI. Pin chats to the top or archive them. The home
   screen lists your most recent chats across every project.
 - **Full chat engine** — streaming replies, thinking blocks, markdown with
-  syntax highlighting, tool calls as a trace (bash/read/edit/write with
-  diffs, consecutive calls folded into one row with diff stats), retry and
+  syntax highlighting, tool calls as a trace (shell steps as terminal
+  cards with exit status, read/edit/write with diffs, consecutive calls
+  folded into one row with diff stats), a live one-line preview of pi's
+  thinking, retry and
   compaction notices, stop / steer / follow-up controls, find in chat (⌘F),
   and a live `WORKING` timer in the title bar while pi works.
 - **Composer** — `@` mentions for project files, image and file
