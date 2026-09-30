@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, ChevronRight } from 'lucide-react'
+import { Brain, ChevronRight } from 'lucide-react'
 import { Suspense, lazy, memo, useState } from 'react'
 import clsx from 'clsx'
 
@@ -44,7 +44,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         <span className="thinking-label">{label}</span>
         {live && startedAt !== undefined && <Elapsed since={startedAt} />}
         <span className="thinking-chevron" aria-hidden="true">
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ChevronRight size={12} />
         </span>
       </button>
       {open && (
