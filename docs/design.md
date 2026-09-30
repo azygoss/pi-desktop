@@ -61,13 +61,15 @@ colors. Everything below follows from that, so new UI should too.
 - `LevelMeter` — thinking effort as five rising bars (the composer's model
   chip).
 - `EffortSlider` (`components/EffortSlider.tsx`) — the model popover's
-  effort control: a track with one stop per level the model offers and a
-  rounded-pixel thumb. Dragging follows the pointer and settles on the
-  nearest stop (the name and a one-line hint of what the level buys follow
-  along); clicking the track or a label jumps; ←/→, Home and End step. At
-  the model's top level the track is *charged*: a hotter fill running to
-  white, a glow on the fill and thumb, a ⚡ by the name, and one light sweep
-  across the fill on arrival — one-shot, never a loop.
+  effort control: a slim track with one stop per level the model offers, a
+  white rounded-pixel thumb with a grip, and notched labels beneath.
+  Dragging follows the pointer and settles on the nearest stop (the name and
+  a one-line hint of what the level buys follow along); clicking the track
+  or a label jumps; ←/→, Home and End step. At the model's top level the
+  track is *charged*: the fill runs hot (`--accent-hot`), fill and thumb
+  glow, the grip turns blue, a soft halo pools in the panel, a ⚡ sits by
+  the name, and one light sweep crosses the fill on arrival — one-shot,
+  never a loop.
 
 ## Tokens (`src/renderer/src/styles/tokens.css`)
 
