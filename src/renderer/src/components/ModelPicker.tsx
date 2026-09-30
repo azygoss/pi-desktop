@@ -4,7 +4,7 @@ import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
 import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
-import { EffortDial } from './EffortDial'
+import { EffortSlider } from './EffortSlider'
 import { LevelMeter } from './Pixels'
 
 const POPOVER_MAX_HEIGHT = 420
@@ -247,7 +247,7 @@ export function ModelPicker({
               <span>This model answers without a thinking phase</span>
             </div>
           ) : (
-            <EffortDial
+            <EffortSlider
               levels={thinkingLevels}
               value={thinkingLevel}
               onChange={onThinkingChange}

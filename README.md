@@ -28,7 +28,7 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   session stats, and dictation (⌘⇧D; on-device where macOS supports the language).
 - **Model & thinking-level picker** — live catalog from pi
   (`get_available_models`), grouped by provider, with a thinking-effort
-  dial that previews each level on hover.
+  slider that charges up at the model's top level.
 - **Slash commands** — pi's skills, prompt templates and extension
   commands, plus app commands like `/new`, `/name`, `/compact`, `/fork`,
   `/tree`, `/export`, `/model`, `/thinking` and `/hotkeys`.
