@@ -211,6 +211,8 @@ describe('buildChatViewState', () => {
     expect(state.messages[0]).toMatchObject({ kind: 'user', text: 'hi' })
     expect(state.toolRuns['c1']).toMatchObject({ name: 'bash', status: 'done' })
     expect(state.toolRuns['c1']!.result?.content[0]).toMatchObject({ text: 'file.txt' })
+    // The result alone has no arguments; they come from the toolCall block.
+    expect(state.toolRuns['c1']!.args).toEqual({ command: 'ls' })
   })
 
   it('extracts text and images from array-form user content', () => {

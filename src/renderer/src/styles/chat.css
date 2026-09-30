@@ -139,7 +139,6 @@
   color: var(--text);
 }
 .msg-assistant .msg-actions {
-  margin-top: -4px;
   margin-left: -5px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -221,17 +220,36 @@
 }
 
 /* --- Assistant turn. */
+/* Trace rows (thinking, tools) stack tightly like a log; prose and code
+ * blocks keep their breathing room through their own margins. */
 .msg-assistant {
   font-size: 14.5px;
   line-height: 1.65;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+}
+.msg-assistant > :is(.markdown, .msg-image, .msg-error) {
+  margin: 8px 0;
+}
+.msg-assistant > :is(.markdown, .msg-image, .msg-error):first-child {
+  margin-top: 0;
+}
+.msg-assistant > :is(.markdown, .msg-image, .msg-error):last-child {
+  margin-bottom: 0;
 }
 .msg-turn {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+}
+/* Prose that opens a message after trace rows gets its gap back. */
+.msg-turn > * + .msg-assistant > .markdown:first-child {
+  margin-top: 8px;
+}
+.msg-turn > .msg-assistant + .msg-actions,
+.msg-assistant .msg-actions {
+  margin-top: 2px;
 }
 .msg-error {
   color: var(--danger);
@@ -902,6 +920,39 @@
   font-size: 11px;
   flex-shrink: 0;
 }
+/* A folded stretch of agent work: "Worked for 2m 10s · Read 4 files…". */
+.work-label {
+  flex-shrink: 0;
+}
+.work-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.work-counts {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.work-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0 6px 11px;
+  padding: 2px 0 2px 6px;
+  border-left: 1px solid var(--border-strong);
+}
+.work-body .msg-assistant {
+  gap: 2px;
+}
+
 /* Diff stat inside a tool group header. */
 .tool-group-diff {
   font-family: var(--font-mono);

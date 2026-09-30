@@ -189,15 +189,39 @@ export function mapAgentMessage(message: AgentMessage, key?: string): DisplayMes
   }
 }
 
-/** Fold a persisted toolResult message into the matching tool run. */
-function applyToolResult(state: ChatViewState, message: AgentMessage): void {
+/** Arguments of a tool call already in the transcript (newest first). */
+function findCallArgs(state: ChatViewState, id: string): Record<string, unknown> | undefined {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i]!
+    if (message.kind !== 'assistant') {
+      continue
+    }
+    for (const block of message.blocks) {
+      if (block.type === 'toolCall' && block.id === id) {
+        return block.arguments
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Fold a persisted toolResult message into the matching tool run. `args`
+ * comes from the assistant message's toolCall block: the result alone does
+ * not carry them, and without them a reopened session shows bare tool names.
+ */
+function applyToolResult(
+  state: ChatViewState,
+  message: AgentMessage,
+  args?: Record<string, unknown>
+): void {
   if (message.role !== 'toolResult') {
     return
   }
   const run = state.toolRuns[message.toolCallId] ?? {
     toolCallId: message.toolCallId,
     name: message.toolName,
-    args: {},
+    args: args ?? findCallArgs(state, message.toolCallId) ?? {},
     status: 'done' as const
   }
   // Replace rather than mutate: memoized tool cards skip identical runs.
@@ -211,10 +235,19 @@ function applyToolResult(state: ChatViewState, message: AgentMessage): void {
 /** Rebuild view state from a persisted `get_messages` list. */
 export function buildChatViewState(messages: AgentMessage[]): ChatViewState {
   const state = createChatViewState()
+  const callArgs = new Map<string, Record<string, unknown>>()
   for (const message of messages) {
     if (message.role === 'toolResult') {
-      applyToolResult(state, message)
+      applyToolResult(state, message, callArgs.get(message.toolCallId))
       continue
+    }
+    if (message.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type === 'toolCall') {
+          const call = block as ToolCallContent
+          callArgs.set(call.id, call.arguments)
+        }
+      }
     }
     const display = mapAgentMessage(message)
     if (display) {
