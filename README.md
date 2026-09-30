@@ -19,7 +19,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 - **Full chat engine** — streaming replies, thinking blocks, markdown with
   syntax highlighting, tool calls as a trace (shell steps as terminal
   cards with exit status, read/edit/write with diffs, consecutive calls
-  folded into one row with diff stats), a live one-line preview of pi's
+  folded into one row with diff stats, long runs folded into a
+  "Worked for 2m 15s" summary), a live one-line preview of pi's
   thinking, retry and
   compaction notices, stop / steer / follow-up controls, find in chat (⌘F),
   and a live `WORKING` timer in the title bar while pi works.
