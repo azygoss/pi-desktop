@@ -4,6 +4,7 @@ import clsx from 'clsx'
 
 import type { Model, ThinkingLevel } from '../../../shared/pi-types'
 import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thinking'
+import { EffortDial } from './EffortDial'
 import { LevelMeter } from './Pixels'
 
 const POPOVER_MAX_HEIGHT = 420
@@ -241,23 +242,16 @@ export function ModelPicker({
             {flat.length === 0 && <div className="model-empty">No models match</div>}
           </div>
           {noReasoning ? (
-            <div className="thinking-none">No reasoning</div>
-          ) : (
-            <div className="thinking-segment">
-              {thinkingLevels.map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  className={clsx('thinking-segment-btn', {
-                    'is-active': thinkingLevel === level
-                  })}
-                  onClick={() => onThinkingChange(level)}
-                >
-                  <LevelMeter level={level} />
-                  {thinkingLevelLabel(level)}
-                </button>
-              ))}
+            <div className="thinking-none">
+              <span className="effort-title">Thinking effort</span>
+              <span>This model answers without a thinking phase</span>
             </div>
+          ) : (
+            <EffortDial
+              levels={thinkingLevels}
+              value={thinkingLevel}
+              onChange={onThinkingChange}
+            />
           )}
         </div>
       )}

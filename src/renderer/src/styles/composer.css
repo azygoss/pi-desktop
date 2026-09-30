@@ -661,47 +661,149 @@
   text-align: center;
 }
 
-/* Thinking effort: a segmented row of meters. */
-.thinking-segment {
-  display: flex;
-  gap: 2px;
-  padding: 6px;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 50%, var(--raised));
-}
-.thinking-segment-btn {
-  flex: 1;
+/* Thinking effort: a signal meter pinned to the popover's bottom. One bar
+ * per level, rising left to right; bars up to the choice light in deepening
+ * blue (--mix grows per step), the chosen bar carries a soft halo. */
+.effort,
+.thinking-none {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  border: none;
-  background: transparent;
-  color: var(--muted);
+  gap: 8px;
+  padding: 10px 12px 11px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 45%, var(--raised));
+}
+.effort-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.effort-title {
   font-family: var(--font-mono);
   font-size: 10px;
-  padding: 6px 0 5px;
-  border-radius: 6px;
-  cursor: pointer;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.thinking-segment-btn:hover {
-  color: var(--text-2);
-  background: var(--surface-hover);
-}
-.thinking-segment-btn.is-active {
-  background: var(--active);
+.effort-value {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text);
+  transition: color 160ms ease;
 }
-.thinking-segment-btn.is-active .level-meter {
+.effort.is-previewing .effort-value {
   color: var(--accent);
 }
-.thinking-none {
-  padding: 9px 8px;
-  border-top: 1px solid var(--border);
-  color: var(--muted);
+.effort-bars {
+  display: grid;
+  gap: 3px;
+  align-items: end;
+}
+/* Columns sit edge to edge, so the bars read as one rising staircase. */
+.effort-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 7px;
+  height: 50px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.effort-step:focus-visible {
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.effort-bar {
+  height: var(--bar);
+  border-radius: 4px 4px 2px 2px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  transition:
+    background 200ms ease,
+    box-shadow 200ms ease,
+    opacity 200ms ease,
+    transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform-origin: bottom;
+}
+.effort-step:hover .effort-bar {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+.effort-step.is-lit .effort-bar,
+.effort-step.is-lit:hover .effort-bar {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--accent) calc(var(--mix) - 20%), transparent),
+    color-mix(in srgb, var(--accent) var(--mix), transparent)
+  );
+}
+.effort.is-previewing .effort-step.is-lit .effort-bar {
+  opacity: 0.75;
+}
+.effort-step.is-active .effort-bar {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--accent) 80%, transparent),
+    var(--accent)
+  );
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 1;
+}
+.effort-step:hover .effort-bar {
+  transform: scaleY(1.06);
+}
+/* "Off" is a flat dash: no bar to light. */
+.effort-step.is-off .effort-bar {
+  width: 14px;
+  height: 3px;
+  align-self: center;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
+}
+.effort-step.is-off.is-active .effort-bar {
+  background: var(--text);
+  opacity: 1;
+}
+.effort-tick {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
+  line-height: 1;
   text-align: center;
+  color: var(--muted);
+  transition: color 160ms ease;
+}
+.effort-step:hover .effort-tick {
+  color: var(--text-2);
+}
+.effort-step.is-active .effort-tick {
+  color: var(--text);
+  font-weight: 600;
+}
+.effort-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+  min-height: 17px;
+}
+.thinking-none {
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .effort-bar,
+  .effort-step,
+  .effort-tick,
+  .effort-value {
+    transition: none;
+  }
 }
 
 /* Context gauge + usage popover (composer bar). */
