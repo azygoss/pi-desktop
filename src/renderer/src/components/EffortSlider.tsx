@@ -111,7 +111,7 @@ export function EffortSlider({
     }
   }
 
-  const style = { '--pos': `${fraction * 100}%` } as CSSProperties
+  const style = { '--pos': `${fraction * 100}%`, '--t': fraction } as CSSProperties
 
   return (
     <div
@@ -147,13 +147,6 @@ export function EffortSlider({
         <div className="effort-rail">
           <div className="effort-fill" key={charged ? 'charged' : 'plain'} />
         </div>
-        {levels.map((level, i) => (
-          <span
-            key={level}
-            className={clsx('effort-stop', { 'is-lit': i <= shownIdx })}
-            style={{ left: `${(i / last) * 100}%` }}
-          />
-        ))}
         <span className="effort-thumb" />
       </div>
       <div className="effort-ticks">
@@ -163,6 +156,7 @@ export function EffortSlider({
             type="button"
             tabIndex={-1}
             className={clsx('effort-tick', {
+              'is-lit': i <= shownIdx,
               'is-active': i === shownIdx,
               'is-first': i === 0,
               'is-last': i === last
