@@ -7,7 +7,7 @@ import { supportedThinkingLevels, thinkingLevelLabel } from '../../../shared/thi
 import { EffortSlider } from './EffortSlider'
 import { LevelMeter } from './Pixels'
 
-const POPOVER_MAX_HEIGHT = 420
+const POPOVER_MAX_HEIGHT = 540
 const POPOVER_MIN_HEIGHT = 220
 /** Title bar (44px) plus breathing room above the popover. */
 const TOP_RESERVE = 56
@@ -90,9 +90,10 @@ export function ModelPicker({
     below: false
   })
 
-  // The popover opens upward from the composer; when the composer sits mid-
-  // screen (home view) there may not be 420px above it, so fit the height to
-  // the room available — and open downward if there's clearly more room there.
+  // The popover opens toward the side with more room: upward from the docked
+  // chat composer, downward from the home composer that sits mid-screen (the
+  // model list would otherwise get only the sliver above it). The height fits
+  // whichever side it takes.
   function measurePlacement(): void {
     const rect = rootRef.current?.getBoundingClientRect()
     if (!rect) {
@@ -100,7 +101,7 @@ export function ModelPicker({
     }
     const above = rect.top - TOP_RESERVE
     const below = window.innerHeight - rect.bottom - BOTTOM_RESERVE
-    const openBelow = above < POPOVER_MIN_HEIGHT && below > above
+    const openBelow = below > above
     setPlacement({
       below: openBelow,
       maxHeight: Math.max(
