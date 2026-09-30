@@ -313,6 +313,14 @@ describe('Pi Desktop e2e', () => {
     const rows = await page.locator('.folder-popover .folder-row').allTextContents()
     expect(rows.some((r) => r.includes('Without project'))).toBe(true)
     expect(rows.some((r) => r.includes('synthetic-alpha'))).toBe(true)
+    // The home composer sits mid-screen: the picker opens downward and fits
+    // the window instead of getting clipped by the title bar.
+    const popover = page.locator('[data-testid="project-popover"]')
+    expect(await popover.getAttribute('class')).toContain('popover-below')
+    const box = await popover.boundingBox()
+    const viewport = (await page.evaluate('window.innerHeight')) as number
+    expect(box!.y).toBeGreaterThan(44)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport)
     await page.screenshot({ path: join(SHOTS, 'project-picker.png') })
     // click outside the popover to dismiss it
     await page.locator('.composer-input').click()
