@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, shellStatusLabel, splitShellStatus, thinkingPreview } from './trace'
+import {
+  changePeek,
+  formatDuration,
+  shellStatusLabel,
+  splitShellStatus,
+  thinkingExcerpt
+} from './trace'
 
 describe('splitShellStatus', () => {
   it('leaves clean output alone', () => {
@@ -48,21 +54,66 @@ describe('formatDuration', () => {
   })
 })
 
-describe('thinkingPreview', () => {
+describe('thinkingExcerpt', () => {
   const text = '**Planning the refactor**\n\nFirst I will read the parser.\nThen patch `split()`.\n'
 
-  it('shows the opening line once done, without markdown', () => {
-    expect(thinkingPreview(text, false)).toBe('Planning the refactor')
+  it('opens with the heading and the prose that follows once done', () => {
+    expect(thinkingExcerpt(text, false)).toBe(
+      'Planning the refactor — First I will read the parser. Then patch split().'
+    )
   })
 
-  it('shows the line being written while live', () => {
-    expect(thinkingPreview(text, true)).toBe('Then patch split().')
+  it('shows the tail while live', () => {
+    expect(thinkingExcerpt(text, true).endsWith('Then patch split().')).toBe(true)
   })
 
-  it('handles empty text and trims long lines', () => {
-    expect(thinkingPreview('', true)).toBe('')
-    const long = 'word '.repeat(80)
-    expect(thinkingPreview(long, false).endsWith('…')).toBe(true)
-    expect(thinkingPreview(long, true).startsWith('…')).toBe(true)
+  it('handles empty text and trims long thoughts', () => {
+    expect(thinkingExcerpt('', true)).toBe('')
+    const long = 'word '.repeat(200)
+    expect(thinkingExcerpt(long, false).endsWith('…')).toBe(true)
+    expect(thinkingExcerpt(long, true).startsWith('…')).toBe(true)
+  })
+})
+
+describe('changePeek', () => {
+  it('shows only the changed lines of an edit', () => {
+    const peek = changePeek('edit', {
+      edits: [{ oldText: 'a\nb = 1\nc', newText: 'a\nb = 2\nc' }]
+    })
+    expect(peek).toEqual({
+      lines: [
+        { sign: '-', text: 'b = 1' },
+        { sign: '+', text: 'b = 2' }
+      ],
+      more: 0
+    })
+  })
+
+  it('counts what the peek leaves out across edits', () => {
+    const peek = changePeek('edit', {
+      edits: [
+        { oldText: 'x1\nx2\nx3', newText: 'y1\ny2\ny3' },
+        { oldText: 'z', newText: 'w' }
+      ]
+    })
+    expect(peek?.lines).toHaveLength(4)
+    expect(peek?.more).toBe(4)
+  })
+
+  it('previews the first lines of a written file', () => {
+    expect(changePeek('write', { content: 'one\ntwo\nthree\nfour\n' })).toEqual({
+      lines: [
+        { sign: '+', text: 'one' },
+        { sign: '+', text: 'two' },
+        { sign: '+', text: 'three' }
+      ],
+      more: 1
+    })
+  })
+
+  it('returns null when there is nothing to show', () => {
+    expect(changePeek('write', {})).toBeNull()
+    expect(changePeek('edit', { oldText: 'same', newText: 'same' })).toBeNull()
+    expect(changePeek('edit', {})).toBeNull()
   })
 })
