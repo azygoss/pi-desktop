@@ -1589,3 +1589,15 @@ html[data-live-tick='1'] .step-running {
   color: var(--text-2);
   margin-right: 4px;
 }
+
+.tool-file-actions {
+  display: flex;
+  gap: 12px;
+  padding: 0 12px 10px 37px;
+  margin-top: -4px;
+}
+.tool-more-note {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}

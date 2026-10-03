@@ -788,8 +788,8 @@ describe('Pi Desktop e2e', () => {
       .toBe('Edited a file, created a file, ran a command')
     await visible(page, '.tool-group-diff')
     // Changed lines only: the edit's shared first line is context.
-    expect(await page.locator('.diff-add-count').textContent()).toBe('+5')
-    expect(await page.locator('.diff-del-count').textContent()).toBe('−1')
+    expect(await page.locator('.tool-group .diff-add-count').first().textContent()).toBe('+5')
+    expect(await page.locator('.tool-group .diff-del-count').first().textContent()).toBe('−1')
     expect(await page.locator('.tool-group-errors').textContent()).toContain(
       '1 failed'
     )
@@ -1218,5 +1218,37 @@ describe('Pi Desktop e2e', () => {
     await waitForSettled()
     const lastUser = page.locator('.msg-user-row').last()
     expect(await lastUser.locator('.msg-path-chip').count()).toBe(0)
+  })
+
+  it('runs a !command in pi and shows its output as a shell step', async () => {
+    await page.locator('.composer-input').fill('!echo hi')
+    await page.keyboard.press('Enter')
+    await visible(page, '.user-shell')
+    const shell = page.locator('.user-shell').last()
+    await expect.poll(async () => shell.textContent(), { timeout: 10_000 }).toContain('exit 0')
+    expect(await shell.textContent()).toContain('synthetic output of echo hi')
+    // Nothing was sent to the model: no user prompt row for the command.
+    expect(await page.locator('.msg-user-row', { hasText: '!echo hi' }).count()).toBe(0)
+  })
+
+  it('recalls the last prompt with ArrowUp on an empty composer', async () => {
+    const input = page.locator('.composer-input')
+    await input.fill('')
+    await input.press('ArrowUp')
+    expect(await input.inputValue()).toBe('!echo hi')
+    await input.press('ArrowDown')
+    expect(await input.inputValue()).toBe('')
+  })
+
+  it('keeps an unsent draft with its chat', async () => {
+    const input = page.locator('.composer-input')
+    await input.fill('half-written thought')
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-view')
+    expect(await page.locator('.composer-input').inputValue()).toBe('')
+    await page.keyboard.press('Meta+[')
+    await visible(page, '.chat-view')
+    expect(await page.locator('.composer-input').inputValue()).toBe('half-written thought')
+    await page.locator('.composer-input').fill('')
   })
 })
