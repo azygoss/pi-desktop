@@ -18,6 +18,9 @@ import { CuaService } from './cua/cua-service'
 import { ComputerToolBridge } from './cua/cua-tools'
 import { DictationService } from './dictation/dictation-service'
 import { UpdateChecker } from './updates/update-check'
+import { AutomationScheduler } from './automations/scheduler'
+import { listAutomations, markAutomationRun } from './automations/automation-store'
+import type { Automation } from '../shared/automations'
 import { ChatService } from './chat/chat-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
@@ -102,6 +105,25 @@ app.on('will-quit', () => {
     cuaShortcutRegistered = false
   }
 })
+/** Hand a due automation to a window, which runs it as a background chat. */
+function triggerAutomation(automation: Automation): boolean {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win || win.webContents.isLoading()) {
+    return false
+  }
+  win.webContents.send(IPC_CHANNELS.automationsRun, automation)
+  return true
+}
+const automations = new AutomationScheduler({
+  list: listAutomations,
+  markRun: async (id, at) => {
+    await markAutomationRun(id, at)
+    broadcastAll(IPC_CHANNELS.automationsChanged, null)
+  },
+  trigger: triggerAutomation
+})
+app.on('will-quit', () => automations.stop())
+
 const pty = new PtyManager({
   onData: (id, data) => broadcastAll(IPC_CHANNELS.terminalData, { id, data }),
   onExit: (id, exitCode, signal) =>
@@ -252,7 +274,17 @@ app.whenReady().then(async () => {
   // even when that differs from the system appearance.
   nativeTheme.themeSource = lastSettings?.theme ?? 'system'
 
-  registerIpcHandlers({ pool, chat, pty, browser, bridge, cua, dictation, updates })
+  registerIpcHandlers({
+    pool,
+    chat,
+    pty,
+    browser,
+    bridge,
+    cua,
+    dictation,
+    updates,
+    automations: { refresh: () => automations.refresh(), trigger: triggerAutomation }
+  })
   wireAppLifecycle({ pool, chat, pty, browser, bridge, cua, dictation })
   installAppMenu(isDev)
   const win = createWindow()
@@ -288,6 +320,8 @@ app.whenReady().then(async () => {
       // seconds later; pi's own startup (eager extensions, MCP servers) can
       // take seconds and the spare absorbs it for the first draft.
       setTimeout(() => void chat.warmSpare(), 2000).unref?.()
+      // Automations: runs missed while the app was closed fire once now.
+      setTimeout(() => automations.start(), 4000).unref?.()
     })()
   })
 

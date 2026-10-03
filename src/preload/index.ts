@@ -140,6 +140,19 @@ const api: PiDesktopApi = {
     onExit: subscribe('pi-desktop:chat:exit'),
     onStartupHint: subscribe('pi-desktop:chat:hint')
   },
+  automations: {
+    list: () => ipcRenderer.invoke('pi-desktop:automations:list'),
+    save: (input) => ipcRenderer.invoke('pi-desktop:automations:save', input),
+    delete: (input) => ipcRenderer.invoke('pi-desktop:automations:delete', input),
+    runNow: (input) => ipcRenderer.invoke('pi-desktop:automations:run-now', input),
+    setSession: (input) => ipcRenderer.invoke('pi-desktop:automations:set-session', input),
+    onRun: subscribe('pi-desktop:automations:run'),
+    onChanged: subscribe('pi-desktop:automations:changed')
+  },
+  pr: {
+    status: (input) => ipcRenderer.invoke('pi-desktop:pr:status', input),
+    failedLog: (input) => ipcRenderer.invoke('pi-desktop:pr:failed-log', input)
+  },
   catalog: {
     get: () => ipcRenderer.invoke('pi-desktop:catalog:get')
   },

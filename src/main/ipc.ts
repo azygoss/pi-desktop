@@ -31,6 +31,15 @@ import {
 } from './git/worktrees'
 import { readProjectFile } from './files/read-file'
 import { usageReport } from './sessions/usage'
+import type { Automation } from '../shared/automations'
+import {
+  deleteAutomation,
+  listAutomations,
+  markAutomationRun,
+  saveAutomation,
+  setAutomationSession
+} from './automations/automation-store'
+import { getFailedLog, getPrStatus } from './git/pr-status'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
 import { BrowserManager } from './browser/browser-manager'
@@ -134,6 +143,16 @@ export const IPC_CHANNELS = {
   browserAgentTab: 'pi-desktop:browser:agent-tab',
   diffStatus: 'pi-desktop:diff:status',
   diffSummary: 'pi-desktop:diff:summary',
+  automationsList: 'pi-desktop:automations:list',
+  automationsSave: 'pi-desktop:automations:save',
+  automationsDelete: 'pi-desktop:automations:delete',
+  automationsRunNow: 'pi-desktop:automations:run-now',
+  automationsSetSession: 'pi-desktop:automations:set-session',
+  /** Broadcast: a window should start this automation's run. */
+  automationsRun: 'pi-desktop:automations:run',
+  automationsChanged: 'pi-desktop:automations:changed',
+  prStatus: 'pi-desktop:pr:status',
+  prFailedLog: 'pi-desktop:pr:failed-log',
   diffDiscard: 'pi-desktop:diff:discard',
   diffCommit: 'pi-desktop:diff:commit',
   diffPush: 'pi-desktop:diff:push',
@@ -198,6 +217,13 @@ export interface IpcDeps {
       | { status: 'up-to-date' }
       | { status: 'unavailable' }
     >
+  }
+  /** Automation scheduler; absent in unit-test setups. */
+  automations?: {
+    /** The list changed — re-aim the timer. */
+    refresh(): void
+    /** Ask a window to start the run; false when there is none. */
+    trigger(automation: Automation): boolean
   }
   /** Dictation helper service; absent on non-macOS/test setups. */
   dictation?: {
@@ -336,6 +362,58 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     // The pi agent dir holds credentials; the app never reads them.
     return readProjectFile(cwd, input?.path, [getAgentDir()])
   })
+
+  // --- Automations ----------------------------------------------------------
+
+  const automationsChanged = () => {
+    deps.automations?.refresh()
+    broadcastAll(IPC_CHANNELS.automationsChanged, null)
+  }
+  ipcMain.handle(IPC_CHANNELS.automationsList, () => listAutomations())
+  ipcMain.handle(IPC_CHANNELS.automationsSave, async (_e, input: unknown) => {
+    const cwd = (input as { cwd?: unknown } | null)?.cwd
+    if (typeof cwd === 'string' && cwd !== '') {
+      await validateCwd(cwd) // the project folder must exist
+    }
+    const saved = await saveAutomation(input)
+    automationsChanged()
+    return saved
+  })
+  ipcMain.handle(IPC_CHANNELS.automationsDelete, async (_e, input: { id?: unknown }) => {
+    await deleteAutomation(input?.id)
+    automationsChanged()
+  })
+  ipcMain.handle(IPC_CHANNELS.automationsRunNow, async (_e, input: { id?: unknown }) => {
+    const automation = (await listAutomations()).find((a) => a.id === input?.id)
+    if (!automation) {
+      throw new Error('Unknown automation')
+    }
+    if (deps.automations?.trigger(automation)) {
+      await markAutomationRun(automation.id, Date.now())
+      automationsChanged()
+    }
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.automationsSetSession,
+    async (_e, input: { id?: unknown; sessionPath?: unknown }) => {
+      if (typeof input?.id !== 'string') {
+        throw new Error('Invalid automation id')
+      }
+      await setAutomationSession(input.id, validateSessionPath(input.sessionPath))
+      broadcastAll(IPC_CHANNELS.automationsChanged, null)
+    }
+  )
+
+  // --- Pull request status (GitHub CLI) ---------------------------------------
+
+  ipcMain.handle(IPC_CHANNELS.prStatus, async (_e, input: { cwd: string }) =>
+    getPrStatus(await validateCwd(input?.cwd))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.prFailedLog,
+    async (_e, input: { cwd: string; runId?: unknown }) =>
+      getFailedLog(await validateCwd(input?.cwd), input?.runId)
+  )
 
   ipcMain.handle(IPC_CHANNELS.diffDiscard, async (_e, input: { cwd: string; path: unknown }) => {
     const cwd = await validateCwd(input?.cwd)

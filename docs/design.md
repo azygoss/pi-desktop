@@ -66,6 +66,9 @@ colors. Everything below follows from that, so new UI should too.
 - **Waiting is visible.** Messages sent mid-run sit in a strip above the
   composer ("Steer" lands after the current tool call, "Next" when the run
   ends) until pi delivers them; they join the transcript only then.
+- **A pull request is a readout.** `#42` in the header with one word for
+  its checks: "running" beside the hollow blue pixel, "N failing" in coral
+  with a coral edge, "passing" in green. No badge when there is no PR.
 - **Review happens on the diff.** A `+` appears in the gutter of the line
   under the pointer; a comment sits under its line in an amber-edged note
   (amber: it is waiting on you to send it). The toolbar's amber-edged

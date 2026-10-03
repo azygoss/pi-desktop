@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const FAKE_PI = join(ROOT, 'test/fixtures/fake-pi.mjs')
+const FAKE_GH = join(ROOT, 'test/fixtures/fake-gh.mjs')
 const FAKE_CUA = join(ROOT, 'src/main/cua/__fixtures__/fake-helper.mjs')
 const SHOTS = process.env['PI_DESKTOP_SHOT_DIR'] ?? '/tmp/pi-desktop-shots'
 const CUA_SHOTS = '/tmp/pi-cua-shots'
@@ -207,6 +208,7 @@ describe('Pi Desktop e2e', () => {
       env: {
         ...env,
         PI_DESKTOP_PI_COMMAND: FAKE_PI,
+        PI_DESKTOP_GH_COMMAND: FAKE_GH,
         PI_DESKTOP_CUA_HELPER: cuaHelper,
         PI_DESKTOP_E2E: '1',
         PI_CODING_AGENT_DIR: agentDir,
@@ -1282,5 +1284,59 @@ describe('Pi Desktop e2e', () => {
     await visible(page, '.chat-view')
     expect(await page.locator('.composer-input').inputValue()).toBe('half-written thought')
     await page.locator('.composer-input').fill('')
+  })
+
+  it('shows the pull request with its failing check and drafts a fix prompt', async () => {
+    await visible(page, '[data-testid="pr-chip"]', 15_000)
+    const chip = page.locator('[data-testid="pr-chip"]')
+    expect(await chip.textContent()).toContain('#42')
+    expect(await chip.textContent()).toContain('1 failing')
+    await chip.click()
+    await visible(page, '[data-testid="pr-popover"]')
+    const checks = await page.locator('.pr-check').allTextContents()
+    expect(checks.join(' | ')).toContain('testfailed')
+    expect(checks.join(' | ')).toContain('lintpassed')
+    await page.locator('[data-testid="pr-fix"]').click()
+    const composer = page.locator('.composer-input')
+    await expect
+      .poll(() => composer.inputValue(), { timeout: 10_000 })
+      .toContain('CI is failing on pull request #42')
+    // The failed job's log tail came along, without gh's job/step/timestamp columns.
+    expect(await composer.inputValue()).toContain('AssertionError: expected 1 to be 2')
+    expect(await composer.inputValue()).not.toContain('2026-01-01T')
+    await composer.fill('')
+  })
+
+  it('creates an automation and runs it as a background chat', async () => {
+    await page.keyboard.press('Meta+k')
+    await page.keyboard.type('Automations')
+    await page.keyboard.press('Enter')
+    await visible(page, '[data-testid="automations"]')
+    await page.locator('.automations-new').click()
+    await visible(page, '[data-testid="automation-form"]')
+    await page.locator('.automation-form input.ui-dialog-input').fill('Nightly summary')
+    await page.locator('.automation-form textarea').fill('summarize the repository')
+    await page.locator('.automation-form .ui-btn-primary').click()
+    await visible(page, '.automation-row')
+    expect(await page.locator('.automation-meta').textContent()).toContain('Weekdays at 09:00')
+    const before = page.url()
+    await page.locator('.automation-row button[title="Run now"]').click()
+    await page.keyboard.press('Escape')
+    // The run does not take over the window…
+    expect(page.url()).toBe(before)
+    await visible(page, '.chat-view')
+    // …it shows up on the home screen as a chat with the automation's name.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-active', 20_000)
+    await expect
+      .poll(() => page.locator('.home-active .home-recent-title').allTextContents(), {
+        timeout: 20_000
+      })
+      .toContain('Nightly summary')
+    await page.locator('.home-active .home-recent-row', { hasText: 'Nightly summary' }).click()
+    await visible(page, '.chat-view')
+    expect(await page.locator('.msg-user-row').first().textContent()).toContain(
+      'summarize the repository'
+    )
   })
 })

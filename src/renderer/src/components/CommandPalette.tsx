@@ -1,6 +1,7 @@
 import {
   Archive,
   ClipboardCopy,
+  Clock,
   FileDiff,
   FolderOpen,
   GitBranch,
@@ -156,6 +157,7 @@ function buildItems(
       )
     }
   }
+  add('Actions', <Clock size={13} />, 'Automations', () => app.setAutomationsOpen(true))
   add('Actions', <Settings size={13} />, 'Open settings', () => app.openSettings(), '⌘,')
   for (const theme of ['light', 'dark', 'system'] as const) {
     add(

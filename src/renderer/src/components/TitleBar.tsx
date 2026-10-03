@@ -16,6 +16,7 @@ import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ProjectSigil } from './Pixels'
 import { useRepoSummary } from '../lib/repo-summary'
+import { PrChip } from './PrChip'
 
 /**
  * Navigation buttons that live in the 44px window drag strip: sidebar toggle
@@ -292,6 +293,14 @@ export function MainTopBar() {
                 </span>
               )}
             </button>
+          )}
+          {repo?.isRepo && (
+            <PrChip
+              key={`${chat.chatId}:${chat.cwd}`}
+              chatId={chat.chatId}
+              cwd={chat.cwd}
+              refreshKey={`${chat.streaming}:${chat.bashRunning}:${repo.branch ?? ''}`}
+            />
           )}
           <button
             type="button"

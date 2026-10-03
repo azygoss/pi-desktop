@@ -11,6 +11,18 @@ import type {
   ThinkingLevel
 } from './pi-types'
 import type { PiRuntimeInfo, PiSettings, ProjectSummary, SessionSummary } from './session-types'
+import type { Automation, AutomationSchedule } from './automations'
+import type { PrStatus } from './pr-status'
+
+/** Editable fields of an automation; `id` updates an existing one. */
+export interface AutomationInput {
+  id?: string
+  name: string
+  prompt: string
+  cwd: string
+  schedule: AutomationSchedule
+  enabled: boolean
+}
 
 export interface ChatOpenInput {
   chatId: string
@@ -670,6 +682,25 @@ export interface PiDesktopApi {
     onUiRequest(callback: (payload: ChatUiRequestPayload) => void): () => void
     onExit(callback: (payload: ChatExitPayload) => void): () => void
     onStartupHint(callback: (payload: ChatStartupHintPayload) => void): () => void
+  }
+  /** Prompts pi runs on a schedule while the app is open. */
+  automations: {
+    list(): Promise<Automation[]>
+    save(input: AutomationInput): Promise<Automation>
+    delete(input: { id: string }): Promise<void>
+    /** Run it now; counts as its latest run. */
+    runNow(input: { id: string }): Promise<void>
+    /** Record the session file a run produced (for "Open last run"). */
+    setSession(input: { id: string; sessionPath: string }): Promise<void>
+    /** Main asks this window to start a run as a background chat. */
+    onRun(callback: (automation: Automation) => void): () => void
+    onChanged(callback: () => void): () => void
+  }
+  /** Pull request of a project's current branch, via the GitHub CLI. */
+  pr: {
+    status(input: { cwd: string }): Promise<PrStatus>
+    /** Tail of the failed jobs' log for a GitHub Actions run. */
+    failedLog(input: { cwd: string; runId: string }): Promise<string>
   }
   /** Last-known pi catalog for instant composer/palette rendering. */
   catalog: {

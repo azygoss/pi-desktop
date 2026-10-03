@@ -34,9 +34,11 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
   bridge (`src/main/bridge/`) with a per-chat token
 - `resources/cua-helper/`, `resources/dictation-helper/` - Swift helpers (computer use,
   speech dictation), JSONL over stdio; build with `pnpm build:cua`
+- `src/main/automations/` - scheduled prompts: a JSON store in userData and one timer aimed
+  at the next due run; the renderer starts each run as a background chat
 - `scripts/` - helper build scripts and the `energy.mjs` / `perf.mjs` harnesses
 - `test/e2e/` - Playwright-driven Electron tests; `test/fixtures/fake-pi.mjs` is a scripted,
-  synthetic stand-in for `pi --mode rpc`
+  synthetic stand-in for `pi --mode rpc`; `fake-gh.mjs` stands in for the GitHub CLI
 
 ## Commands
 
