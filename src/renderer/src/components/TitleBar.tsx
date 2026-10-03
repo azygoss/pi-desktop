@@ -1,4 +1,11 @@
-import { ChevronLeft, ChevronRight, MoreHorizontal, PanelLeft, PanelRight } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  GitBranch,
+  MoreHorizontal,
+  PanelLeft,
+  PanelRight
+} from 'lucide-react'
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -8,6 +15,7 @@ import { usePanelStore } from '../state/panel-store'
 import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ProjectSigil } from './Pixels'
+import { useRepoSummary } from '../lib/repo-summary'
 
 /**
  * Navigation buttons that live in the 44px window drag strip: sidebar toggle
@@ -82,6 +90,7 @@ export function MainTopBar() {
         sessionPath: c.sessionPath,
         hasMessages: c.messages.length > 0,
         streaming: c.status === 'streaming',
+        bashRunning: c.bashRunning === true,
         runStartedAt: c.runStartedAt,
         needsInput:
           c.uiRequest?.method === 'confirm' ||
@@ -102,6 +111,12 @@ export function MainTopBar() {
     chat?.cwd && chat.cwd !== '/' && chat.cwd !== workspaceDir && chat.cwd !== homeDir
       ? (chat.cwd.split('/').filter(Boolean).pop() ?? chat.cwd)
       : null
+
+  // Re-read the working tree when a run or a shell command ends.
+  const repo = useRepoSummary(
+    cwdBase && chat ? chat.cwd : null,
+    `${chat?.streaming === true}:${chat?.bashRunning === true}`
+  )
 
   function startRename(): void {
     if (!chat) {
@@ -241,10 +256,42 @@ export function MainTopBar() {
             ) : null
           )}
           {cwdBase && (
-            <span className="chat-cwd" title={chat.cwd}>
+            <button
+              type="button"
+              className="chat-cwd"
+              title={`${chat.cwd} — open in…`}
+              onClick={() => void window.piDesktop.app.openInMenu({ cwd: chat.cwd }).catch(() => {})}
+            >
               <ProjectSigil seed={chat.cwd} />
               {cwdBase}
-            </span>
+            </button>
+          )}
+          {repo?.isRepo && (
+            <button
+              type="button"
+              className="repo-chip"
+              data-testid="repo-chip"
+              title={
+                repo.files > 0
+                  ? `${repo.files} changed ${repo.files === 1 ? 'file' : 'files'} — show diff`
+                  : 'Working tree clean — show diff'
+              }
+              onClick={() => usePanelStore.getState().openDiff()}
+            >
+              <GitBranch size={11} />
+              {repo.branch && <span className="repo-chip-branch">{repo.branch}</span>}
+              {repo.files > 0 && (
+                <span className="repo-chip-stat">
+                  {repo.added > 0 && <span className="diff-add-count">+{repo.added}</span>}
+                  {repo.removed > 0 && <span className="diff-del-count">−{repo.removed}</span>}
+                  {repo.added === 0 && repo.removed === 0 && (
+                    <span>
+                      {repo.files} {repo.files === 1 ? 'file' : 'files'}
+                    </span>
+                  )}
+                </span>
+              )}
+            </button>
           )}
           <button
             type="button"

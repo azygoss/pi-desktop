@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { RepoDiffResult } from '../../shared/api'
+import type { RepoDiffResult, RepoSummary } from '../../shared/api'
 import { parsePorcelainStatus } from '../../shared/diff-parse'
 
 const GIT_TIMEOUT_MS = 15_000
@@ -86,5 +86,35 @@ export async function getRepoDiff(cwd: string): Promise<RepoDiffResult> {
     branch: branch.ok ? branch.out.trim() || undefined : undefined,
     diffText,
     untracked
+  }
+}
+
+/** Parse `git diff --shortstat` ("3 files changed, 12 insertions(+), 4 deletions(-)"). */
+export function parseShortstat(text: string): { added: number; removed: number } {
+  const added = /(\d+) insertion/.exec(text)
+  const removed = /(\d+) deletion/.exec(text)
+  return { added: added ? Number(added[1]) : 0, removed: removed ? Number(removed[1]) : 0 }
+}
+
+/**
+ * Cheap working-tree summary for the chat header: branch, number of changed
+ * files (tracked and untracked) and line stats against HEAD.
+ */
+export async function getRepoSummary(cwd: string): Promise<RepoSummary> {
+  const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
+  if (!inside.ok || inside.out.trim() !== 'true') {
+    return { isRepo: false, files: 0, added: 0, removed: 0 }
+  }
+  const [status, branch, stat] = await Promise.all([
+    git(cwd, ['status', '--porcelain=v1', '-z']),
+    git(cwd, ['branch', '--show-current']),
+    git(cwd, ['diff', 'HEAD', '--shortstat', '--no-ext-diff'])
+  ])
+  const lines = parseShortstat(stat.ok ? stat.out : '')
+  return {
+    isRepo: true,
+    ...(branch.ok && branch.out.trim() ? { branch: branch.out.trim() } : {}),
+    files: status.ok ? parsePorcelainStatus(status.out).length : 0,
+    ...lines
   }
 }

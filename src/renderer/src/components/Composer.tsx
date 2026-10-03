@@ -929,6 +929,9 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend, onShell
     setText('')
     setImages([])
     setChips([])
+    // Cleared right away, not in the effect: sending from the home screen
+    // unmounts this composer before the effect would run.
+    saveComposerDraft(draftKey, { text: '', images: [], chips: [] })
     requestAnimationFrame(autosize)
   }
 

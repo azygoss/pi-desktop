@@ -18,6 +18,7 @@ const api: PiDesktopApi = {
   },
   sessions: {
     list: () => ipcRenderer.invoke('pi-desktop:sessions:list'),
+    search: (input) => ipcRenderer.invoke('pi-desktop:sessions:search', input),
     onChanged: subscribe('pi-desktop:sessions:changed'),
     rename: (input) => ipcRenderer.invoke('pi-desktop:sessions:rename', input),
     exportHtml: (input) => ipcRenderer.invoke('pi-desktop:sessions:export-html', input),
@@ -71,7 +72,8 @@ const api: PiDesktopApi = {
     onAgentTab: subscribe('pi-desktop:browser:agent-tab')
   },
   diff: {
-    status: (input) => ipcRenderer.invoke('pi-desktop:diff:status', input)
+    status: (input) => ipcRenderer.invoke('pi-desktop:diff:status', input),
+    summary: (input) => ipcRenderer.invoke('pi-desktop:diff:summary', input)
   },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
@@ -83,6 +85,7 @@ const api: PiDesktopApi = {
         .then((r: { paths: string[] }) => r.paths),
     pathForFile: (file) => webUtils.getPathForFile(file),
     saveFile: (input) => ipcRenderer.invoke('pi-desktop:app:save-file', input),
+    openInMenu: (input) => ipcRenderer.invoke('pi-desktop:app:open-in-menu', input),
     revealPath: (path) => ipcRenderer.invoke('pi-desktop:app:reveal-path', path),
     confirmDialog: (input) => ipcRenderer.invoke('pi-desktop:app:confirm-dialog', input),
     getAppInfo: () => ipcRenderer.invoke('pi-desktop:app:info'),

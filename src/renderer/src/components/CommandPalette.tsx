@@ -1,6 +1,8 @@
 import {
   Archive,
+  ClipboardCopy,
   FileDiff,
+  FolderOpen,
   Pin,
   PanelLeft,
   PanelRight,
@@ -16,8 +18,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import clsx from 'clsx'
 
+import type { SessionSearchHit } from '../../../shared/api'
 import type { SessionSummary } from '../../../shared/session-types'
+import { chatToMarkdown } from '../lib/chat-markdown'
 import { fuzzyScore } from '../lib/fuzzy'
+import { toast } from '../state/toast-store'
 import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
@@ -29,6 +34,8 @@ interface PaletteItem {
   id: string
   section: string
   title: string
+  /** Second line under the title (a search excerpt). */
+  subtitle?: string
   /** Right-aligned keyboard hint or subtitle. */
   hint?: string
   icon: ReactNode
@@ -103,6 +110,27 @@ function buildItems(
       () => window.dispatchEvent(new CustomEvent('pi-desktop:find-in-chat')),
       '⌘F'
     )
+  }
+  if (chatId) {
+    add('Actions', <ClipboardCopy size={13} />, 'Copy chat as Markdown', () => {
+      const current = useChatStore.getState().chats[chatId]
+      if (!current || current.messages.length === 0) {
+        toast('Nothing to copy yet')
+        return
+      }
+      void navigator.clipboard
+        .writeText(
+          chatToMarkdown(current.title, current.messages, current.toolRuns, current.cwd)
+        )
+        .then(() => toast('Copied chat as Markdown'))
+        .catch(() => toast('Copy failed'))
+    })
+    const chatCwd = useChatStore.getState().chats[chatId]?.cwd
+    if (chatCwd && chatCwd !== workspaceDir) {
+      add('Actions', <FolderOpen size={13} />, 'Open project in…', () => {
+        void window.piDesktop.app.openInMenu({ cwd: chatCwd }).catch(() => {})
+      })
+    }
   }
   if (chatId && chat?.sessionPath) {
     const sessionPath = chat.sessionPath
@@ -248,10 +276,76 @@ export function CommandPalette() {
   const [highlight, setHighlight] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const items = useMemo(
-    () => buildItems(query, sessions, projects, chatId, chat, workspaceDir),
-    [query, sessions, projects, chatId, chat, workspaceDir]
-  )
+  // Full-text search over conversations, debounced; main cancels a scan
+  // when a newer query arrives. Hits are kept with the query they answer
+  // so a stale result never shows under a different query.
+  const [contentHits, setContentHits] = useState<{ query: string; hits: SessionSearchHit[] }>({
+    query: '',
+    hits: []
+  })
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 3) {
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void window.piDesktop.sessions
+        .search({ query: q })
+        .then((hits) => {
+          if (!cancelled) {
+            setContentHits({ query: q, hits })
+          }
+        })
+        .catch(() => {})
+    }, 180)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query])
+
+  const items = useMemo(() => {
+    const base = buildItems(query, sessions, projects, chatId, chat, workspaceDir)
+    const q = query.trim()
+    if (q.length < 3 || contentHits.query !== q) {
+      return base
+    }
+    const byPath = new Map(sessions.map((s) => [s.path, s]))
+    const found: PaletteItem[] = []
+    for (const hit of contentHits.hits) {
+      const session = byPath.get(hit.sessionPath)
+      if (!session) {
+        continue
+      }
+      const project = projectName(session.cwd, workspaceDir)
+      found.push({
+        id: `content:${hit.sessionPath}`,
+        section: 'In conversations',
+        title: session.title,
+        subtitle: hit.snippet,
+        hint: hit.matches > 1 ? `${hit.matches} matches` : (project ?? undefined),
+        icon: project ? (
+          <ProjectSigil seed={session.cwd} size={12} />
+        ) : (
+          <ScratchSigil size={12} />
+        ),
+        run: () => {
+          openSession(session)
+          // Land on the match: open find-in-chat with the query once the
+          // chat view has mounted.
+          setTimeout(
+            () =>
+              window.dispatchEvent(
+                new CustomEvent('pi-desktop:find-in-chat', { detail: { query: q } })
+              ),
+            350
+          )
+        }
+      })
+    }
+    return [...base, ...found]
+  }, [query, sessions, projects, chatId, chat, workspaceDir, contentHits])
 
   // Flatten items into header/row pairs once — no mutation during render.
   const rows = useMemo(() => {
@@ -319,7 +413,7 @@ export function CommandPalette() {
               setHighlight(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search chats, projects, actions…"
+            placeholder="Search chats, conversations, projects, actions…"
             spellCheck={false}
           />
           <kbd className="kbd">esc</kbd>
@@ -340,11 +434,29 @@ export function CommandPalette() {
                 onClick={() => runItem(row.index)}
               >
                 <span className="palette-row-icon">{row.item.icon}</span>
-                <span className="palette-row-title">{row.item.title}</span>
+                {row.item.subtitle ? (
+                  <span className="palette-row-text">
+                    <span className="palette-row-title">{row.item.title}</span>
+                    <span className="palette-row-subtitle">{row.item.subtitle}</span>
+                  </span>
+                ) : (
+                  <span className="palette-row-title">{row.item.title}</span>
+                )}
                 {row.item.hint && <span className="palette-row-hint">{row.item.hint}</span>}
               </button>
             )
           )}
+        </div>
+        <div className="palette-foot" aria-hidden="true">
+          <span>
+            <kbd>↑↓</kbd>navigate
+          </span>
+          <span>
+            <kbd>↵</kbd>open
+          </span>
+          <span>
+            <kbd>esc</kbd>close
+          </span>
         </div>
       </div>
     </div>

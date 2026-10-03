@@ -533,7 +533,7 @@ function turnMeta(messages: DisplayMessage[], midxs: number[], models: Model[]):
   }
   const parts = [messageMeta(last, models)]
   if (output > 0) {
-    parts.push(`${shortTokens(output)} tokens out`)
+    parts.push(`${shortTokens(output)} ${output === 1 ? 'token' : 'tokens'} out`)
   }
   if (cost > 0) {
     parts.push(`$${cost.toFixed(cost < 0.1 ? 3 : 2)}`)
@@ -1319,6 +1319,41 @@ export function ChatView({ chatId }: { chatId: string }) {
     [chatId, messageCount]
   )
 
+  // ⌥↑/⌥↓: step through the prompts of this chat. The previous/next prompt
+  // is measured from the top of the viewport; rows not yet mounted are
+  // mounted first so the walk can reach the start of a long transcript.
+  const jumpPrompt = useCallback(
+    (direction: -1 | 1) => {
+      const el = scrollRef.current
+      if (!el) {
+        return
+      }
+      if (direction === -1) {
+        flushSync(() => setRowsWindow({ chatId, rows: messageCount }))
+      }
+      const top = el.getBoundingClientRect().top
+      const rows = [...el.querySelectorAll<HTMLElement>('.msg-user-row')]
+      const offsets = rows.map((row) => row.getBoundingClientRect().top - top)
+      const target =
+        direction === 1
+          ? rows[offsets.findIndex((o) => o > 24)]
+          : rows[offsets.findLastIndex((o) => o < -4)]
+      if (!target) {
+        if (direction === 1) {
+          jumpTo('bottom')
+        }
+        return
+      }
+      stickRef.current = false
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      el.scrollTo({
+        top: el.scrollTop + (target.getBoundingClientRect().top - top) - 12,
+        behavior: reduceMotion ? 'auto' : 'smooth'
+      })
+    },
+    [chatId, messageCount, jumpTo]
+  )
+
   // Keyboard: ⌘↓/⌘↑ jump (unless the composer has text), ⌘F opens find.
   useEffect(() => {
     const composerBusy = () => {
@@ -1326,6 +1361,18 @@ export function ChatView({ chatId }: { chatId: string }) {
       return document.activeElement === ta && (ta?.value ?? '') !== ''
     }
     const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.altKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !composerBusy()
+      ) {
+        e.preventDefault()
+        jumpPrompt(e.key === 'ArrowUp' ? -1 : 1)
+        return
+      }
       if (!e.metaKey || e.ctrlKey || e.altKey) {
         return
       }
@@ -1343,12 +1390,16 @@ export function ChatView({ chatId }: { chatId: string }) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [jumpTo])
+  }, [jumpTo, jumpPrompt])
 
   // The Edit → Find… menu item and the palette dispatch this event.
   useEffect(() => {
-    const open = () => {
+    const open = (event: Event) => {
+      const query = (event as CustomEvent<{ query?: string } | undefined>).detail?.query
       setFindOpen(true)
+      if (typeof query === 'string' && query) {
+        setFindQuery(query)
+      }
       requestAnimationFrame(() => findInputRef.current?.focus())
     }
     window.addEventListener('pi-desktop:find-in-chat', open)
