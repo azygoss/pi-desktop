@@ -49,6 +49,10 @@ colors. Everything below follows from that, so new UI should too.
     footer with the exit status (`exit 0` green, `exit N` / `timed out` /
     `aborted` coral) and a copy button. pi's trailing "Command exited with
     code N" line becomes that footer instead of output (`lib/trace.ts`).
+    A `!command` the user runs from the composer is the same card, opened.
+  - *Edits* are one unified diff: removed and added lines interleaved, with
+    three lines of context and a `⋯` for skipped runs (`lib/line-diff.ts`).
+    A write shows its content as added lines.
   - *Work groups*: agents often answer in many small messages that are only
     thinking and a tool call. Two or more in a row fold into one row —
     "Worked for 2m 15s · Ran 3 commands, edited a file · 6 tools · 6
@@ -59,6 +63,9 @@ colors. Everything below follows from that, so new UI should too.
   composer and downward from the home composer, which sits mid-screen, and
   its height fits that side (`lib/popover-placement.ts`). Long lists scroll
   inside the popover; its search and footer actions stay put.
+- **Waiting is visible.** Messages sent mid-run sit in a strip above the
+  composer ("Steer" lands after the current tool call, "Next" when the run
+  ends) until pi delivers them; they join the transcript only then.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 
