@@ -1,4 +1,13 @@
-import { Bot, FileDiff, FileText, Globe, Plus, TerminalSquare, X } from 'lucide-react'
+import {
+  Bot,
+  FileDiff,
+  FileText,
+  GitPullRequest,
+  Globe,
+  Plus,
+  TerminalSquare,
+  X
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 
@@ -8,6 +17,7 @@ import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { BrowserTab, NewTabPage } from './BrowserTab'
 import { DiffPanel } from './DiffPanel'
 import { FileView } from './FileView'
+import { PrPanel } from './PrPanel'
 import { LiveDot } from './LiveIndicators'
 import { TerminalView } from './TerminalView'
 
@@ -27,6 +37,8 @@ function tabIcon(tab: PanelTab): ReactNode {
       return <TerminalSquare size={13} />
     case 'diff':
       return <FileDiff size={13} />
+    case 'pr':
+      return <GitPullRequest size={13} />
     case 'file':
       return <FileText size={13} />
     case 'newtab':
@@ -44,6 +56,8 @@ function tabTitle(tab: PanelTab): string {
   switch (tab.kind) {
     case 'diff':
       return 'Diff'
+    case 'pr':
+      return 'Pull request'
     case 'newtab':
       return 'New Tab'
     default:
@@ -249,6 +263,7 @@ export function RightPanel({ closing }: { closing?: boolean }) {
               <BrowserTab tab={tab} active={open && tab.id === activeTabId} />
             )}
             {tab.kind === 'diff' && <DiffPanel active={open && tab.id === activeTabId} />}
+            {tab.kind === 'pr' && <PrPanel active={open && tab.id === activeTabId} />}
             {tab.kind === 'file' && (
               <FileView cwd={tab.cwd} path={tab.path} active={open && tab.id === activeTabId} />
             )}
@@ -264,6 +279,10 @@ export function RightPanel({ closing }: { closing?: boolean }) {
                   store.closeTab(tab.id)
                   store.openDiff()
                 }}
+                onPr={() => {
+                  store.closeTab(tab.id)
+                  store.openPr()
+                }}
               />
             )}
           </div>
@@ -274,6 +293,7 @@ export function RightPanel({ closing }: { closing?: boolean }) {
             onNavigate={(url) => store.openBrowser(url)}
             onTerminal={() => store.openTerminal({ cwd }, 'Terminal')}
             onDiff={() => store.openDiff()}
+            onPr={() => store.openPr()}
           />
         )}
       </div>

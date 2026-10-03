@@ -5,6 +5,7 @@ import {
   FileDiff,
   FolderOpen,
   GitBranch,
+  GitPullRequest,
   Pin,
   PanelLeft,
   PanelRight,
@@ -105,6 +106,9 @@ function buildItems(
     usePanelStore.getState().openTerminal({ cwd }, 'Terminal')
   }, '⌃`')
   add('Actions', <FileDiff size={13} />, 'Open diff', () => usePanelStore.getState().openDiff())
+  add('Actions', <GitPullRequest size={13} />, 'Open pull request', () =>
+    usePanelStore.getState().openPr()
+  )
   if (chatId) {
     add(
       'Actions',

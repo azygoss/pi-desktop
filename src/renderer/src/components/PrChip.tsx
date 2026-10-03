@@ -1,35 +1,16 @@
-import { Check, ExternalLink, GitPullRequest, Minus, Wrench, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, ExternalLink, GitPullRequest, Minus, PanelRight, Wrench, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 
-import {
-  fixChecksPrompt,
-  summarizeChecks,
-  type PrStatus,
-  type PullRequest
-} from '../../../shared/pr-status'
+import { buildFixPrompt, usePrMonitorStore, usePrStatus } from '../lib/pr-monitor'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
-import { openInBrowser } from '../state/panel-store'
+import { openInBrowser, usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
 import { LiveDot } from './LiveIndicators'
 
-/** Checks are re-read this often while any of them is still running. */
-const PENDING_POLL_MS = 60_000
-
-/** Chats with "fix failures automatically" on (kept for this app run). */
-const autoFixChats = new Set<string>()
 /** `chatId:headSha` pairs already handed to pi, so a commit is fixed once. */
 const autoFixed = new Set<string>()
-
-/** Build the fix prompt, with the failed job's log tail when there is one. */
-async function buildFixPrompt(cwd: string, pr: PullRequest): Promise<string> {
-  const runId = pr.checks.find((c) => c.state === 'fail' && c.runId)?.runId
-  const log = runId
-    ? await window.piDesktop.pr.failedLog({ cwd, runId }).catch(() => '')
-    : ''
-  return fixChecksPrompt(pr, log)
-}
 
 function notify(chatId: string, title: string, body: string): void {
   if (useAppStore.getState().appSettings.notifications?.enabled === false || document.hasFocus()) {
@@ -53,44 +34,13 @@ export function PrChip({
   cwd: string
   refreshKey: unknown
 }) {
-  const [state, setState] = useState<{ cwd: string; status: PrStatus } | null>(null)
+  const { pr, summary } = usePrStatus(cwd, refreshKey)
   const [open, setOpen] = useState(false)
-  const [autoFix, setAutoFix] = useState(() => autoFixChats.has(chatId))
+  const autoFix = usePrMonitorStore((s) => s.autoFix[chatId] === true)
   const [busy, setBusy] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   // The last summary seen per head commit, to notice pending → done.
   const lastSeen = useRef<{ sha: string; summary: string } | null>(null)
-
-  const load = useCallback(() => {
-    void window.piDesktop.pr
-      .status({ cwd })
-      .then((status) => setState({ cwd, status }))
-      .catch(() => {})
-  }, [cwd])
-
-  useEffect(() => {
-    const timer = setTimeout(load, 0)
-    window.addEventListener('focus', load)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('focus', load)
-    }
-  }, [load, refreshKey])
-
-  const pr = state?.cwd === cwd ? state.status.pr : undefined
-  const summary = pr ? summarizeChecks(pr.checks) : 'none'
-
-  useEffect(() => {
-    if (summary !== 'pending') {
-      return
-    }
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        load()
-      }
-    }, PENDING_POLL_MS)
-    return () => clearInterval(timer)
-  }, [summary, load])
 
   // Checks finishing: tell the user, and fix a failure when asked to.
   useEffect(() => {
@@ -109,7 +59,7 @@ export function PrChip({
       )
     }
     const key = `${chatId}:${pr.headSha}`
-    if (summary === 'failing' && autoFixChats.has(chatId) && !autoFixed.has(key)) {
+    if (summary === 'failing' && autoFix && !autoFixed.has(key)) {
       const chat = useChatStore.getState().chats[chatId]
       if (chat && chat.status === 'idle' && !chat.bashRunning) {
         autoFixed.add(key)
@@ -246,12 +196,7 @@ export function PrChip({
                 type="checkbox"
                 checked={autoFix}
                 onChange={(e) => {
-                  if (e.target.checked) {
-                    autoFixChats.add(chatId)
-                  } else {
-                    autoFixChats.delete(chatId)
-                  }
-                  setAutoFix(e.target.checked)
+                  usePrMonitorStore.getState().setAutoFix(chatId, e.target.checked)
                   if (e.target.checked) {
                     toast('pi fixes failing checks while this chat is on screen')
                   }
@@ -272,6 +217,17 @@ export function PrChip({
                 <Wrench size={12} /> {busy ? 'Reading the log…' : 'Ask pi to fix'}
               </button>
             )}
+            <button
+              type="button"
+              className="ui-btn"
+              data-testid="pr-open-panel"
+              onClick={() => {
+                setOpen(false)
+                usePanelStore.getState().openPr()
+              }}
+            >
+              <PanelRight size={12} /> Open in panel
+            </button>
             {pr.url && (
               <button
                 type="button"
