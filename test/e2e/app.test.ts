@@ -1307,6 +1307,31 @@ describe('Pi Desktop e2e', () => {
     await composer.fill('')
   })
 
+  it('opens the pull request in the side panel with its checks and a failed log', async () => {
+    await page.locator('[data-testid="pr-chip"]').click()
+    await page.locator('[data-testid="pr-open-panel"]').click()
+    await visible(page, '.panel-tab-content.is-active [data-testid="pr-panel"]')
+    const panel = page.locator('.panel-tab-content.is-active [data-testid="pr-panel"]')
+    await expect
+      .poll(() => panel.locator('.diff-summary').textContent(), { timeout: 10_000 })
+      .toBe('#42 · 1 failing')
+    expect(await panel.locator('.pr-panel-title').textContent()).toBe('Synthetic pull request')
+    expect(await panel.locator('.pr-panel-check').count()).toBe(2)
+    // Only the failed Actions job offers its log.
+    expect(await panel.locator('.pr-panel-check .diff-action').count()).toBe(1)
+    await panel.locator('.pr-panel-check .diff-action').click()
+    await expect
+      .poll(() => panel.locator('.pr-panel-log').textContent(), { timeout: 10_000 })
+      .toContain('AssertionError: expected 1 to be 2')
+    await page.screenshot({ path: join(SHOTS, 'panel-pull-request.png') })
+    await panel.locator('[data-testid="pr-panel-fix"]').click()
+    const composer = page.locator('.composer-input')
+    await expect
+      .poll(() => composer.inputValue(), { timeout: 10_000 })
+      .toContain('CI is failing on pull request #42')
+    await composer.fill('')
+  })
+
   it('creates an automation and runs it as a background chat', async () => {
     await page.keyboard.press('Meta+k')
     await page.keyboard.type('Automations')

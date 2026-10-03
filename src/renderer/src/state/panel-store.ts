@@ -6,6 +6,7 @@ import { toast } from './toast-store'
 export const PANEL_MIN_WIDTH = 320
 const PANEL_MAX_RATIO = 0.7
 const DIFF_TAB_ID = 'diff'
+const PR_TAB_ID = 'pr'
 
 export interface TerminalTabSpec {
   cwd: string
@@ -37,6 +38,7 @@ export type PanelTab =
       agentChatId?: string
     }
   | { id: string; kind: 'diff' }
+  | { id: string; kind: 'pr' }
   | { id: string; kind: 'file'; title: string; cwd: string; path: string }
   | { id: string; kind: 'newtab' }
 
@@ -68,6 +70,8 @@ interface PanelState {
   focusAgentTab(id: string, chatId: string): void
   /** Focus the one diff tab, creating it if needed. */
   openDiff(): void
+  /** Focus the one pull request tab, creating it if needed. */
+  openPr(): void
   /** Show a project file in a viewer tab (one tab per file). */
   openFile(cwd: string, path: string): void
   /** Focus an existing terminal tab or create a fresh shell terminal. */
@@ -271,6 +275,21 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       open: true,
       tabs: [...s.tabs, { id: DIFF_TAB_ID, kind: 'diff' }],
       activeTabId: DIFF_TAB_ID
+    }))
+  },
+
+  openPr() {
+    if (!get().open) {
+      beginAnimation(set)
+    }
+    if (get().tabs.some((t) => t.id === PR_TAB_ID)) {
+      set({ open: true, activeTabId: PR_TAB_ID })
+      return
+    }
+    set((s) => ({
+      open: true,
+      tabs: [...s.tabs, { id: PR_TAB_ID, kind: 'pr' }],
+      activeTabId: PR_TAB_ID
     }))
   },
 

@@ -48,7 +48,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   each project gets its own pixel sigil so it is recognizable in every
   list; project-less chats run in an app-owned scratch workspace.
 - **Side panel** — browser tabs, a real terminal (`node-pty` + xterm), a
-  live git diff view for the chat's project and a read-only file viewer
+  live git diff view for the chat's project, its pull request and a
+  read-only file viewer
   (open a file from any read / edit / write step or from the diff). ⌘⌥B
   toggles the panel, ⌃\` a terminal, ⌘L the address bar.
 - **Review and ship from the diff** — comment on any diff line and hand the
@@ -65,6 +66,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   header shows its number and check state (via the GitHub CLI, `gh`). The
   popover lists the checks, drafts a fix prompt with the failed job's log,
   and can hand failures to pi automatically while the chat is on screen.
+  "Open in panel" (or the panel's new-tab page, or ⌘K) keeps the same view
+  in a side-panel tab, where a failed job also unfolds the end of its log.
 - **Usage** — Settings → Usage shows the last 30 days of tokens and cost by
   day, model and project, read from the usage pi records in each session.
 - **Agent browser** — pi can drive the in-app browser itself through an

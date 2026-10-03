@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Bot,
   FileDiff,
+  GitPullRequest,
   Globe,
   RotateCw,
   TerminalSquare,
@@ -143,11 +144,13 @@ export function NewTabPage({
   onNavigate,
   onTerminal,
   onDiff,
+  onPr,
   cwd
 }: {
   onNavigate(url: string): void
   onTerminal(): void
   onDiff(): void
+  onPr(): void
   cwd: string
 }) {
   const [address, setAddress] = useState('')
@@ -245,6 +248,10 @@ export function NewTabPage({
                 {diffFiles} file{diffFiles === 1 ? '' : 's'} changed
               </span>
             )}
+          </button>
+          <button type="button" className="newtab-row" onClick={onPr}>
+            <GitPullRequest size={13} className="newtab-row-icon" />
+            <span className="newtab-row-name">Pull request</span>
           </button>
         </section>
 
