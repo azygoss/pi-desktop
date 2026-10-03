@@ -31,37 +31,6 @@
   text-wrap: balance;
 }
 
-/* Keyboard hints under the composer: mono keycaps, quiet. */
-.home-hints {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.home-hints span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.home-hints kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border: 1px solid var(--border-strong);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1;
-  color: var(--text-2);
-  background: var(--surface);
-}
-
 /* Recent chats: a ledger of the last few sessions across projects. */
 .home-recent {
   display: flex;

@@ -164,20 +164,6 @@ export function HomeView() {
                 navigate({ kind: 'chat', chatId: draftId })
               }}
             />
-            <div className="home-hints" aria-hidden="true">
-              <span>
-                <kbd>/</kbd> commands
-              </span>
-              <span>
-                <kbd>@</kbd> files
-              </span>
-              <span>
-                <kbd>⌘K</kbd> palette
-              </span>
-              <span>
-                <kbd>⌃`</kbd> terminal
-              </span>
-            </div>
             <WelcomeChecklist modelCount={chat?.models.length ?? 0} />
             <ActiveChats />
             <RecentChats />
