@@ -1,3 +1,5 @@
+import type { DiffFile } from '../../../shared/diff-parse'
+
 /** A note left on one line of the working-tree diff. */
 export interface ReviewComment {
   id: string
@@ -7,6 +9,36 @@ export interface ReviewComment {
   /** The line the comment is about, as shown in the diff. */
   lineText: string
   text: string
+  /** Set on remarks pi left in a review pass; yours have none. */
+  author?: 'pi'
+}
+
+/**
+ * Where a remark about `line` of the new file belongs in a parsed diff
+ * file: the `hunk:line` key of that line, or of the file's first line when
+ * the diff does not show it.
+ */
+export function anchorForLine(
+  file: DiffFile,
+  line: number | undefined
+): { key: string; line?: number; lineText: string; exact: boolean } | null {
+  let first: { key: string; line?: number; lineText: string; exact: boolean } | null = null
+  for (let i = 0; i < file.hunks.length; i++) {
+    const hunk = file.hunks[i]!
+    for (let j = 0; j < hunk.lines.length; j++) {
+      const diffLine = hunk.lines[j]!
+      const here = {
+        key: `${i}:${j}`,
+        line: diffLine.newNo ?? diffLine.oldNo,
+        lineText: diffLine.text
+      }
+      if (line !== undefined && diffLine.newNo === line) {
+        return { ...here, exact: true }
+      }
+      first ??= { ...here, exact: false }
+    }
+  }
+  return first
 }
 
 const MAX_QUOTED = 120

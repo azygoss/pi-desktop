@@ -34,6 +34,8 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
   bridge (`src/main/bridge/`) with a per-chat token
 - `resources/cua-helper/`, `resources/dictation-helper/` - Swift helpers (computer use,
   speech dictation), JSONL over stdio; build with `pnpm build:cua`
+- `src/main/chat/side-service.ts` - short-lived pi processes beside a chat: side chats
+  (pi on a scratch copy of the session, removed on close) and one-shot asks (the review)
 - `src/main/automations/` - scheduled prompts: a JSON store in userData and one timer aimed
   at the next due run; the renderer starts each run as a background chat
 - `scripts/` - helper build scripts and the `energy.mjs` / `perf.mjs` harnesses
@@ -93,7 +95,9 @@ Runtime rules for the app itself:
 - Destructive actions (deleting sessions, discarding an untracked file from the diff
   panel) go to the OS trash, never `rm`, and require user confirmation.
 - Git actions the renderer can trigger (`src/main/git/`) take a validated cwd and
-  repo-relative paths only, and run `git` through `execFile` — never a shell. The file
+  repo-relative paths only, and run `git` through `execFile` — never a shell. Checkpoints
+  are bare tree objects built through a scratch index: they never touch the user's index,
+  HEAD or refs. The file
   viewer reads only inside the chat's project folder and never inside the pi agent dir.
 
 ## Pi RPC notes

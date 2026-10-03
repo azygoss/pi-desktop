@@ -53,8 +53,16 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   (open a file from any read / edit / write step or from the diff). ⌘⌥B
   toggles the panel, ⌃\` a terminal, ⌘L the address bar.
 - **Review and ship from the diff** — comment on any diff line and hand the
-  comments to pi as one prompt; discard a file's changes (untracked files go
-  to the Trash); commit everything and push without leaving the app.
+  comments to pi as one prompt; "Review" has pi read the changes in a
+  separate process and pin its remarks to the lines; discard a file's
+  changes (untracked files go to the Trash); commit everything and push
+  without leaving the app.
+- **Checkpoints** — in a git project the files are snapshotted before every
+  prompt. Hover a prompt and restore the files to how they were before it;
+  the restore itself can be undone. Nothing is committed or staged, and
+  files created since go to the Trash.
+- **Side chat** — ⌘; or `/btw` asks a question with the chat's context in a
+  side-panel tab. Nothing asked there is added to the chat.
 - **Worktrees** — "New Chat in a Worktree" (project menu or ⌘K) gives a chat
   its own git worktree on a fresh `pi/…` branch, so several chats can change
   the same project in parallel without touching each other's files.

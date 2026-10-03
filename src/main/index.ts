@@ -22,6 +22,7 @@ import { AutomationScheduler } from './automations/scheduler'
 import { listAutomations, markAutomationRun } from './automations/automation-store'
 import type { Automation } from '../shared/automations'
 import { ChatService } from './chat/chat-service'
+import { SideChatService } from './chat/side-service'
 import { installAppMenu } from './menu'
 import { PiProcessPool } from './pi/pool'
 import { PtyManager } from './terminal/pty-manager'
@@ -51,6 +52,7 @@ const chat = new ChatService(pool, broadcastAll, {
   computerToolsEnabled: () =>
     cua.available() && (getCachedAppSettings()?.computerUse.enabled ?? true)
 })
+const side = new SideChatService(pool, broadcastAll)
 const computerTools = new ComputerToolBridge(cua, {
   isEnabled: async () => (await loadAppSettings()).computerUse.enabled
 })
@@ -283,9 +285,10 @@ app.whenReady().then(async () => {
     cua,
     dictation,
     updates,
+    side,
     automations: { refresh: () => automations.refresh(), trigger: triggerAutomation }
   })
-  wireAppLifecycle({ pool, chat, pty, browser, bridge, cua, dictation })
+  wireAppLifecycle({ pool, chat, pty, browser, bridge, cua, dictation, side })
   installAppMenu(isDev)
   const win = createWindow()
 

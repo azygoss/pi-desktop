@@ -2,7 +2,7 @@ import { isAbsolute, joinPath } from './paths'
 import type { ChatState } from '../state/chat-store'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
-import { openInBrowser, openPiTerminal } from '../state/panel-store'
+import { openInBrowser, openPiTerminal, usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
 
 export type ChatModal = 'session' | 'tree' | 'fork' | 'hotkeys'
@@ -130,6 +130,11 @@ export async function executeAppCommand(
     case 'clone':
       if (chat) {
         void chats.cloneChat(chat.chatId).catch(() => toast('Clone failed'))
+      }
+      break
+    case 'btw':
+      if (chat) {
+        usePanelStore.getState().openSide(chat.chatId, args)
       }
       break
     case 'compact':

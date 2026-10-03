@@ -80,7 +80,8 @@ const api: PiDesktopApi = {
     summary: (input) => ipcRenderer.invoke('pi-desktop:diff:summary', input),
     discard: (input) => ipcRenderer.invoke('pi-desktop:diff:discard', input),
     commit: (input) => ipcRenderer.invoke('pi-desktop:diff:commit', input),
-    push: (input) => ipcRenderer.invoke('pi-desktop:diff:push', input)
+    push: (input) => ipcRenderer.invoke('pi-desktop:diff:push', input),
+    review: (input) => ipcRenderer.invoke('pi-desktop:diff:review', input)
   },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
@@ -139,6 +140,18 @@ const api: PiDesktopApi = {
     onUiRequest: subscribe('pi-desktop:chat:ui-request'),
     onExit: subscribe('pi-desktop:chat:exit'),
     onStartupHint: subscribe('pi-desktop:chat:hint')
+  },
+  checkpoints: {
+    create: (input) => ipcRenderer.invoke('pi-desktop:checkpoints:create', input),
+    restore: (input) => ipcRenderer.invoke('pi-desktop:checkpoints:restore', input)
+  },
+  side: {
+    open: (input) => ipcRenderer.invoke('pi-desktop:side:open', input),
+    send: (input) => ipcRenderer.invoke('pi-desktop:side:send', input),
+    abort: (input) => ipcRenderer.invoke('pi-desktop:side:abort', input),
+    close: (input) => ipcRenderer.invoke('pi-desktop:side:close', input),
+    onEvent: subscribe('pi-desktop:side:event'),
+    onExit: subscribe('pi-desktop:side:exit')
   },
   automations: {
     list: () => ipcRenderer.invoke('pi-desktop:automations:list'),

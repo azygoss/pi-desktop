@@ -4,6 +4,7 @@ import {
   FileText,
   GitPullRequest,
   Globe,
+  MessageCircleQuestion,
   Plus,
   TerminalSquare,
   X
@@ -18,6 +19,7 @@ import { BrowserTab, NewTabPage } from './BrowserTab'
 import { DiffPanel } from './DiffPanel'
 import { FileView } from './FileView'
 import { PrPanel } from './PrPanel'
+import { SidePanel } from './SidePanel'
 import { LiveDot } from './LiveIndicators'
 import { TerminalView } from './TerminalView'
 
@@ -39,6 +41,8 @@ function tabIcon(tab: PanelTab): ReactNode {
       return <FileDiff size={13} />
     case 'pr':
       return <GitPullRequest size={13} />
+    case 'side':
+      return <MessageCircleQuestion size={13} />
     case 'file':
       return <FileText size={13} />
     case 'newtab':
@@ -58,6 +62,8 @@ function tabTitle(tab: PanelTab): string {
       return 'Diff'
     case 'pr':
       return 'Pull request'
+    case 'side':
+      return 'Side chat'
     case 'newtab':
       return 'New Tab'
     default:
@@ -264,6 +270,9 @@ export function RightPanel({ closing }: { closing?: boolean }) {
             )}
             {tab.kind === 'diff' && <DiffPanel active={open && tab.id === activeTabId} />}
             {tab.kind === 'pr' && <PrPanel active={open && tab.id === activeTabId} />}
+            {tab.kind === 'side' && (
+              <SidePanel key={tab.sideId} chatId={tab.chatId} sideId={tab.sideId} />
+            )}
             {tab.kind === 'file' && (
               <FileView cwd={tab.cwd} path={tab.path} active={open && tab.id === activeTabId} />
             )}

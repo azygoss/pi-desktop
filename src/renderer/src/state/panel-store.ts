@@ -7,6 +7,7 @@ export const PANEL_MIN_WIDTH = 320
 const PANEL_MAX_RATIO = 0.7
 const DIFF_TAB_ID = 'diff'
 const PR_TAB_ID = 'pr'
+let sideSeedCounter = 0
 
 export interface TerminalTabSpec {
   cwd: string
@@ -39,6 +40,7 @@ export type PanelTab =
     }
   | { id: string; kind: 'diff' }
   | { id: string; kind: 'pr' }
+  | { id: string; kind: 'side'; chatId: string; sideId: string }
   | { id: string; kind: 'file'; title: string; cwd: string; path: string }
   | { id: string; kind: 'newtab' }
 
@@ -70,6 +72,12 @@ interface PanelState {
   focusAgentTab(id: string, chatId: string): void
   /** Focus the one diff tab, creating it if needed. */
   openDiff(): void
+  /** A question for a side chat to ask as soon as it is shown. */
+  sideSeed: { sideId: string; text: string; nonce: number } | null
+  /** Open (or focus) the chat's side chat, optionally asking `question`. */
+  openSide(chatId: string, question?: string): void
+  /** Close the chat's side chat and open a fresh one on the chat as it is now. */
+  restartSide(chatId: string): void
   /** Focus the one pull request tab, creating it if needed. */
   openPr(): void
   /** Show a project file in a viewer tab (one tab per file). */
@@ -275,6 +283,41 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       open: true,
       tabs: [...s.tabs, { id: DIFF_TAB_ID, kind: 'diff' }],
       activeTabId: DIFF_TAB_ID
+    }))
+  },
+
+  sideSeed: null,
+
+  openSide(chatId, question) {
+    if (!get().open) {
+      beginAnimation(set)
+    }
+    const existing = get().tabs.find((t) => t.kind === 'side' && t.chatId === chatId)
+    const sideId = existing?.kind === 'side' ? existing.sideId : `s-${crypto.randomUUID()}`
+    const sideSeed = { sideId, text: question?.trim() ?? '', nonce: ++sideSeedCounter }
+    if (existing) {
+      set({ open: true, activeTabId: existing.id, sideSeed })
+      return
+    }
+    const id = `side-${chatId}`
+    set((s) => ({
+      open: true,
+      tabs: [...s.tabs, { id, kind: 'side', chatId, sideId }],
+      activeTabId: id,
+      sideSeed
+    }))
+  },
+
+  restartSide(chatId) {
+    const existing = get().tabs.find((t) => t.kind === 'side' && t.chatId === chatId)
+    if (!existing) {
+      return
+    }
+    // A new sideId remounts the panel: the old pi is closed, a new one starts.
+    const sideId = `s-${crypto.randomUUID()}`
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === existing.id ? { ...t, sideId } : t)),
+      sideSeed: { sideId, text: '', nonce: ++sideSeedCounter }
     }))
   },
 

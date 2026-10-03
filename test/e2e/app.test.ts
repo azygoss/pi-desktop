@@ -3,7 +3,7 @@
 // fixture and a synthetic PI_CODING_AGENT_DIR. No real pi processes or real
 // user data are involved.
 
-import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -211,6 +211,7 @@ describe('Pi Desktop e2e', () => {
         PI_DESKTOP_GH_COMMAND: FAKE_GH,
         PI_DESKTOP_CUA_HELPER: cuaHelper,
         PI_DESKTOP_E2E: '1',
+        PI_DESKTOP_CONFIRM_CHOICE: '0',
         PI_CODING_AGENT_DIR: agentDir,
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, 'sessions'),
         PI_DESKTOP_PICK_FILES: join(repoDir, 'attach me.txt'),
@@ -1330,6 +1331,68 @@ describe('Pi Desktop e2e', () => {
       .poll(() => composer.inputValue(), { timeout: 10_000 })
       .toContain('CI is failing on pull request #42')
     await composer.fill('')
+  })
+
+  it('restores the files to the checkpoint taken before a prompt', async () => {
+    const composer = page.locator('.composer-input')
+    await composer.fill('explain the notes')
+    await page.keyboard.press('Enter')
+    await waitForSettled()
+    const row = page.locator('.msg-user-row', { hasText: 'explain the notes' }).last()
+    await expect
+      .poll(() => row.locator('[data-testid="restore-checkpoint"]').count(), { timeout: 10_000 })
+      .toBe(1)
+    // Something changes the file after the prompt…
+    const notes = join(repoDir, 'notes.txt')
+    const before = await readFile(notes, 'utf8')
+    await writeFile(notes, 'overwritten after the prompt\n')
+    // …and the checkpoint puts it back (the confirm dialog is stubbed to "Restore").
+    await row.hover()
+    await row.locator('[data-testid="restore-checkpoint"]').click()
+    await expect.poll(() => readFile(notes, 'utf8'), { timeout: 10_000 }).toBe(before)
+    await visible(page, '.toast')
+    expect(await page.locator('.toast').last().textContent()).toContain('1 file restored')
+  })
+
+  it('has pi review the diff and pins its remarks to the lines', async () => {
+    await page.locator('.panel-tab', { hasText: 'Diff' }).click()
+    const panel = page.locator('.panel-tab-content.is-active')
+    await visible(page, '.panel-tab-content.is-active [data-testid="review-diff"]', 10_000)
+    await panel.locator('[data-testid="review-diff"]').click()
+    await visible(page, '.panel-tab-content.is-active .diff-comment-pi', 30_000)
+    const remark = panel.locator('.diff-comment-pi').first()
+    expect(await remark.textContent()).toContain('Synthetic review remark.')
+    // pi's remarks travel with yours when they are sent to the composer.
+    await panel.locator('[data-testid="send-comments"]').click()
+    const composer = page.locator('.composer-input')
+    await expect
+      .poll(() => composer.inputValue(), { timeout: 5000 })
+      .toContain('Synthetic review remark.')
+    expect(await composer.inputValue()).toContain('`notes.txt:1`')
+    await composer.fill('')
+  })
+
+  it('answers a side question without adding to the chat', async () => {
+    const rowsBefore = await page.locator('.msg-user-row').count()
+    await page.locator('.composer-input').focus()
+    await page.keyboard.press('Meta+;')
+    await visible(page, '.panel-tab-content.is-active [data-testid="side-panel"]')
+    const side = page.locator('.panel-tab-content.is-active [data-testid="side-panel"]')
+    await side.locator('.side-input').fill('side question: what changed?')
+    await side.locator('.side-input').press('Enter')
+    await expect
+      .poll(() => side.locator('.side-answer').allTextContents(), { timeout: 30_000 })
+      .toContain('Synthetic side answer.')
+    expect(await side.locator('.side-question').textContent()).toBe('side question: what changed?')
+    // The main chat got nothing.
+    expect(await page.locator('.msg-user-row').count()).toBe(rowsBefore)
+    // /btw asks through the same side chat.
+    await page.locator('.composer-input').fill('/btw side question again')
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(() => side.locator('.side-question').count(), { timeout: 30_000 })
+      .toBe(2)
+    expect(await page.locator('.msg-user-row').count()).toBe(rowsBefore)
   })
 
   it('creates an automation and runs it as a background chat', async () => {
