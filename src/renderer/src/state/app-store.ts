@@ -64,6 +64,8 @@ interface AppState {
   updateInfo: UpdateInfo | null
   /** Slash-command modal open over the current chat (/session, /tree, …). */
   chatModal: 'session' | 'tree' | 'fork' | 'hotkeys' | null
+  /** Image shown in the full-window viewer (a data: URL), or null. */
+  lightbox: string | null
 
   init(): Promise<void>
   refreshSessions(): Promise<void>
@@ -85,6 +87,7 @@ interface AppState {
   openSettings(section?: SettingsSection): void
   closeSettings(): void
   setChatModal(modal: AppState['chatModal']): void
+  setLightbox(src: string | null): void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -110,6 +113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsSection: 'general',
   updateInfo: null,
   chatModal: null,
+  lightbox: null,
 
   async init() {
     try {
@@ -323,6 +327,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setChatModal(modal) {
     set({ chatModal: modal })
+  },
+
+  setLightbox(src) {
+    set({ lightbox: src })
   }
 }))
 

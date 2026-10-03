@@ -53,6 +53,8 @@ export type DisplayMessage =
       timestamp?: number
       /** pi's model id that produced this message (persisted sessions). */
       model?: string
+      /** Tokens and cost of the request that produced this message. */
+      usage?: { input: number; output: number; cost: number }
     }
   | {
       kind: 'bash'
@@ -65,7 +67,15 @@ export type DisplayMessage =
       running?: boolean
       timestamp?: number
     }
-  | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error'; timestamp?: number }
+  | {
+      kind: 'notice'
+      key: string
+      text: string
+      tone: 'info' | 'error'
+      /** Longer text behind the notice (a compaction summary). */
+      detail?: string
+      timestamp?: number
+    }
 
 export interface ToolRun {
   toolCallId: string
@@ -167,7 +177,19 @@ export function mapAgentMessage(message: AgentMessage, key?: string): DisplayMes
         stopReason: message.stopReason,
         errorMessage: message.errorMessage,
         timestamp: message.timestamp,
-        model: message.model
+        model: message.model,
+        ...(message.usage
+          ? {
+              usage: {
+                input:
+                  (message.usage.input ?? 0) +
+                  (message.usage.cacheRead ?? 0) +
+                  (message.usage.cacheWrite ?? 0),
+                output: message.usage.output ?? 0,
+                cost: message.usage.cost?.total ?? 0
+              }
+            }
+          : {})
       }
     case 'bashExecution':
       return {
@@ -182,7 +204,13 @@ export function mapAgentMessage(message: AgentMessage, key?: string): DisplayMes
     case 'toolResult':
       return null
     case 'compactionSummary':
-      return { kind: 'notice', key: k, text: 'Context compacted', tone: 'info' }
+      return {
+        kind: 'notice',
+        key: k,
+        text: compactedLabel(message.tokensBefore),
+        tone: 'info',
+        ...(message.summary ? { detail: message.summary } : {})
+      }
     case 'branchSummary':
       return { kind: 'notice', key: k, text: 'Branched with summary', tone: 'info' }
     case 'custom':
@@ -400,6 +428,20 @@ function pushDeduped(state: ChatViewState, display: DisplayMessage): void {
   state.messages.push(display)
 }
 
+function compactTokens(n: number): string {
+  return n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`
+}
+
+/** "Context compacted · 150k → 32k tokens" (sizes when pi reported them). */
+function compactedLabel(before?: number, after?: number): string {
+  if (typeof before !== 'number' || before <= 0) {
+    return 'Context compacted'
+  }
+  return typeof after === 'number' && after > 0
+    ? `Context compacted · ${compactTokens(before)} → ${compactTokens(after)} tokens`
+    : `Context compacted · was ${compactTokens(before)} tokens`
+}
+
 /** A delivered user message leaves the queue strip (first match only). */
 function dequeue(state: ChatViewState, text: string): void {
   const queue = state.queue
@@ -573,14 +615,22 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
       return false
 
     case 'compaction_end':
+      if (!event.aborted && event.result) {
+        state.messages.push({
+          kind: 'notice',
+          key: nextKey('notice'),
+          text: compactedLabel(event.result.tokensBefore, event.result.estimatedTokensAfter),
+          tone: 'info',
+          ...(event.result.summary ? { detail: event.result.summary } : {})
+        })
+        return true
+      }
       pushNotice(
         state,
         event.aborted
           ? 'Compaction aborted'
-          : event.result
-            ? 'Context compacted'
-            : `Compaction failed${event.errorMessage ? `: ${event.errorMessage}` : ''}`,
-        event.aborted || event.result ? 'info' : 'error'
+          : `Compaction failed${event.errorMessage ? `: ${event.errorMessage}` : ''}`,
+        event.aborted ? 'info' : 'error'
       )
       return false
 

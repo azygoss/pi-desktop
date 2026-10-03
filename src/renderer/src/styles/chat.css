@@ -1069,8 +1069,7 @@
   color: var(--success);
 }
 .tool-args,
-.tool-output,
-.tool-diff pre {
+.tool-output {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -1097,21 +1096,47 @@
   color: var(--danger);
 }
 .tool-diff {
-  display: flex;
-  flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 7px;
-  overflow: hidden;
+  background: var(--code-bg);
+  padding: 4px 0;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
 }
-.diff-old {
+.diff-line {
+  display: flex;
+  min-width: max-content;
+  padding: 0 10px 0 0;
+  color: var(--text-2);
+  white-space: pre;
+}
+.diff-sign {
+  flex: 0 0 22px;
+  text-align: center;
+  user-select: none;
+  color: var(--muted);
+}
+.diff-removed {
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: var(--text);
+}
+.diff-removed .diff-sign {
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--code-bg));
-  padding: 6px 10px;
 }
-.diff-new {
+.diff-added {
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+  color: var(--text);
+}
+.diff-added .diff-sign {
   color: var(--success);
-  background: color-mix(in srgb, var(--success) 8%, var(--code-bg));
-  padding: 6px 10px;
+}
+.diff-gap {
+  justify-content: center;
+  color: var(--faint);
+  user-select: none;
 }
 .tool-show-all {
   align-self: flex-start;
@@ -1450,4 +1475,82 @@ html[data-live-tick='1'] .cua-strip-dot:not(.is-paused) {
 /* Running step tiles dim on the same tick, less deeply than a dot. */
 html[data-live-tick='1'] .step-running {
   opacity: 0.6;
+}
+
+/* Images open in the lightbox. */
+.msg-image {
+  cursor: zoom-in;
+}
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: color-mix(in srgb, #000 78%, transparent);
+  cursor: zoom-out;
+  animation: fade-in 120ms ease-out;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+.lightbox-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: #fff;
+}
+
+/* A notice that unfolds a detail (compaction summary). */
+.msg-notice-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg-notice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.msg-notice-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+.msg-notice-chevron {
+  transition: transform 120ms ease;
+}
+.msg-notice-chevron.is-open {
+  transform: rotate(90deg);
+}
+.msg-notice-detail {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lightbox,
+  .msg-notice-chevron {
+    animation: none;
+    transition: none;
+  }
 }
