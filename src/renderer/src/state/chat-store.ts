@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { useAppStore } from './app-store'
+import { toast } from './toast-store'
+import { dropComposerDraft } from '../lib/composer-drafts'
 import { titleFromUserText } from '../../../shared/skill-prefix'
 import type {
   ChatOpenResult,
@@ -62,6 +64,8 @@ export interface ChatState extends ChatViewState {
   cuaPaused?: boolean
   /** computerUse.enabled changed while open — restart pi on next send. */
   cuaNeedsReload?: boolean
+  /** A `!command` is running in this chat's pi. */
+  bashRunning?: boolean
 }
 
 interface ChatStoreState {
@@ -71,6 +75,11 @@ interface ChatStoreState {
   ensureChat(chatId: string, input: { cwd?: string; sessionPath?: string }): Promise<void>
   send(chatId: string, message: string, images: ImageContent[] | undefined, mode: ChatSendMode): Promise<void>
   abort(chatId: string): Promise<void>
+  /** Run a `!command` in pi's shell; its output joins the next prompt. */
+  runBash(chatId: string, command: string): Promise<void>
+  abortBash(chatId: string): Promise<void>
+  /** Drop pi's queued messages and hand their text back to the composer. */
+  clearQueue(chatId: string): Promise<void>
   setModel(chatId: string, provider: string, modelId: string): Promise<void>
   setThinkingLevel(chatId: string, level: ThinkingLevel): Promise<void>
   setCwd(chatId: string, cwd: string): Promise<void>
@@ -713,6 +722,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         throw new Error('Chat is not open')
       }
     }
+    // A message sent mid-run waits in pi's queue: it shows in the queue strip
+    // above the composer and joins the transcript when pi delivers it (the
+    // user-message echo), not before. queue_update replaces this guess.
+    const queued = draft.status === 'streaming' && (mode === 'steer' || mode === 'followUp')
+    if (queued) {
+      const queue = draft.queue ?? { steering: [], followUp: [] }
+      draft.queue =
+        mode === 'steer'
+          ? { ...queue, steering: [...queue.steering, message] }
+          : { ...queue, followUp: [...queue.followUp, message] }
+      publish(chatId)
+      try {
+        await window.piDesktop.chat.send({ chatId, message, images, mode })
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not queue the message')
+        throw error
+      }
+      return
+    }
     const display: DisplayMessage = {
       kind: 'user',
       key: `local-${++optimisticCounter}`,
@@ -753,6 +781,76 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       publish(chatId)
     }
     await window.piDesktop.chat.abort({ chatId })
+  },
+
+  async runBash(chatId, command) {
+    const draft = drafts.get(chatId)
+    if (!draft || draft.bashRunning) {
+      return
+    }
+    const key = `local-bash-${++optimisticCounter}`
+    draft.messages.push({
+      kind: 'bash',
+      key,
+      command,
+      output: '',
+      running: true,
+      timestamp: Date.now()
+    })
+    draft.bashRunning = true
+    publish(chatId)
+    const settle = (patch: Partial<Extract<DisplayMessage, { kind: 'bash' }>>): void => {
+      const current = drafts.get(chatId)
+      if (!current) {
+        return
+      }
+      current.bashRunning = false
+      const index = current.messages.findIndex((m) => m.key === key)
+      const row = current.messages[index]
+      if (row?.kind === 'bash') {
+        current.messages[index] = { ...row, ...patch, running: false }
+      }
+      publish(chatId)
+    }
+    try {
+      const result = await window.piDesktop.chat.bash({ chatId, command })
+      settle({
+        output: result.output,
+        exitCode: result.exitCode,
+        cancelled: result.cancelled
+      })
+    } catch (error) {
+      settle({
+        output: error instanceof Error ? error.message : String(error),
+        exitCode: 1
+      })
+    }
+  },
+
+  async abortBash(chatId) {
+    await window.piDesktop.chat.abortBash({ chatId }).catch(() => {})
+  },
+
+  async clearQueue(chatId) {
+    const draft = drafts.get(chatId)
+    if (!draft) {
+      return
+    }
+    const local = draft.queue
+    const result = await window.piDesktop.chat.clearQueue({ chatId }).catch(() => null)
+    const current = drafts.get(chatId)
+    if (!current) {
+      return
+    }
+    delete current.queue
+    // Hand the text back for editing instead of dropping it on the floor.
+    const texts = result
+      ? [...result.steering, ...result.followUp]
+      : [...(local?.steering ?? []), ...(local?.followUp ?? [])]
+    if (texts.length > 0) {
+      current.composerSeed = { text: texts.join('\n\n'), nonce: ++seedCounter }
+    }
+    publish(chatId)
   },
 
   async setModel(chatId, provider, modelId) {
@@ -836,6 +934,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   async closeChat(chatId) {
     clearCuaTail(chatId)
     drafts.delete(chatId)
+    dropComposerDraft(chatId)
     pendingEvents.delete(chatId)
     set((s) => {
       const chats = { ...s.chats }

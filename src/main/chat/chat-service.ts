@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type {
+  ChatBashResult,
   ChatExitPayload,
   ChatOpenInput,
   ChatOpenResult,
@@ -104,6 +105,8 @@ interface ChatRecord {
   focused: boolean
   /** A pending extension UI request keeps the process alive. */
   pendingUi: boolean
+  /** A `!command` is running — the process must not be evicted under it. */
+  bashRunning: boolean
   /** attachClient listener refs, removed when the process is parked as a spare. */
   listeners: {
     event: (event: PiEvent) => void
@@ -144,6 +147,8 @@ const MAX_WARM_SPARES = 2
 const SPARE_TTL_MS = 5 * 60 * 1000
 /** A spare that cannot load a session this fast is replaced by a spawn. */
 const SWITCH_SESSION_TIMEOUT_MS = 15_000
+/** `!command` runs are bounded by the user (abort), not by the client. */
+const BASH_TIMEOUT_MS = 24 * 60 * 60 * 1000
 
 /**
  * Translate a pi stderr line into a user-facing startup hint. Covers the
@@ -559,6 +564,7 @@ export class ChatService {
           lastViewedAt: Date.now(),
           focused: false,
           pendingUi: false,
+          bashRunning: false,
           listeners: {
             event: () => {},
             uiRequest: () => {},
@@ -676,6 +682,51 @@ export class ChatService {
   async abort(input: { chatId: string }): Promise<void> {
     const record = await this.requireReady(validateChatId(input.chatId))
     await record.client.request({ type: 'abort' }, { timeoutMs: 15000 })
+  }
+
+  /**
+   * Run a shell command through pi's `bash` RPC (the composer's `!command`).
+   * pi records the result as a BashExecutionMessage, so it reaches the model
+   * with the next prompt. Commands can run long: no client-side timeout.
+   */
+  async bash(input: { chatId: string; command: string }): Promise<ChatBashResult> {
+    const record = await this.requireReady(validateChatId(input.chatId))
+    const command = requireString(input.command, 'command', 16_384)
+    record.prompted = true
+    record.bashRunning = true
+    let result: Partial<ChatBashResult> | undefined
+    try {
+      result = await record.client.request<Partial<ChatBashResult>>(
+        { type: 'bash', command },
+        { timeoutMs: BASH_TIMEOUT_MS }
+      )
+    } finally {
+      record.bashRunning = false
+    }
+    return {
+      output: typeof result?.output === 'string' ? result.output : '',
+      ...(typeof result?.exitCode === 'number' ? { exitCode: result.exitCode } : {}),
+      cancelled: result?.cancelled === true,
+      truncated: result?.truncated === true
+    }
+  }
+
+  async abortBash(input: { chatId: string }): Promise<void> {
+    const record = await this.requireReady(validateChatId(input.chatId))
+    await record.client.request({ type: 'abort_bash' }, { timeoutMs: 15000 })
+  }
+
+  /** Remove queued steering / follow-up messages and hand their text back. */
+  async clearQueue(input: {
+    chatId: string
+  }): Promise<{ steering: string[]; followUp: string[] }> {
+    const record = await this.requireReady(validateChatId(input.chatId))
+    const result = await record.client.request<{ steering?: unknown; followUp?: unknown }>({
+      type: 'clear_queue'
+    })
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+    return { steering: strings(result?.steering), followUp: strings(result?.followUp) }
   }
 
   async setModel(input: {
@@ -1003,7 +1054,8 @@ export class ChatService {
   async sweepEvictions(): Promise<void> {
     const now = Date.now()
     const idle = [...this.chats.values()].filter(
-      (record) => !record.streaming && !record.focused && !record.pendingUi
+      (record) =>
+        !record.streaming && !record.focused && !record.pendingUi && !record.bashRunning
     )
     const expired = idle.filter(
       (record) => now - record.lastViewedAt > this.eviction.idleEvictMs

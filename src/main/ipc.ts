@@ -74,6 +74,9 @@ export const IPC_CHANNELS = {
   chatOpen: 'pi-desktop:chat:open',
   chatSend: 'pi-desktop:chat:send',
   chatAbort: 'pi-desktop:chat:abort',
+  chatBash: 'pi-desktop:chat:bash',
+  chatAbortBash: 'pi-desktop:chat:abort-bash',
+  chatClearQueue: 'pi-desktop:chat:clear-queue',
   chatSetModel: 'pi-desktop:chat:set-model',
   chatSetThinkingLevel: 'pi-desktop:chat:set-thinking-level',
   chatGetStats: 'pi-desktop:chat:get-stats',
@@ -492,6 +495,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IPC_CHANNELS.chatSend, (_e, input: ChatSendInput) => deps.chat.send(input))
   ipcMain.handle(IPC_CHANNELS.chatAbort, (_e, input: { chatId: string }) =>
     deps.chat.abort(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatBash, (_e, input: { chatId: string; command: string }) =>
+    deps.chat.bash(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatAbortBash, (_e, input: { chatId: string }) =>
+    deps.chat.abortBash(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.chatClearQueue, (_e, input: { chatId: string }) =>
+    deps.chat.clearQueue(input)
   )
   ipcMain.handle(
     IPC_CHANNELS.chatSetModel,

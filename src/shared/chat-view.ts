@@ -61,6 +61,8 @@ export type DisplayMessage =
       output: string
       exitCode?: number
       cancelled?: boolean
+      /** A `!command` still running; output grows with bash_execution_update. */
+      running?: boolean
       timestamp?: number
     }
   | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error'; timestamp?: number }
@@ -86,6 +88,17 @@ export interface ChatViewState {
   toolRuns: Record<string, ToolRun>
   /** Wall-clock at agent_start of the current run; cleared when it settles. */
   runStartedAt?: number
+  /** Messages waiting in pi's steering / follow-up queues (queue_update). */
+  queue?: MessageQueue
+}
+
+export interface MessageQueue {
+  steering: string[]
+  followUp: string[]
+}
+
+export function queueLength(queue: MessageQueue | undefined): number {
+  return queue ? queue.steering.length + queue.followUp.length : 0
 }
 
 export function createChatViewState(): ChatViewState {
@@ -380,7 +393,31 @@ function pushDeduped(state: ChatViewState, display: DisplayMessage): void {
     state.messages[state.messages.length - 1] = { ...display, key: last.key }
     return
   }
+  if (display.kind === 'bash' && last?.kind === 'bash' && last.command === display.command) {
+    // pi's own record of a `!command` row the app is already showing.
+    return
+  }
   state.messages.push(display)
+}
+
+/** A delivered user message leaves the queue strip (first match only). */
+function dequeue(state: ChatViewState, text: string): void {
+  const queue = state.queue
+  if (!queue) {
+    return
+  }
+  const steerAt = queue.steering.indexOf(text)
+  const followAt = steerAt === -1 ? queue.followUp.indexOf(text) : -1
+  if (steerAt === -1 && followAt === -1) {
+    return
+  }
+  const steering = queue.steering.filter((_, i) => i !== steerAt)
+  const followUp = queue.followUp.filter((_, i) => i !== followAt)
+  if (steering.length === 0 && followUp.length === 0) {
+    delete state.queue
+  } else {
+    state.queue = { steering, followUp }
+  }
 }
 
 function pushNotice(state: ChatViewState, text: string, tone: 'info' | 'error' = 'info'): void {
@@ -415,6 +452,15 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
     case 'agent_settled':
       state.status = 'idle'
       delete state.runStartedAt
+      delete state.queue
+      return false
+
+    case 'queue_update':
+      if (event.steering.length === 0 && event.followUp.length === 0) {
+        delete state.queue
+      } else {
+        state.queue = { steering: [...event.steering], followUp: [...event.followUp] }
+      }
       return false
 
     case 'message_start': {
@@ -422,6 +468,9 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
       if (display) {
         if (display.kind === 'assistant') {
           display.streaming = true
+        }
+        if (display.kind === 'user') {
+          dequeue(state, display.text)
         }
         pushDeduped(state, display)
       }
@@ -445,6 +494,13 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         state.messages[state.messages.length - 1] = { ...display, key: last.key }
       } else if (display.kind === 'user' && last?.kind === 'user' && last.text === display.text) {
         // Echo of an optimistically appended user message: keep our key.
+        state.messages[state.messages.length - 1] = { ...display, key: last.key }
+      } else if (
+        display.kind === 'bash' &&
+        last?.kind === 'bash' &&
+        last.command === display.command
+      ) {
+        // pi's record of a `!command` the app already shows: keep our row.
         state.messages[state.messages.length - 1] = { ...display, key: last.key }
       } else {
         state.messages.push(display)
@@ -500,8 +556,17 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
       return false
     }
 
-    case 'bash_execution_update':
+    case 'bash_execution_update': {
+      // Live output of a `!command`: append to the running bash row.
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        const message = state.messages[i]!
+        if (message.kind === 'bash' && message.running) {
+          state.messages[i] = { ...message, output: message.output + event.delta }
+          break
+        }
+      }
       return false
+    }
 
     case 'compaction_start':
       pushNotice(state, 'Compacting context…')

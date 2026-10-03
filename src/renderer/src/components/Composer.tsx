@@ -40,6 +40,14 @@ import {
   slashQuery
 } from '../lib/slash-commands'
 import { warmProjectSoon } from '../lib/warm'
+import {
+  appliedSeedNonce,
+  getComposerDraft,
+  markSeedApplied,
+  saveComposerDraft,
+  type FileChip
+} from '../lib/composer-drafts'
+import { loadPromptHistory, recordPrompt, stepHistory } from '../lib/prompt-history'
 import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
@@ -53,13 +61,6 @@ const MAX_IMAGES = 8
 const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_MENTION_RESULTS = 50
-
-/** A non-image attachment — sent as an @path reference appended to the text. */
-interface FileChip {
-  path: string
-  name: string
-  size: number
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) {
@@ -100,6 +101,17 @@ interface ComposerProps {
   placeholder?: string
   autoFocus?: boolean
   onSend(message: string, images: ImageContent[], mode: ChatSendMode): void
+  /** Run a `!command` in pi's shell (chat composers only). */
+  onShell?(command: string): void
+}
+
+/** The command of a `!command` line, or null when the text is a prompt. */
+export function shellCommand(text: string): string | null {
+  if (!text.startsWith('!')) {
+    return null
+  }
+  const command = text.slice(1).trim()
+  return command ? command : null
 }
 
 function fileToImage(file: File): Promise<ImageContent | null> {
@@ -269,10 +281,19 @@ function ContextRing({ chat }: { chat: ChatState }) {
   )
 }
 
-export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: ComposerProps) {
-  const [text, setText] = useState('')
-  const [images, setImages] = useState<ImageContent[]>([])
-  const [chips, setChips] = useState<FileChip[]>([])
+export function Composer({ chat, isChat, placeholder, autoFocus, onSend, onShell }: ComposerProps) {
+  // Unsent content is kept per chat (lib/composer-drafts.ts); the composer is
+  // keyed by chat id, so these initializers run once per chat.
+  const draftKey = chat?.chatId
+  const [text, setText] = useState(() => getComposerDraft(draftKey)?.text ?? '')
+  const [images, setImages] = useState<ImageContent[]>(
+    () => getComposerDraft(draftKey)?.images ?? []
+  )
+  const [chips, setChips] = useState<FileChip[]>(() => getComposerDraft(draftKey)?.chips ?? [])
+  // Prompt history (↑/↓ on an empty composer): index into the history list
+  // while browsing, plus the text that was there when browsing began.
+  const historyIndex = useRef<number | null>(null)
+  const historyStash = useRef('')
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const [folderOpen, setFolderOpen] = useState(false)
@@ -375,6 +396,10 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   }, [text, autosize])
 
   useEffect(() => {
+    saveComposerDraft(draftKey, { text, images, chips })
+  }, [draftKey, text, images, chips])
+
+  useEffect(() => {
     if (autoFocus) {
       textareaRef.current?.focus()
     }
@@ -383,9 +408,10 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
   // Forked messages are handed back by pi for editing before resend; a nonce
   // bump preloads the composer (derived state during render, then focus).
   const seedNonce = chat?.composerSeed?.nonce
-  const [appliedSeed, setAppliedSeed] = useState(0)
-  if (chat?.composerSeed && chat.composerSeed.nonce !== appliedSeed) {
+  const [appliedSeed, setAppliedSeed] = useState(() => appliedSeedNonce(draftKey))
+  if (chat?.composerSeed && chat.composerSeed.nonce > appliedSeed) {
     setAppliedSeed(chat.composerSeed.nonce)
+    markSeedApplied(chat.chatId, chat.composerSeed.nonce)
     setText(chat.composerSeed.text)
   }
   useEffect(() => {
@@ -877,11 +903,22 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     }
     const parsed = parseSlashSend(value)
     const appCommand = parsed && findAppCommand(parsed.command)
+    const shell = shellCommand(value)
+    historyIndex.current = null
+    recordPrompt(value)
     if (appCommand) {
       if (appCommand.idleOnly && streaming) {
         return
       }
       runAppCommand(parsed!.command, parsed!.args)
+    } else if (shell !== null && chat) {
+      // `!command` runs in pi's shell; the output joins the context of the
+      // next prompt. Not available mid-run.
+      if (streaming || chat.bashRunning) {
+        toast('Wait for the current run to finish')
+        return
+      }
+      onShell?.(shell)
     } else {
       onSend(
         appendAttachmentRefs(value, chips.map((c) => c.path), cwd),
@@ -972,6 +1009,38 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
         return
       }
     }
+    // Prompt history: ↑ on an empty composer (or while already browsing)
+    // recalls earlier prompts; ↓ walks back toward the draft.
+    if (
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.ctrlKey &&
+      (historyIndex.current !== null || (text === '' && e.key === 'ArrowUp'))
+    ) {
+      if (historyIndex.current === null) {
+        historyStash.current = text
+      }
+      const step = stepHistory(
+        loadPromptHistory(),
+        historyIndex.current,
+        e.key === 'ArrowUp' ? 'older' : 'newer',
+        historyStash.current
+      )
+      if (step) {
+        e.preventDefault()
+        historyIndex.current = step.index
+        setText(step.text)
+        setSlashDismissed(true)
+        setMentionDismissed(true)
+        requestAnimationFrame(() => {
+          const el = textareaRef.current
+          el?.setSelectionRange(el.value.length, el.value.length)
+        })
+        return
+      }
+    }
     if (e.key !== 'Enter') {
       return
     }
@@ -1001,12 +1070,17 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
     }
   }
 
-  const sendDisabled = !canSend && !streaming
+  const bashRunning = chat?.bashRunning === true
+  const sendDisabled = !canSend && !streaming && !bashRunning
 
   return (
     <div
       ref={rootRef}
-      className={clsx('composer', { 'is-streaming': streaming, 'is-dragover': dragging })}
+      className={clsx('composer', {
+        'is-streaming': streaming,
+        'is-dragover': dragging,
+        'is-shell': inChat && text.startsWith('!')
+      })}
       onDragEnter={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           dragDepth.current += 1
@@ -1156,6 +1230,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
           value={text}
           onChange={(e) => {
             setText(e.target.value)
+            historyIndex.current = null
             setCursor(e.target.selectionStart ?? e.target.value.length)
             setSlashDismissed(false)
             setSlashHighlight(0)
@@ -1178,7 +1253,10 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
               ? ''
               : recording
                 ? 'Listening…'
-                : (placeholder ?? 'Describe a task — / for commands, @ for files')
+                : (placeholder ??
+                  (inChat
+                    ? 'Describe a task — / commands, @ files, ! shell'
+                    : 'Describe a task — / for commands, @ for files'))
           }
           rows={1}
           spellCheck={false}
@@ -1487,18 +1565,26 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend }: Compo
           {chat && <ContextRing chat={chat} />}
           <button
             type="button"
-            className={clsx('send-btn', { 'send-active': canSend && !streaming })}
+            className={clsx('send-btn', {
+              'send-active': canSend && !streaming && !bashRunning
+            })}
             disabled={sendDisabled}
-            title={streaming ? 'Stop' : 'Send'}
+            title={bashRunning ? 'Stop command' : streaming ? 'Stop' : 'Send'}
             onClick={() => {
-              if (streaming) {
+              if (bashRunning) {
+                void useChatStore.getState().abortBash(chat!.chatId)
+              } else if (streaming) {
                 void useChatStore.getState().abort(chat!.chatId)
               } else {
                 submit('prompt')
               }
             }}
           >
-            {streaming ? <Square size={12} fill="currentColor" /> : <ArrowUp size={15} />}
+            {streaming || bashRunning ? (
+              <Square size={12} fill="currentColor" />
+            ) : (
+              <ArrowUp size={15} />
+            )}
           </button>
         </div>
       </div>

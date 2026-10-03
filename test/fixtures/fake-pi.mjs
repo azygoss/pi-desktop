@@ -1049,6 +1049,40 @@ function handle(command) {
       }
       break
     }
+    case 'bash': {
+      // `!command` from the composer: stream two chunks, then the result.
+      const text = String(command.command)
+      const failing = /\bfalse\b/.test(text)
+      void (async () => {
+        writeLine({ type: 'bash_execution_update', id, delta: `synthetic output of ${text}\n` })
+        await sleep(DELAY_MS)
+        writeLine({ type: 'bash_execution_update', id, delta: 'second line\n' })
+        await sleep(DELAY_MS)
+        writeLine({
+          id,
+          type: 'response',
+          command: 'bash',
+          success: true,
+          data: {
+            output: `synthetic output of ${text}\nsecond line\n`,
+            exitCode: failing ? 1 : 0,
+            cancelled: false,
+            truncated: false
+          }
+        })
+      })()
+      break
+    }
+    case 'clear_queue':
+      writeLine({ type: 'queue_update', steering: [], followUp: [] })
+      writeLine({
+        id,
+        type: 'response',
+        command: 'clear_queue',
+        success: true,
+        data: { steering: [], followUp: [] }
+      })
+      break
     case 'abort':
       streaming = false
       writeLine({ type: 'agent_end', messages: [], willRetry: false })

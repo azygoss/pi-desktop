@@ -230,3 +230,56 @@ describe('buildChatViewState', () => {
     }
   })
 })
+
+describe('message queue', () => {
+  it('mirrors queue_update and clears when the run settles', () => {
+    const state = createChatViewState()
+    reducePiEvent(state, { type: 'agent_start' })
+    reducePiEvent(state, { type: 'queue_update', steering: ['a'], followUp: ['b'] })
+    expect(state.queue).toEqual({ steering: ['a'], followUp: ['b'] })
+    reducePiEvent(state, { type: 'queue_update', steering: [], followUp: [] })
+    expect(state.queue).toBeUndefined()
+    reducePiEvent(state, { type: 'queue_update', steering: ['a'], followUp: [] })
+    reducePiEvent(state, { type: 'agent_settled' })
+    expect(state.queue).toBeUndefined()
+  })
+
+  it('drops a queued message once pi delivers it', () => {
+    const state = createChatViewState()
+    state.queue = { steering: ['change direction'], followUp: ['then summarize'] }
+    reducePiEvent(state, {
+      type: 'message_start',
+      message: { role: 'user', content: 'change direction', timestamp: 1 }
+    })
+    expect(state.queue).toEqual({ steering: [], followUp: ['then summarize'] })
+    expect(state.messages.at(-1)).toMatchObject({ kind: 'user', text: 'change direction' })
+  })
+})
+
+describe('shell runs', () => {
+  it('appends streamed output to the running bash row', () => {
+    const state = createChatViewState()
+    state.messages.push({ kind: 'bash', key: 'b1', command: 'ls', output: '', running: true })
+    reducePiEvent(state, { type: 'bash_execution_update', delta: 'one\n' })
+    reducePiEvent(state, { type: 'bash_execution_update', delta: 'two\n' })
+    expect(state.messages[0]).toMatchObject({ output: 'one\ntwo\n', running: true })
+  })
+
+  it("does not duplicate the row when pi reports the command's message", () => {
+    const state = createChatViewState()
+    state.messages.push({ kind: 'bash', key: 'b1', command: 'ls', output: 'x', running: true })
+    const message = {
+      role: 'bashExecution' as const,
+      command: 'ls',
+      output: 'x',
+      exitCode: 0,
+      cancelled: false,
+      truncated: false,
+      timestamp: 2
+    }
+    reducePiEvent(state, { type: 'message_start', message })
+    reducePiEvent(state, { type: 'message_end', message })
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0]).toMatchObject({ key: 'b1', exitCode: 0 })
+  })
+})
