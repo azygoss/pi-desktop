@@ -357,13 +357,16 @@ function GenericDetail({ run }: { run: ToolRun }) {
 export const ToolCard = memo(function ToolCard({
   run,
   cwd,
-  className
+  className,
+  defaultOpen
 }: {
   run: ToolRun
   cwd: string
   className?: string
+  /** Start expanded (a `!command` the user just ran wants its output). */
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen === true)
   const kind = toolKind(run.name)
   const command = kind === 'bash' ? commandOf(run) : null
   const changes = kind === 'edit' || kind === 'write' ? kind : null

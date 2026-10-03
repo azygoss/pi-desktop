@@ -282,6 +282,14 @@ export type AttachmentReadResult =
     }
   | { kind: 'file'; path: string; name: string; size: number }
 
+/** Final result of a `!command` run through pi's `bash` RPC. */
+export interface ChatBashResult {
+  output: string
+  exitCode?: number
+  cancelled: boolean
+  truncated: boolean
+}
+
 export interface ForkMessage {
   entryId: string
   text: string
@@ -517,6 +525,11 @@ export interface PiDesktopApi {
     open(input: ChatOpenInput): Promise<ChatOpenResult>
     send(input: ChatSendInput): Promise<void>
     abort(input: { chatId: string }): Promise<void>
+    /** Run a shell command in pi (`!command`); output streams as events. */
+    bash(input: { chatId: string; command: string }): Promise<ChatBashResult>
+    abortBash(input: { chatId: string }): Promise<void>
+    /** Drop queued steering / follow-up messages; returns their text. */
+    clearQueue(input: { chatId: string }): Promise<{ steering: string[]; followUp: string[] }>
     setModel(input: { chatId: string; provider: string; modelId: string }): Promise<SetModelResult>
     setThinkingLevel(input: { chatId: string; level: ThinkingLevel }): Promise<void>
     getStats(input: { chatId: string }): Promise<ChatSessionStats | undefined>

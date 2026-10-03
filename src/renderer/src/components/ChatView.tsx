@@ -6,6 +6,7 @@ import {
   ChevronUp,
   CircleAlert,
   Copy,
+  CornerUpLeft,
   File,
   Layers,
   ListTree,
@@ -31,7 +32,12 @@ import {
 import { flushSync } from 'react-dom'
 import clsx from 'clsx'
 
-import type { DisplayBlock, DisplayMessage, ToolRun } from '../../../shared/chat-view'
+import {
+  queueLength,
+  type DisplayBlock,
+  type DisplayMessage,
+  type ToolRun
+} from '../../../shared/chat-view'
 import type { ImageContent, Model } from '../../../shared/pi-types'
 import { parseSkillPrefix } from '../../../shared/skill-prefix'
 import {
@@ -659,7 +665,12 @@ function MessageRow({
       toolCallId: message.key,
       name: 'bash',
       args: { command: message.command },
-      status: message.cancelled || (message.exitCode ?? 0) !== 0 ? 'error' : 'done',
+      status: message.running
+        ? 'running'
+        : message.cancelled || (message.exitCode ?? 0) !== 0
+          ? 'error'
+          : 'done',
+      ...(message.running ? { startedAt: message.timestamp, partialText: message.output } : {}),
       // Same trailing status line pi's bash tool writes, so the terminal
       // card shows "exit N" / "aborted" for `!command` runs too.
       result: {
@@ -677,7 +688,7 @@ function MessageRow({
     }
     return (
       <div data-midx={midx}>
-        <ToolCard run={run} cwd={cwd} className="fade-in" />
+        <ToolCard run={run} cwd={cwd} className="fade-in user-shell" defaultOpen />
       </div>
     )
   }
@@ -724,6 +735,45 @@ const MemoMessageRow = memo(
     return true
   }
 )
+
+/**
+ * Messages waiting in pi's queue while a run is live: steering messages land
+ * after the current tool call, follow-ups once the run ends. "Edit" pulls
+ * them all back into the composer.
+ */
+function QueueStrip({ chat }: { chat: ChatState }) {
+  const queue = chat.queue
+  if (!queue || queueLength(queue) === 0) {
+    return null
+  }
+  const rows = [
+    ...queue.steering.map((text) => ({ label: 'Steer', text })),
+    ...queue.followUp.map((text) => ({ label: 'Next', text }))
+  ]
+  return (
+    <div className="queue-strip" role="status" data-testid="queue-strip">
+      <div className="queue-strip-head">
+        <span className="queue-strip-title">
+          {rows.length} queued {rows.length === 1 ? 'message' : 'messages'}
+        </span>
+        <button
+          type="button"
+          className="queue-strip-edit"
+          title="Remove from the queue and edit"
+          onClick={() => void useChatStore.getState().clearQueue(chat.chatId)}
+        >
+          <CornerUpLeft size={11} /> Edit
+        </button>
+      </div>
+      {rows.map((row, i) => (
+        <div key={i} className="queue-row" title={row.text}>
+          <span className="queue-row-kind">{row.label}</span>
+          <span className="queue-row-text">{row.text}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function UiRequestDialog({ chat }: { chat: ChatState }) {
   const request = chat.uiRequest
@@ -1626,10 +1676,16 @@ export function ChatView({ chatId }: { chatId: string }) {
 
       <div className="chat-composer-dock">
         <CuaActivityStrip chat={chat} />
+        <QueueStrip chat={chat} />
         <Perf id="Composer">
           <Composer
+            key={chatId}
             chat={chat}
             isChat
+            onShell={(command) => {
+              stickRef.current = true
+              void useChatStore.getState().runBash(chatId, command).catch(() => {})
+            }}
             onSend={(message, images, mode) => {
               // Sending always re-pins to the bottom — the user's own message
               // and the pending/streaming rows belong in view.
