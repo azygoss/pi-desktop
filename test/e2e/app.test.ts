@@ -652,6 +652,38 @@ describe('Pi Desktop e2e', () => {
     await page.screenshot({ path: join(SHOTS, 'panel-diff.png') })
   })
 
+  it('turns a diff line comment into a prompt and opens a changed file', async () => {
+    const panel = page.locator('.panel-tab-content.is-active')
+    const line = panel.locator('.diff-line.diff-add').first()
+    await line.hover()
+    await line.locator('.diff-comment-add').click()
+    await page.keyboard.type('Explain this line')
+    await page.keyboard.press('Enter')
+    await visible(page, '[data-testid="send-comments"]')
+    await page.locator('[data-testid="send-comments"]').click()
+    const composer = page.locator('.composer-input')
+    await expect
+      .poll(() => composer.inputValue(), { timeout: 5000 })
+      .toContain('Please address this review comment')
+    expect(await composer.inputValue()).toContain('Explain this line')
+    await composer.fill('')
+    // The comment left the diff once it was handed to the composer.
+    expect(await panel.locator('.diff-comment').count()).toBe(0)
+
+    const header = panel.locator('.diff-file-header', { hasText: 'notes.txt' })
+    await header.hover()
+    await header.locator('button[title="Open file"]').click()
+    await visible(page, '.panel-tab-content.is-active [data-testid="file-view"]')
+    await expect
+      .poll(() => page.locator('.panel-tab-content.is-active .file-view-body').textContent(), {
+        timeout: 10_000
+      })
+      .not.toBe('')
+    expect(
+      await page.locator('.panel-tab-content.is-active .diff-summary').textContent()
+    ).toContain('notes.txt')
+  })
+
   it('opens the plus menu (not a file dialog) with keyboard nav', async () => {
     const plusBtn = page.locator('button[title="Add files and more"]')
     await visible(page, '.composer-input')

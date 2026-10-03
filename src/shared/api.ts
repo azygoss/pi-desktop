@@ -245,7 +245,13 @@ export type SessionMenuAction =
   | 'reveal'
   | 'copy-path'
   | 'delete'
-export type ProjectMenuAction = 'reveal' | 'new-chat' | 'hide'
+export type ProjectMenuAction =
+  | 'reveal'
+  | 'new-chat'
+  | 'new-worktree'
+  | 'open-in'
+  | 'remove-worktree'
+  | 'hide'
 export type ChatMenuAction =
   | 'pin'
   | 'unpin'
@@ -358,6 +364,8 @@ export interface BrowserAgentTabPayload {
 export interface RepoDiffResult {
   isRepo: boolean
   branch?: string
+  /** Repository root; diff paths are relative to it. */
+  root?: string
   /** Raw `git diff` output (unified format). */
   diffText: string
   /** Untracked text files (≤200KB each), rendered as all-added files. */
@@ -383,6 +391,51 @@ export interface RepoSummary {
   files: number
   added: number
   removed: number
+}
+
+/** Outcome of a git action run from the diff panel. */
+export interface GitActionResult {
+  ok: boolean
+  /** One line for a toast: what happened, or git's error. */
+  message: string
+}
+
+/** A worktree the app created for a project. */
+export interface WorktreeInfo {
+  cwd: string
+  branch: string
+  /** The repository the worktree belongs to. */
+  repo: string
+}
+
+/** A text file opened in the panel's file viewer. */
+export interface FileReadResult {
+  /** Resolved absolute path. */
+  path: string
+  /** Path relative to the project folder, with forward slashes. */
+  relativePath: string
+  size: number
+  binary: boolean
+  /** True when the file is larger than the viewer's limit. */
+  truncated: boolean
+  content: string
+}
+
+export interface UsageTotals {
+  cost: number
+  /** Input tokens, cache reads and writes included. */
+  input: number
+  output: number
+  requests: number
+}
+
+/** Tokens and cost recorded in session files over a window of days. */
+export interface UsageReport {
+  /** Oldest first, one entry per calendar day (zeros included). */
+  days: ({ day: string } & UsageTotals)[]
+  models: ({ model: string } & UsageTotals)[]
+  projects: ({ cwd: string } & UsageTotals)[]
+  total: UsageTotals
 }
 
 /** Actions dispatched from the native application menu. */
@@ -417,6 +470,8 @@ export interface PiDesktopApi {
   }
   sessions: {
     list(): Promise<SessionSummary[]>
+    /** Tokens and cost over the last 30 days, by day, model and project. */
+    usage(): Promise<UsageReport>
     /** Full-text search over prompts and replies (3+ characters). */
     search(input: { query: string }): Promise<SessionSearchHit[]>
     /** Subscribe to session-index changes; returns an unsubscribe function. */
@@ -448,6 +503,8 @@ export interface PiDesktopApi {
   files: {
     /** Relative file paths under a project cwd (for @-mentions). */
     list(input: { cwd: string }): Promise<{ files: string[] }>
+    /** Read a text file inside a project folder (panel file viewer). */
+    read(input: { cwd: string; path: string }): Promise<FileReadResult>
     /** Read picked/dropped paths into image payloads or file chips. */
     readAttachments(input: { paths: string[] }): Promise<AttachmentReadResult[]>
   }
@@ -490,6 +547,12 @@ export interface PiDesktopApi {
     status(input: { cwd: string }): Promise<RepoDiffResult>
     /** Branch and change counts only (cheap; polled by the chat header). */
     summary(input: { cwd: string }): Promise<RepoSummary>
+    /** Discard one file's changes (untracked files go to the OS trash). */
+    discard(input: { cwd: string; path: string }): Promise<GitActionResult>
+    /** Stage everything and commit. */
+    commit(input: { cwd: string; message: string }): Promise<GitActionResult>
+    /** Push the current branch (sets the upstream on the first push). */
+    push(input: { cwd: string }): Promise<GitActionResult>
   }
   projects: {
     list(): Promise<ProjectSummary[]>
@@ -497,6 +560,10 @@ export interface PiDesktopApi {
     add(input: { cwd: string }): Promise<void>
     /** Native context menu for a project row; resolves to the action or null. */
     showMenu(input: { cwd: string }): Promise<ProjectMenuAction | null>
+    /** Create a git worktree of the project on a new pi/ branch. */
+    createWorktree(input: { cwd: string }): Promise<WorktreeInfo>
+    /** Remove a worktree the app created (force discards its changes). */
+    removeWorktree(input: { cwd: string; force?: boolean }): Promise<GitActionResult>
   }
   settings: {
     /** Pi's own whitelisted settings (~/.pi/agent/settings.json). */

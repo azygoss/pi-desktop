@@ -1,4 +1,4 @@
-import { Bot, FileDiff, Globe, Plus, TerminalSquare, X } from 'lucide-react'
+import { Bot, FileDiff, FileText, Globe, Plus, TerminalSquare, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 
@@ -7,6 +7,7 @@ import { useChatStore } from '../state/chat-store'
 import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { BrowserTab, NewTabPage } from './BrowserTab'
 import { DiffPanel } from './DiffPanel'
+import { FileView } from './FileView'
 import { LiveDot } from './LiveIndicators'
 import { TerminalView } from './TerminalView'
 
@@ -26,6 +27,8 @@ function tabIcon(tab: PanelTab): ReactNode {
       return <TerminalSquare size={13} />
     case 'diff':
       return <FileDiff size={13} />
+    case 'file':
+      return <FileText size={13} />
     case 'newtab':
       return <Plus size={13} />
   }
@@ -50,6 +53,9 @@ function tabTitle(tab: PanelTab): string {
 
 /** Tooltip text: full URL for browser tabs, title for the rest. */
 function tabTooltip(tab: PanelTab): string {
+  if (tab.kind === 'file') {
+    return tab.path
+  }
   return tab.kind === 'browser' && tab.url ? tab.url : tabTitle(tab)
 }
 
@@ -243,6 +249,9 @@ export function RightPanel({ closing }: { closing?: boolean }) {
               <BrowserTab tab={tab} active={open && tab.id === activeTabId} />
             )}
             {tab.kind === 'diff' && <DiffPanel active={open && tab.id === activeTabId} />}
+            {tab.kind === 'file' && (
+              <FileView cwd={tab.cwd} path={tab.path} active={open && tab.id === activeTabId} />
+            )}
             {tab.kind === 'newtab' && (
               <NewTabPage
                 cwd={cwd}

@@ -17,6 +17,8 @@ export interface ProjectSummary {
   name: string
   sessionCount: number
   lastModified: string
+  /** A git worktree the app created for isolated, parallel work. */
+  worktree?: boolean
 }
 
 /**

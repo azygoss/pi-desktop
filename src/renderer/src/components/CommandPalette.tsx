@@ -3,6 +3,7 @@ import {
   ClipboardCopy,
   FileDiff,
   FolderOpen,
+  GitBranch,
   Pin,
   PanelLeft,
   PanelRight,
@@ -22,6 +23,7 @@ import type { SessionSearchHit } from '../../../shared/api'
 import type { SessionSummary } from '../../../shared/session-types'
 import { chatToMarkdown } from '../lib/chat-markdown'
 import { fuzzyScore } from '../lib/fuzzy'
+import { newChatInWorktree } from '../lib/worktree-actions'
 import { toast } from '../state/toast-store'
 import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib/session-actions'
 import { useAppStore } from '../state/app-store'
@@ -52,7 +54,7 @@ function projectName(cwd: string, workspaceDir: string): string | null {
 function buildItems(
   query: string,
   sessions: SessionSummary[],
-  projects: { cwd: string; name: string }[],
+  projects: { cwd: string; name: string; worktree?: boolean }[],
   chatId: string | null,
   chat: Pick<ChatState, 'models' | 'commands' | 'model' | 'status' | 'sessionPath'> | undefined,
   workspaceDir: string
@@ -184,6 +186,19 @@ function buildItems(
       },
       undefined,
       `${project.name} ${project.cwd}`
+    )
+  }
+  for (const project of projects) {
+    if (project.worktree) {
+      continue
+    }
+    add(
+      'Projects',
+      <GitBranch size={13} />,
+      `New worktree chat in ${project.name}`,
+      () => void newChatInWorktree(project.cwd),
+      undefined,
+      `worktree ${project.name} ${project.cwd}`
     )
   }
 

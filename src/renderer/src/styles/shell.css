@@ -617,3 +617,10 @@ button.sidebar-section-header:hover {
 .chat-topbar-inner ~ .panel-toggle {
   margin-left: 0;
 }
+
+/* A project that is a git worktree created by the app. */
+.worktree-glyph {
+  display: inline-flex;
+  color: var(--muted);
+  flex-shrink: 0;
+}

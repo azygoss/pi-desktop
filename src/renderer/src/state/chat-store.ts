@@ -104,6 +104,8 @@ interface ChatStoreState {
   reloadChat(chatId: string): Promise<void>
   /** Clone the current session branch; the chat continues on the new session. */
   cloneChat(chatId: string): Promise<void>
+  /** Put text into the chat's composer for the user to edit and send. */
+  seedComposer(chatId: string, text: string): void
   /** Clear the unread marker when the chat becomes visible. */
   markRead(chatId: string): void
   setChatTitle(chatId: string, title: string): void
@@ -1066,6 +1068,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return
     }
     await get().refresh(chatId)
+  },
+
+  seedComposer(chatId, text) {
+    const draft = drafts.get(chatId)
+    if (draft) {
+      draft.composerSeed = { text, nonce: ++seedCounter }
+      publish(chatId)
+    }
   },
 
   markRead(chatId) {
