@@ -1,4 +1,16 @@
-import { ChevronDown, ChevronRight, FileDiff, RefreshCw } from 'lucide-react'
+import {
+  ArrowUpFromLine,
+  ChevronDown,
+  ChevronRight,
+  FileDiff,
+  FileText,
+  GitCommitHorizontal,
+  Plus,
+  RefreshCw,
+  Send,
+  Undo2,
+  X
+} from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { RepoDiffResult } from '../../../shared/api'
@@ -11,60 +23,176 @@ import {
 import type { ToolRun } from '../../../shared/chat-view'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
+import { usePanelStore } from '../state/panel-store'
+import { toast } from '../state/toast-store'
+import { reviewPrompt, type ReviewComment } from '../lib/review-comments'
+import { joinPath } from '../lib/paths'
 
 const COLLAPSE_LINES = 400
 const REFRESH_DEBOUNCE_MS = 500
 const WRITE_TOOLS = /edit|write|bash|apply/i
+const NO_COMMENTS = new Map<string, ReviewComment[]>()
 
 /** Renders one file's hunks with line numbers; files stay collapsed >400 lines. */
 const DiffFileView = memo(function DiffFileView({
   file,
   expanded,
-  onToggle
+  comments,
+  onToggle,
+  onOpen,
+  onDiscard,
+  onComment,
+  onRemoveComment
 }: {
   file: DiffFile
   expanded: boolean
+  /** This file's review comments, keyed by `hunk:line`. */
+  comments: Map<string, ReviewComment[]>
   onToggle(): void
+  onOpen(): void
+  onDiscard(): void
+  onComment(key: string, line: number | undefined, lineText: string, text: string): void
+  onRemoveComment(id: string): void
 }) {
   const { added, deleted } = countChanges(file)
   const collapsible = added + deleted > COLLAPSE_LINES
+  // The line being commented on (`hunk:line`) and its unsaved text.
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const save = (key: string, line: number | undefined, lineText: string): void => {
+    if (draft.trim()) {
+      onComment(key, line, lineText, draft.trim())
+    }
+    setEditing(null)
+    setDraft('')
+  }
 
   return (
     <div className="diff-file">
-      <button type="button" className="diff-file-header" onClick={onToggle}>
+      <div
+        className="diff-file-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target === e.currentTarget) {
+            onToggle()
+          }
+        }}
+      >
         {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span className="diff-file-path" title={file.oldPath ?? file.path}>
           {file.status === 'renamed' && file.oldPath
             ? `${file.oldPath} → ${file.path}`
             : file.path}
         </span>
+        <span className="diff-file-actions">
+          {file.status !== 'deleted' && (
+            <button
+              type="button"
+              className="icon-btn"
+              title="Open file"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpen()
+              }}
+            >
+              <FileText size={12} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon-btn"
+            title="Discard this file's changes…"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDiscard()
+            }}
+          >
+            <Undo2 size={12} />
+          </button>
+        </span>
         <span className="diff-counts">
           {added > 0 && <span className="diff-add-count">+{added}</span>}
           {deleted > 0 && <span className="diff-del-count">−{deleted}</span>}
           <span className="diff-status-label">{file.status}</span>
         </span>
-      </button>
+      </div>
       {expanded &&
         (file.isBinary ? (
           <div className="diff-binary">Binary file</div>
         ) : (
-          <pre className="diff-hunks">
+          <div className="diff-hunks">
             {file.hunks.map((hunk, i) => (
-              <span key={i}>
-                <span className="diff-hunk-header">{hunk.header}</span>
-                {hunk.lines.map((line, j) => (
-                  <span key={j} className={`diff-line diff-${line.type}`}>
-                    <span className="diff-lineno">{line.oldNo ?? ''}</span>
-                    <span className="diff-lineno">{line.newNo ?? ''}</span>
-                    <span className="diff-line-text">
-                      {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
-                      {line.text}
-                    </span>
-                  </span>
-                ))}
-              </span>
+              <div key={i}>
+                <div className="diff-hunk-header">{hunk.header}</div>
+                {hunk.lines.map((line, j) => {
+                  const key = `${i}:${j}`
+                  const lineNo = line.newNo ?? line.oldNo
+                  const notes = comments.get(key)
+                  return (
+                    <div key={j} className="diff-row">
+                      <div className={`diff-line diff-${line.type}`}>
+                        <button
+                          type="button"
+                          className="diff-comment-add"
+                          title="Comment on this line"
+                          aria-label="Comment on this line"
+                          onClick={() => {
+                            setEditing(key)
+                            setDraft('')
+                          }}
+                        >
+                          <Plus size={10} />
+                        </button>
+                        <span className="diff-lineno">{line.oldNo ?? ''}</span>
+                        <span className="diff-lineno">{line.newNo ?? ''}</span>
+                        <span className="diff-line-text">
+                          {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
+                          {line.text}
+                        </span>
+                      </div>
+                      {notes?.map((note) => (
+                        <div key={note.id} className="diff-comment">
+                          <span className="diff-comment-text">{note.text}</span>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Remove comment"
+                            onClick={() => onRemoveComment(note.id)}
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                      ))}
+                      {editing === key && (
+                        <div className="diff-comment diff-comment-editor">
+                          <textarea
+                            autoFocus
+                            rows={2}
+                            value={draft}
+                            placeholder="Comment for pi — Enter to add, Esc to cancel"
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                save(key, lineNo, line.text)
+                              } else if (e.key === 'Escape') {
+                                e.stopPropagation()
+                                setEditing(null)
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             ))}
-          </pre>
+          </div>
         ))}
       {collapsible && !expanded && (
         <button type="button" className="tool-show-all" onClick={onToggle}>
@@ -179,6 +307,11 @@ export function DiffPanel({ active }: { active: boolean }) {
   // Explicit expand/collapse overrides; untouched files follow the size rule.
   const [toggled, setToggled] = useState<Map<string, boolean>>(new Map())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Review comments on diff lines, sent to pi as one prompt.
+  const [comments, setComments] = useState<(ReviewComment & { key: string })[]>([])
+  const [commitOpen, setCommitOpen] = useState(false)
+  const [commitMessage, setCommitMessage] = useState('')
+  const [busy, setBusy] = useState<'commit' | 'push' | null>(null)
 
   const refresh = useCallback(async () => {
     if (!cwd) {
@@ -261,6 +394,80 @@ export function DiffPanel({ active }: { active: boolean }) {
     return added + deleted <= COLLAPSE_LINES
   }
 
+  const commentsByFile = useMemo(() => {
+    const byFile = new Map<string, Map<string, ReviewComment[]>>()
+    for (const comment of comments) {
+      let lines = byFile.get(comment.path)
+      if (!lines) {
+        byFile.set(comment.path, (lines = new Map()))
+      }
+      lines.set(comment.key, [...(lines.get(comment.key) ?? []), comment])
+    }
+    return byFile
+  }, [comments])
+
+  const sendComments = (): void => {
+    if (!chatId || comments.length === 0) {
+      return
+    }
+    useChatStore.getState().seedComposer(chatId, reviewPrompt(comments))
+    setComments([])
+  }
+
+  const discard = async (file: DiffFile): Promise<void> => {
+    const untracked = file.status === 'added'
+    const choice = await window.piDesktop.app.confirmDialog({
+      title: `Discard changes to ${file.path}?`,
+      message: untracked
+        ? 'The file is moved to the Trash.'
+        : 'The file is restored to the last commit. This cannot be undone.',
+      buttons: ['Discard', 'Cancel'],
+      danger: true
+    })
+    if (choice !== 0) {
+      return
+    }
+    const outcome = await window.piDesktop.diff
+      .discard({ cwd, path: file.path })
+      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+    if (!outcome.ok) {
+      toast(`Discard failed: ${outcome.message}`)
+    }
+    setComments((prev) => prev.filter((c) => c.path !== file.path))
+    void refresh()
+  }
+
+  const commit = async (): Promise<void> => {
+    const message = commitMessage.trim()
+    if (!message || busy) {
+      return
+    }
+    setBusy('commit')
+    const outcome = await window.piDesktop.diff
+      .commit({ cwd, message })
+      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+    setBusy(null)
+    toast(outcome.ok ? outcome.message : `Commit failed: ${outcome.message}`)
+    if (outcome.ok) {
+      setCommitOpen(false)
+      setCommitMessage('')
+      setComments([])
+      void refresh()
+    }
+  }
+
+  const push = async (): Promise<void> => {
+    if (busy) {
+      return
+    }
+    setBusy('push')
+    const outcome = await window.piDesktop.diff
+      .push({ cwd })
+      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+    setBusy(null)
+    toast(outcome.ok ? outcome.message : `Push failed: ${outcome.message}`)
+  }
+
   if (!active) {
     return <div className="diff-panel" />
   }
@@ -273,15 +480,79 @@ export function DiffPanel({ active }: { active: boolean }) {
             ? `${files.length} file${files.length === 1 ? '' : 's'} changed · +${totals.added} −${totals.deleted}${result.branch ? ` · ${result.branch}` : ''}`
             : 'Diff'}
         </span>
-        <button
-          type="button"
-          className="icon-btn"
-          title="Refresh diff"
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={13} />
-        </button>
+        <span className="diff-toolbar-actions">
+          {comments.length > 0 && chatId && (
+            <button
+              type="button"
+              className="diff-action diff-action-primary"
+              data-testid="send-comments"
+              title="Put the comments in the composer"
+              onClick={sendComments}
+            >
+              <Send size={11} />
+              {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            </button>
+          )}
+          {result?.isRepo && files.length > 0 && (
+            <button
+              type="button"
+              className="diff-action"
+              title="Commit all changes"
+              onClick={() => setCommitOpen(!commitOpen)}
+            >
+              <GitCommitHorizontal size={12} />
+              Commit
+            </button>
+          )}
+          {result?.isRepo && (
+            <button
+              type="button"
+              className="diff-action"
+              title="Push the current branch"
+              disabled={busy !== null}
+              onClick={() => void push()}
+            >
+              <ArrowUpFromLine size={11} />
+              {busy === 'push' ? 'Pushing…' : 'Push'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon-btn"
+            title="Refresh diff"
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={13} />
+          </button>
+        </span>
       </div>
+      {commitOpen && (
+        <div className="diff-commit">
+          <input
+            autoFocus
+            value={commitMessage}
+            placeholder="Commit message"
+            spellCheck={false}
+            onChange={(e) => setCommitMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void commit()
+              } else if (e.key === 'Escape') {
+                e.stopPropagation()
+                setCommitOpen(false)
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="ui-btn ui-btn-primary"
+            disabled={!commitMessage.trim() || busy !== null}
+            onClick={() => void commit()}
+          >
+            {busy === 'commit' ? 'Committing…' : `Commit ${files.length} ${files.length === 1 ? 'file' : 'files'}`}
+          </button>
+        </div>
+      )}
       <div className="diff-body">
         {error && <div className="cmd-modal-error">{error}</div>}
         {result && !result.isRepo && <ToolResultFallback chatId={chatId} />}
@@ -293,9 +564,23 @@ export function DiffPanel({ active }: { active: boolean }) {
             key={file.path}
             file={file}
             expanded={isExpanded(file)}
+            comments={commentsByFile.get(file.path) ?? NO_COMMENTS}
             onToggle={() =>
               setToggled((prev) => new Map(prev).set(file.path, !isExpanded(file)))
             }
+            onOpen={() =>
+              // Diff paths are relative to the repo root, which is where
+              // `git diff` ran from when cwd is the root; resolve from cwd.
+              usePanelStore.getState().openFile(cwd, joinPath(result?.root ?? cwd, file.path))
+            }
+            onDiscard={() => void discard(file)}
+            onComment={(key, line, lineText, text) =>
+              setComments((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), key, path: file.path, line, lineText, text }
+              ])
+            }
+            onRemoveComment={(id) => setComments((prev) => prev.filter((c) => c.id !== id))}
           />
         ))}
       </div>

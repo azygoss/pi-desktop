@@ -11,6 +11,7 @@ import type {
 import type { PiRuntimeInfo } from '../../../shared/session-types'
 import { useAppStore, type SettingsSection } from '../state/app-store'
 import { PiLogo } from './PiLogo'
+import { UsagePage } from './UsagePage'
 
 type Section = SettingsSection
 
@@ -18,6 +19,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'computer', label: 'Computer use' },
   { id: 'runtime', label: 'Pi runtime' },
+  { id: 'usage', label: 'Usage' },
   { id: 'data', label: 'Data' },
   { id: 'about', label: 'About' }
 ]
@@ -557,6 +559,13 @@ export function SettingsModal() {
                 </div>
               )}
               <div className="settings-note">Runtime changes apply to newly opened chats.</div>
+            </div>
+          )}
+
+          {section === 'usage' && (
+            <div className="settings-section">
+              <h2>Usage</h2>
+              <UsagePage />
             </div>
           )}
 

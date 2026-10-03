@@ -21,7 +21,16 @@ import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateCwd, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { listLocalServers, type LocalServer } from './local-servers'
-import { workspaceDir } from './config/app-paths'
+import { workspaceDir, worktreesDir } from './config/app-paths'
+import { commitAll, discardFile, pushBranch } from './git/git-actions'
+import {
+  createWorktree,
+  isAppWorktree,
+  removeWorktree,
+  worktreeDisplayName
+} from './git/worktrees'
+import { readProjectFile } from './files/read-file'
+import { usageReport } from './sessions/usage'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
 import { BrowserManager } from './browser/browser-manager'
@@ -125,6 +134,13 @@ export const IPC_CHANNELS = {
   browserAgentTab: 'pi-desktop:browser:agent-tab',
   diffStatus: 'pi-desktop:diff:status',
   diffSummary: 'pi-desktop:diff:summary',
+  diffDiscard: 'pi-desktop:diff:discard',
+  diffCommit: 'pi-desktop:diff:commit',
+  diffPush: 'pi-desktop:diff:push',
+  filesRead: 'pi-desktop:files:read',
+  sessionsUsage: 'pi-desktop:sessions:usage',
+  projectsCreateWorktree: 'pi-desktop:projects:create-worktree',
+  projectsRemoveWorktree: 'pi-desktop:projects:remove-worktree',
   appOpenInMenu: 'pi-desktop:app:open-in-menu',
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external',
@@ -271,12 +287,67 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.handle(IPC_CHANNELS.projectsList, async () => {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
-    return mergeProjects(
-      sessions,
-      settings.projects,
-      settings.hiddenProjects,
-      workspaceDir()
+    const base = worktreesDir()
+    // Worktrees the app created read as "repo · slug", not a bare slug.
+    return mergeProjects(sessions, settings.projects, settings.hiddenProjects, workspaceDir()).map(
+      (project) =>
+        isAppWorktree(project.cwd, base)
+          ? { ...project, name: worktreeDisplayName(project.cwd), worktree: true }
+          : project
     )
+  })
+
+  ipcMain.handle(IPC_CHANNELS.projectsCreateWorktree, async (_e, input: { cwd: string }) => {
+    const cwd = await validateCwd(input?.cwd)
+    const worktree = await createWorktree(cwd, worktreesDir())
+    // Listed right away, before its first chat has a session file.
+    const settings = await loadAppSettings()
+    if (!settings.projects.some((p) => p.cwd === worktree.cwd)) {
+      await updateAppSettings({
+        projects: [...settings.projects, { cwd: worktree.cwd, addedAt: new Date().toISOString() }]
+      })
+    }
+    return worktree
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.projectsRemoveWorktree,
+    async (_e, input: { cwd: string; force?: unknown }) => {
+      const cwd = await validateCwd(input?.cwd)
+      const result = await removeWorktree(cwd, worktreesDir(), input?.force === true)
+      if (result.ok) {
+        const settings = await loadAppSettings()
+        await updateAppSettings({
+          projects: settings.projects.filter((p) => p.cwd !== cwd),
+          expandedProjects: settings.expandedProjects.filter((c) => c !== cwd)
+        })
+      }
+      return result
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.sessionsUsage, async () => {
+    const sessions = await listSessions()
+    return usageReport(sessions.map((s) => s.path))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.filesRead, async (_e, input: { cwd: string; path: unknown }) => {
+    const cwd = await validateCwd(input?.cwd)
+    // The pi agent dir holds credentials; the app never reads them.
+    return readProjectFile(cwd, input?.path, [getAgentDir()])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.diffDiscard, async (_e, input: { cwd: string; path: unknown }) => {
+    const cwd = await validateCwd(input?.cwd)
+    return discardFile(cwd, input?.path, (absolute) => shell.trashItem(absolute))
+  })
+  ipcMain.handle(IPC_CHANNELS.diffCommit, async (_e, input: { cwd: string; message: unknown }) => {
+    const cwd = await validateCwd(input?.cwd)
+    return commitAll(cwd, input?.message)
+  })
+  ipcMain.handle(IPC_CHANNELS.diffPush, async (_e, input: { cwd: string }) => {
+    const cwd = await validateCwd(input?.cwd)
+    return pushBranch(cwd)
   })
 
   ipcMain.handle(IPC_CHANNELS.projectsAdd, async (_e, input: { cwd: string }) => {
@@ -702,10 +773,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
         throw new Error('Invalid cwd')
       }
+      const worktree = isAppWorktree(resolve(input.cwd), worktreesDir())
       return popupMenu<ProjectMenuAction>(event, [
-        { id: 'reveal', label: 'Reveal in Finder' },
         { id: 'new-chat', label: 'New Chat in This Project' },
+        ...(worktree ? [] : [{ id: 'new-worktree', label: 'New Chat in a Worktree' }]),
         { type: 'separator' },
+        { id: 'reveal', label: 'Reveal in Finder' },
+        { id: 'open-in', label: 'Open in…' },
+        { type: 'separator' },
+        ...(worktree ? [{ id: 'remove-worktree', label: 'Remove Worktree…' }] : []),
         { id: 'hide', label: 'Hide from List' }
       ])
     }

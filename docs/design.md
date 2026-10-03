@@ -66,6 +66,10 @@ colors. Everything below follows from that, so new UI should too.
 - **Waiting is visible.** Messages sent mid-run sit in a strip above the
   composer ("Steer" lands after the current tool call, "Next" when the run
   ends) until pi delivers them; they join the transcript only then.
+- **Review happens on the diff.** A `+` appears in the gutter of the line
+  under the pointer; a comment sits under its line in an amber-edged note
+  (amber: it is waiting on you to send it). The toolbar's amber-edged
+  "N comments" button moves them into the composer as one prompt.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 

@@ -27,6 +27,7 @@ import {
 } from '../lib/trace'
 import { Elapsed } from './LiveIndicators'
 import { zoomImage } from './Lightbox'
+import { usePanelStore } from '../state/panel-store'
 
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
@@ -273,6 +274,15 @@ function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
       <GenericDetail run={run} />
       {path && (
         <div className="tool-file-actions">
+          {cwd && (
+            <button
+              type="button"
+              className="tool-show-all"
+              onClick={() => usePanelStore.getState().openFile(cwd, path)}
+            >
+              Open
+            </button>
+          )}
           <button
             type="button"
             className="tool-show-all"

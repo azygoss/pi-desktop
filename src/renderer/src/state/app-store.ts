@@ -32,7 +32,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   dictation: { autoStop: false }
 }
 
-export type SettingsSection = 'general' | 'computer' | 'runtime' | 'data' | 'about'
+export type SettingsSection = 'general' | 'computer' | 'runtime' | 'usage' | 'data' | 'about'
 
 interface AppState {
   ready: boolean

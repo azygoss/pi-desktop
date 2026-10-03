@@ -1058,3 +1058,253 @@
 :root[data-platform='darwin'] .sidebar {
   background: transparent;
 }
+
+/* --- Diff review: per-file actions, line comments, commit bar. */
+.diff-toolbar-actions,
+.file-view-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.diff-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.diff-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.diff-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.diff-action-primary {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  color: var(--text);
+}
+.diff-commit {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.diff-commit input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.diff-commit input:focus {
+  border-color: var(--accent);
+}
+.diff-file-header {
+  cursor: pointer;
+}
+.diff-file-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.diff-file-header:hover .diff-file-actions,
+.diff-file-actions:focus-within {
+  opacity: 1;
+}
+.diff-file-actions .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+.diff-row {
+  min-width: max-content;
+}
+.diff-comment-add {
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  opacity: 0;
+}
+.diff-line:hover .diff-comment-add,
+.diff-comment-add:focus-visible {
+  opacity: 1;
+}
+.diff-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  /* The row is as wide as its longest line; the note stays in view. */
+  position: sticky;
+  left: 8px;
+  width: max-content;
+  min-width: 220px;
+  max-width: 300px;
+  margin: 3px 0 5px 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 7px;
+  background: var(--surface);
+  font-family: var(--font-sans, inherit);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.diff-comment-text {
+  flex: 1;
+  min-width: 0;
+}
+.diff-comment-editor {
+  padding: 4px;
+}
+.diff-comment-editor textarea {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 3px 6px;
+}
+
+/* --- File viewer tab. */
+.file-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.file-view-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px 12px;
+}
+.file-view-body .code-block {
+  margin: 0;
+}
+.file-view-plain {
+  max-height: none;
+}
+
+/* --- Settings → Usage. */
+.usage-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.usage-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.usage-stat {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.usage-stat-value {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text);
+}
+.usage-stat-label {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.usage-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 96px;
+  padding: 8px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.usage-bar-slot {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.usage-bar {
+  width: 100%;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+.usage-bar-slot:hover .usage-bar {
+  background: var(--text);
+}
+.usage-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.usage-table {
+  display: flex;
+  flex-direction: column;
+}
+.usage-table-head,
+.usage-table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 86px 70px;
+  gap: 10px;
+  padding: 6px 2px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: right;
+}
+.usage-table-head {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.usage-table-head > :first-child,
+.usage-table-name {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-table-row {
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+.usage-table-name {
+  color: var(--text);
+}

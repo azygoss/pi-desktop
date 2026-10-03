@@ -47,9 +47,18 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 - **Projects and chats** — sessions nest under their project folder, and
   each project gets its own pixel sigil so it is recognizable in every
   list; project-less chats run in an app-owned scratch workspace.
-- **Side panel** — browser tabs, a real terminal (`node-pty` + xterm) and
-  a live git diff view for the chat's project. ⌘⌥B toggles the panel, ⌃\`
-  a terminal, ⌘L the address bar.
+- **Side panel** — browser tabs, a real terminal (`node-pty` + xterm), a
+  live git diff view for the chat's project and a read-only file viewer
+  (open a file from any read / edit / write step or from the diff). ⌘⌥B
+  toggles the panel, ⌃\` a terminal, ⌘L the address bar.
+- **Review and ship from the diff** — comment on any diff line and hand the
+  comments to pi as one prompt; discard a file's changes (untracked files go
+  to the Trash); commit everything and push without leaving the app.
+- **Worktrees** — "New Chat in a Worktree" (project menu or ⌘K) gives a chat
+  its own git worktree on a fresh `pi/…` branch, so several chats can change
+  the same project in parallel without touching each other's files.
+- **Usage** — Settings → Usage shows the last 30 days of tokens and cost by
+  day, model and project, read from the usage pi records in each session.
 - **Agent browser** — pi can drive the in-app browser itself through an
   extension that ships with the app: `browser_open`, `browser_click`,
   `browser_screenshot` and friends, backed by Chrome DevTools Protocol.

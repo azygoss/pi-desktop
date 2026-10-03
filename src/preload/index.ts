@@ -19,6 +19,7 @@ const api: PiDesktopApi = {
   sessions: {
     list: () => ipcRenderer.invoke('pi-desktop:sessions:list'),
     search: (input) => ipcRenderer.invoke('pi-desktop:sessions:search', input),
+    usage: () => ipcRenderer.invoke('pi-desktop:sessions:usage'),
     onChanged: subscribe('pi-desktop:sessions:changed'),
     rename: (input) => ipcRenderer.invoke('pi-desktop:sessions:rename', input),
     exportHtml: (input) => ipcRenderer.invoke('pi-desktop:sessions:export-html', input),
@@ -34,13 +35,16 @@ const api: PiDesktopApi = {
   },
   files: {
     list: (input) => ipcRenderer.invoke('pi-desktop:files:list', input),
+    read: (input) => ipcRenderer.invoke('pi-desktop:files:read', input),
     readAttachments: (input) =>
       ipcRenderer.invoke('pi-desktop:files:read-attachments', input)
   },
   projects: {
     list: () => ipcRenderer.invoke('pi-desktop:projects:list'),
     add: (input) => ipcRenderer.invoke('pi-desktop:projects:add', input),
-    showMenu: (input) => ipcRenderer.invoke('pi-desktop:projects:menu', input)
+    showMenu: (input) => ipcRenderer.invoke('pi-desktop:projects:menu', input),
+    createWorktree: (input) => ipcRenderer.invoke('pi-desktop:projects:create-worktree', input),
+    removeWorktree: (input) => ipcRenderer.invoke('pi-desktop:projects:remove-worktree', input)
   },
   settings: {
     get: () => ipcRenderer.invoke('pi-desktop:settings:get')
@@ -73,7 +77,10 @@ const api: PiDesktopApi = {
   },
   diff: {
     status: (input) => ipcRenderer.invoke('pi-desktop:diff:status', input),
-    summary: (input) => ipcRenderer.invoke('pi-desktop:diff:summary', input)
+    summary: (input) => ipcRenderer.invoke('pi-desktop:diff:summary', input),
+    discard: (input) => ipcRenderer.invoke('pi-desktop:diff:discard', input),
+    commit: (input) => ipcRenderer.invoke('pi-desktop:diff:commit', input),
+    push: (input) => ipcRenderer.invoke('pi-desktop:diff:push', input)
   },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),

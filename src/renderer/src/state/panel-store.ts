@@ -37,6 +37,7 @@ export type PanelTab =
       agentChatId?: string
     }
   | { id: string; kind: 'diff' }
+  | { id: string; kind: 'file'; title: string; cwd: string; path: string }
   | { id: string; kind: 'newtab' }
 
 interface PanelState {
@@ -67,6 +68,8 @@ interface PanelState {
   focusAgentTab(id: string, chatId: string): void
   /** Focus the one diff tab, creating it if needed. */
   openDiff(): void
+  /** Show a project file in a viewer tab (one tab per file). */
+  openFile(cwd: string, path: string): void
   /** Focus an existing terminal tab or create a fresh shell terminal. */
   toggleTerminal(cwd: string): void
   activate(id: string): void
@@ -268,6 +271,26 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       open: true,
       tabs: [...s.tabs, { id: DIFF_TAB_ID, kind: 'diff' }],
       activeTabId: DIFF_TAB_ID
+    }))
+  },
+
+  openFile(cwd, path) {
+    if (!get().open) {
+      beginAnimation(set)
+    }
+    const existing = get().tabs.find(
+      (t) => t.kind === 'file' && t.cwd === cwd && t.path === path
+    )
+    if (existing) {
+      set({ open: true, activeTabId: existing.id })
+      return
+    }
+    const id = crypto.randomUUID()
+    const title = path.split('/').filter(Boolean).pop() ?? path
+    set((s) => ({
+      open: true,
+      tabs: [...s.tabs, { id, kind: 'file', title, cwd, path }],
+      activeTabId: id
     }))
   },
 

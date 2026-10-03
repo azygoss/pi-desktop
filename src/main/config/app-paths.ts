@@ -18,6 +18,11 @@ export function workspaceDir(): string {
   return join(appUserDataDir(), 'workspace')
 }
 
+/** Where git worktrees created for projects live (`<repo>/<slug>` inside). */
+export function worktreesDir(): string {
+  return join(appUserDataDir(), 'worktrees')
+}
+
 export async function ensureWorkspaceDir(): Promise<string> {
   const dir = workspaceDir()
   await mkdir(dir, { recursive: true })

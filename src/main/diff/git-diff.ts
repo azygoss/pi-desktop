@@ -84,6 +84,7 @@ export async function getRepoDiff(cwd: string): Promise<RepoDiffResult> {
   return {
     isRepo: true,
     branch: branch.ok ? branch.out.trim() || undefined : undefined,
+    root: repoRoot,
     diffText,
     untracked
   }

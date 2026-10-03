@@ -2,6 +2,7 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  GitBranch,
   MoreHorizontal,
   Pin,
   Plus,
@@ -19,6 +20,7 @@ import { groupByDate } from '../lib/date-groups'
 import { capitalizeName } from '../lib/greeting'
 import { runSessionMenuAction } from '../lib/session-actions'
 import { warmProjectSoon } from '../lib/warm'
+import { newChatInWorktree, removeWorktreeProject } from '../lib/worktree-actions'
 import { Perf } from '../lib/perf'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
@@ -312,11 +314,14 @@ function SessionRow({
 function ProjectRow({
   cwd,
   name,
+  worktree,
   liveByPath,
   autoExpanded
 }: {
   cwd: string
   name: string
+  /** A git worktree the app created — marked with a branch glyph. */
+  worktree?: boolean
   liveByPath: Record<string, LiveCode>
   /** True while the project holds the active chat — stays open regardless. */
   autoExpanded?: boolean
@@ -345,6 +350,15 @@ function ProjectRow({
         break
       case 'new-chat':
         newChatInProject(cwd)
+        break
+      case 'new-worktree':
+        void newChatInWorktree(cwd)
+        break
+      case 'open-in':
+        void window.piDesktop.app.openInMenu({ cwd }).catch(() => {})
+        break
+      case 'remove-worktree':
+        void removeWorktreeProject(cwd, name)
         break
       case 'hide': {
         const current = useAppStore.getState().appSettings.hiddenProjects
@@ -378,6 +392,11 @@ function ProjectRow({
         </span>
         <ProjectSigil seed={cwd} />
         <span className="sidebar-item-label">{name}</span>
+        {worktree && (
+          <span className="worktree-glyph" title="Git worktree">
+            <GitBranch size={10} />
+          </span>
+        )}
         {projectSessions.length > 0 && (
           <span className="sidebar-item-meta sidebar-project-count">
             {projectSessions.length}
@@ -721,6 +740,7 @@ export function Sidebar() {
                     key={project.cwd}
                     cwd={project.cwd}
                     name={project.name}
+                    worktree={project.worktree}
                     liveByPath={liveByPath}
                     autoExpanded={activeChatCwd === project.cwd}
                   />

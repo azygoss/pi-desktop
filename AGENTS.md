@@ -88,8 +88,11 @@ Runtime rules for the app itself:
 - Never log full RPC payloads in production builds (they may contain user code and secrets).
 - Renderer is untrusted: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`,
   strict CSP, and a minimal typed preload API. Validate every IPC input in main.
-- Destructive actions (deleting sessions) go to the OS trash, never `rm`, and require
-  user confirmation.
+- Destructive actions (deleting sessions, discarding an untracked file from the diff
+  panel) go to the OS trash, never `rm`, and require user confirmation.
+- Git actions the renderer can trigger (`src/main/git/`) take a validated cwd and
+  repo-relative paths only, and run `git` through `execFile` — never a shell. The file
+  viewer reads only inside the chat's project folder and never inside the pi agent dir.
 
 ## Pi RPC notes
 
