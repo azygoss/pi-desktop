@@ -1106,34 +1106,34 @@
   font-size: 11.5px;
   line-height: 1.55;
 }
-.diff-line {
+.tool-diff .diff-line {
   display: flex;
   min-width: max-content;
   padding: 0 10px 0 0;
   color: var(--text-2);
   white-space: pre;
 }
-.diff-sign {
+.tool-diff .diff-sign {
   flex: 0 0 22px;
   text-align: center;
   user-select: none;
   color: var(--muted);
 }
-.diff-removed {
+.tool-diff .diff-removed {
   background: color-mix(in srgb, var(--danger) 11%, transparent);
   color: var(--text);
 }
-.diff-removed .diff-sign {
+.tool-diff .diff-removed .diff-sign {
   color: var(--danger);
 }
-.diff-added {
+.tool-diff .diff-added {
   background: color-mix(in srgb, var(--success) 11%, transparent);
   color: var(--text);
 }
-.diff-added .diff-sign {
+.tool-diff .diff-added .diff-sign {
   color: var(--success);
 }
-.diff-gap {
+.tool-diff .diff-gap {
   justify-content: center;
   color: var(--faint);
   user-select: none;
