@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
 import { Lightbox } from './components/Lightbox'
+import { initAutomationBridge } from './lib/automation-runner'
 import { nextOpenChat } from './lib/chat-cycle'
 import { useAppStore } from './state/app-store'
 import { initChatBridge, useChatStore } from './state/chat-store'
@@ -22,6 +23,9 @@ const SettingsModal = lazy(() =>
 const CommandModals = lazy(() =>
   import('./components/CommandModals').then((m) => ({ default: m.CommandModals }))
 )
+const AutomationsModal = lazy(() =>
+  import('./components/AutomationsModal').then((m) => ({ default: m.AutomationsModal }))
+)
 const CommandPalette = lazy(() =>
   import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette }))
 )
@@ -34,6 +38,7 @@ export function App() {
   const chatModal = useAppStore((s) => s.chatModal)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
   const lightboxOpen = useAppStore((s) => s.lightbox !== null)
+  const automationsOpen = useAppStore((s) => s.automationsOpen)
   const panelOpen = usePanelStore((s) => s.open)
   const browserActive = usePanelStore(
     (s) => s.open && s.tabs.find((t) => t.id === s.activeTabId)?.kind === 'browser'
@@ -42,6 +47,7 @@ export function App() {
   useEffect(() => {
     initChatBridge()
     initPanelBridge()
+    initAutomationBridge()
     void useAppStore.getState().init()
     const unsubscribe = window.piDesktop.sessions.onChanged(() => {
       void useAppStore.getState().refreshSessions()
@@ -129,9 +135,10 @@ export function App() {
 
   // DOM overlays must never be painted over by a browser view.
   useEffect(() => {
-    const overlay = settingsOpen || chatModal !== null || paletteOpen || lightboxOpen
+    const overlay =
+      settingsOpen || chatModal !== null || paletteOpen || lightboxOpen || automationsOpen
     void window.piDesktop.browser.setOverlayOpen({ open: overlay }).catch(() => {})
-  }, [settingsOpen, chatModal, paletteOpen, lightboxOpen])
+  }, [settingsOpen, chatModal, paletteOpen, lightboxOpen, automationsOpen])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -237,6 +244,11 @@ export function App() {
       {paletteOpen && (
         <Suspense fallback={null}>
           <CommandPalette />
+        </Suspense>
+      )}
+      {automationsOpen && (
+        <Suspense fallback={null}>
+          <AutomationsModal />
         </Suspense>
       )}
       {settingsOpen && (

@@ -2,6 +2,7 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Clock,
   GitBranch,
   MoreHorizontal,
   Pin,
@@ -668,6 +669,16 @@ export function Sidebar() {
             <Search size={15} />
             <span>Search</span>
             <kbd className="kbd">⌘⇧F</kbd>
+          </button>
+
+          <button
+            type="button"
+            className="sidebar-item"
+            data-testid="open-automations"
+            onClick={() => useAppStore.getState().setAutomationsOpen(true)}
+          >
+            <Clock size={15} />
+            <span>Automations</span>
           </button>
 
           {sidebarSearchOpen && (

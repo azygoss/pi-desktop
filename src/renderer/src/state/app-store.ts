@@ -64,6 +64,8 @@ interface AppState {
   updateInfo: UpdateInfo | null
   /** Slash-command modal open over the current chat (/session, /tree, …). */
   chatModal: 'session' | 'tree' | 'fork' | 'hotkeys' | null
+  /** The Automations window is open. */
+  automationsOpen: boolean
   /** Image shown in the full-window viewer (a data: URL), or null. */
   lightbox: string | null
 
@@ -88,6 +90,7 @@ interface AppState {
   closeSettings(): void
   setChatModal(modal: AppState['chatModal']): void
   setLightbox(src: string | null): void
+  setAutomationsOpen(open: boolean): void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -114,6 +117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateInfo: null,
   chatModal: null,
   lightbox: null,
+  automationsOpen: false,
 
   async init() {
     try {
@@ -331,6 +335,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setLightbox(src) {
     set({ lightbox: src })
+  },
+
+  setAutomationsOpen(open) {
+    set({ automationsOpen: open })
   }
 }))
 

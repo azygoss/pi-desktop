@@ -57,6 +57,14 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 - **Worktrees** — "New Chat in a Worktree" (project menu or ⌘K) gives a chat
   its own git worktree on a fresh `pi/…` branch, so several chats can change
   the same project in parallel without touching each other's files.
+- **Automations** — prompts pi runs on a schedule (daily at a time, weekdays
+  only, or every N minutes/hours) while the app is open. Each run is an
+  ordinary chat that starts in the background and notifies you when it is
+  done; a run missed while the app was closed happens once when it opens.
+- **Pull requests** — when the project's branch has a pull request, the chat
+  header shows its number and check state (via the GitHub CLI, `gh`). The
+  popover lists the checks, drafts a fix prompt with the failed job's log,
+  and can hand failures to pi automatically while the chat is on screen.
 - **Usage** — Settings → Usage shows the last 30 days of tokens and cost by
   day, model and project, read from the usage pi records in each session.
 - **Agent browser** — pi can drive the in-app browser itself through an
@@ -188,7 +196,8 @@ in two small Swift helpers (`resources/cua-helper`,
   chats.
 - Apart from pages you open in the browser panel, Pi Desktop itself makes
   one network request: a daily check of this repository's latest GitHub
-  release (turn it off in Settings → General). Everything else that leaves
+  release (turn it off in Settings → General). In a git project it also
+  runs your own `gh` (when installed) to read the branch's pull request. Everything else that leaves
   your machine is what the pi agent sends to its configured model
   providers — including screenshots and accessibility trees when it uses
   computer use.
@@ -226,6 +235,7 @@ Environment overrides (tests and development):
 | `PI_DESKTOP_USER_DATA_DIR` | App data directory instead of Electron's userData |
 | `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` | pi's agent / sessions directory |
 | `PI_DESKTOP_CUA_HELPER` / `PI_DESKTOP_DICTATION_HELPER` | Custom helper binaries |
+| `PI_DESKTOP_GH_COMMAND` | Stand-in for the GitHub CLI (the e2e suite uses `test/fixtures/fake-gh.mjs`) |
 | `PI_DESKTOP_PERF=1` | React commit counters read by `scripts/perf.mjs` |
 
 ## Contributing

@@ -624,3 +624,124 @@ button.sidebar-section-header:hover {
   color: var(--muted);
   flex-shrink: 0;
 }
+
+/* Pull request chip and its popover in the chat header. */
+.pr-chip-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.pr-chip-label {
+  color: var(--muted);
+}
+.pr-failing {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.pr-failing .pr-chip-label {
+  color: var(--danger);
+}
+.pr-passing .pr-chip-label {
+  color: var(--success);
+}
+.pr-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 320px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  animation: fade-in 120ms ease-out;
+}
+.pr-popover-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pr-popover-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.pr-checks {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0 -6px;
+}
+.pr-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pr-check:disabled {
+  cursor: default;
+}
+.pr-check:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.pr-check-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.pr-check-pass {
+  color: var(--success);
+}
+.pr-check-fail {
+  color: var(--danger);
+}
+.pr-check-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-check-state {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.pr-autofix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pr-popover-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pr-popover {
+    animation: none;
+  }
+}
