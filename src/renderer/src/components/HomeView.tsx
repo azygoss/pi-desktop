@@ -1,11 +1,13 @@
 import { Check, ExternalLink, RotateCcw, Terminal } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import type { CuaPermissions } from '../../../shared/api'
 import { openPiTerminal } from '../state/panel-store'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { Composer } from './Composer'
+import { Elapsed, LiveDot } from './LiveIndicators'
 import { PiLogo } from './PiLogo'
 import { ProjectSigil, ScratchSigil } from './Pixels'
 import { isProjectless, openSession, relativeTime } from './Sidebar'
@@ -177,6 +179,7 @@ export function HomeView() {
               </span>
             </div>
             <WelcomeChecklist modelCount={chat?.models.length ?? 0} />
+            <ActiveChats />
             <RecentChats />
           </>
         )}
@@ -186,6 +189,77 @@ export function HomeView() {
 }
 
 const RECENT_LIMIT = 5
+
+/**
+ * Chats that are working, waiting on the user, or finished while unseen —
+ * what needs attention, above what was merely recent.
+ */
+function ActiveChats() {
+  const navigate = useAppStore((s) => s.navigate)
+  // One compact string per chat keeps the selector shallow-equal while a
+  // stream only changes message deltas.
+  const rows = useChatStore(
+    useShallow((s) =>
+      Object.values(s.chats)
+        .filter((c) => c.messages.length > 0)
+        .map((c) => {
+          const needsInput =
+            c.uiRequest?.method === 'confirm' ||
+            c.uiRequest?.method === 'select' ||
+            c.uiRequest?.method === 'input' ||
+            c.uiRequest?.method === 'editor'
+          const state = needsInput
+            ? 'input'
+            : c.status === 'streaming' || c.bashRunning
+              ? 'working'
+              : c.unread
+                ? 'unread'
+                : ''
+          return state ? `${state}\n${c.chatId}\n${c.runStartedAt ?? ''}\n${c.title}` : ''
+        })
+        .filter(Boolean)
+    )
+  )
+  if (rows.length === 0) {
+    return null
+  }
+  return (
+    <section className="home-recent home-active" aria-label="Active chats">
+      <div className="home-recent-head">
+        <span className="section-label">Active</span>
+        <span className="home-recent-rule" />
+      </div>
+      {rows.map((row) => {
+        const [state, chatId, startedAt, ...titleParts] = row.split('\n')
+        const title = titleParts.join('\n')
+        return (
+          <button
+            key={chatId}
+            type="button"
+            className="home-recent-row"
+            title={title}
+            onClick={() => navigate({ kind: 'chat', chatId: chatId! })}
+          >
+            {state === 'input' ? (
+              <LiveDot className="input-dot" />
+            ) : state === 'working' ? (
+              <LiveDot className="live-dot" />
+            ) : (
+              <span className="unread-dot" />
+            )}
+            <span className="home-recent-title">{title}</span>
+            <span className="home-recent-project">
+              {state === 'input' ? 'needs you' : state === 'working' ? 'working' : 'new reply'}
+            </span>
+            <span className="home-recent-time">
+              {state === 'working' && startedAt ? <Elapsed since={Number(startedAt)} /> : ''}
+            </span>
+          </button>
+        )
+      })}
+    </section>
+  )
+}
 
 /**
  * The last few chats across every project, so picking up yesterday's work

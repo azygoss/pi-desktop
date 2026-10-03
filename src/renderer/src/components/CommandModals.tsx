@@ -254,7 +254,11 @@ function TreeModal({ chatId, onClose }: { chatId: string; onClose(): void }) {
 
 const HOTKEYS: { keys: string; action: string }[] = [
   { keys: '⌘N', action: 'New chat' },
-  { keys: '⌘K', action: 'Search chats' },
+  { keys: '⌘K', action: 'Search chats, conversations and actions' },
+  { keys: '⌘F', action: 'Find in chat' },
+  { keys: '⌃Tab / ⌃⇧Tab', action: 'Next / previous open chat' },
+  { keys: '⌥↑ / ⌥↓', action: 'Previous / next prompt' },
+  { keys: '⌘↑ / ⌘↓', action: 'Top / bottom of the chat' },
   { keys: '⌘B', action: 'Toggle sidebar' },
   { keys: '⌘[ / ⌘]', action: 'Back / forward' },
   { keys: '⌘,', action: 'Settings' },
@@ -263,7 +267,12 @@ const HOTKEYS: { keys: string; action: string }[] = [
   { keys: 'Enter (streaming)', action: 'Steer the running turn' },
   { keys: '⌥Enter (streaming)', action: 'Queue a follow-up' },
   { keys: '⇧Enter', action: 'Newline in the composer' },
-  { keys: '/', action: 'Slash commands (first character)' }
+  { keys: '↑ / ↓ (empty composer)', action: 'Earlier / later prompts' },
+  { keys: '/', action: 'Slash commands (first character)' },
+  { keys: '@', action: 'Mention a project file' },
+  { keys: '!', action: 'Run a shell command (first character)' },
+  { keys: '⌘U', action: 'Attach files' },
+  { keys: '⌘⌥B', action: 'Toggle the side panel' }
 ]
 
 function HotkeysModal({ onClose }: { onClose(): void }) {

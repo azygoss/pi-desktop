@@ -533,6 +533,44 @@ button.sidebar-section-header:hover {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+.chat-cwd {
+  background: transparent;
+  cursor: pointer;
+}
+.chat-cwd:hover,
+.repo-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-2);
+}
+.repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-shrink: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 7px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.repo-chip svg {
+  flex-shrink: 0;
+}
+.repo-chip-branch {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-chip-stat {
+  display: inline-flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
 .chat-cwd .sigil {
   width: 11px;
   height: 11px;

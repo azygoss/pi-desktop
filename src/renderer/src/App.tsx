@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
 import { Lightbox } from './components/Lightbox'
+import { nextOpenChat } from './lib/chat-cycle'
 import { useAppStore } from './state/app-store'
 import { initChatBridge, useChatStore } from './state/chat-store'
 import { initPanelBridge, usePanelStore } from './state/panel-store'
@@ -171,6 +172,21 @@ export function App() {
           view.kind === 'chat' ? useChatStore.getState().chats[view.chatId] : undefined
         const cwd = chat?.cwd || store.appInfo?.workspaceDir || '/'
         usePanelStore.getState().toggleTerminal(cwd)
+        return
+      }
+      // ⌃Tab / ⌃⇧Tab: cycle through the chats that are open in this window.
+      if (e.ctrlKey && !e.metaKey && e.key === 'Tab') {
+        e.preventDefault()
+        const next = nextOpenChat(
+          Object.values(useChatStore.getState().chats)
+            .filter((c) => c.messages.length > 0)
+            .map((c) => c.chatId),
+          store.view.kind === 'chat' ? store.view.chatId : null,
+          e.shiftKey ? -1 : 1
+        )
+        if (next) {
+          store.navigate({ kind: 'chat', chatId: next })
+        }
         return
       }
       if (!e.metaKey && !e.ctrlKey) {

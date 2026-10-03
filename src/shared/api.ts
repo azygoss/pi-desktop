@@ -364,6 +364,27 @@ export interface RepoDiffResult {
   untracked: { path: string; content: string }[]
 }
 
+/** A session whose conversation text matches a search. */
+export interface SessionSearchHit {
+  sessionPath: string
+  /** Who wrote the first matching message. */
+  role: 'user' | 'assistant'
+  /** One-line excerpt around the first match. */
+  snippet: string
+  /** Matching messages in this session. */
+  matches: number
+}
+
+/** Working-tree summary shown in the chat header. */
+export interface RepoSummary {
+  isRepo: boolean
+  branch?: string
+  /** Changed files, tracked and untracked. */
+  files: number
+  added: number
+  removed: number
+}
+
 /** Actions dispatched from the native application menu. */
 export type MenuAction = 'open-settings' | 'toggle-sidebar' | 'new-chat' | 'find-in-chat'
 
@@ -396,6 +417,8 @@ export interface PiDesktopApi {
   }
   sessions: {
     list(): Promise<SessionSummary[]>
+    /** Full-text search over prompts and replies (3+ characters). */
+    search(input: { query: string }): Promise<SessionSearchHit[]>
     /** Subscribe to session-index changes; returns an unsubscribe function. */
     onChanged(callback: () => void): () => void
     /** Rename via pi's set_session_name (works on closed sessions too). */
@@ -465,6 +488,8 @@ export interface PiDesktopApi {
   diff: {
     /** Git status + unified diff for a directory; isRepo=false when not git. */
     status(input: { cwd: string }): Promise<RepoDiffResult>
+    /** Branch and change counts only (cheap; polled by the chat header). */
+    summary(input: { cwd: string }): Promise<RepoSummary>
   }
   projects: {
     list(): Promise<ProjectSummary[]>
@@ -493,6 +518,11 @@ export interface PiDesktopApi {
     pathForFile(file: File): string
     /** Native save dialog; resolves to the chosen path or null. */
     saveFile(input: { defaultPath?: string; extension: string }): Promise<string | null>
+    /**
+     * Native "Open in" menu for a project folder: the file manager, a
+     * terminal and any installed editors. Main performs the chosen action.
+     */
+    openInMenu(input: { cwd: string }): Promise<void>
     /** Reveal a path in the OS file manager. */
     revealPath(path: string): Promise<void>
     /** Native confirm/message dialog; resolves to the clicked button index. */

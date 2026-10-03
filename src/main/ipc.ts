@@ -2,7 +2,7 @@ import { basename, delimiter, isAbsolute, resolve } from 'node:path'
 import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
-import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import type {
   AppSettings,
   BrowserRect,
@@ -25,7 +25,8 @@ import { workspaceDir } from './config/app-paths'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
 import { BrowserManager } from './browser/browser-manager'
-import { getRepoDiff } from './diff/git-diff'
+import { getRepoDiff, getRepoSummary } from './diff/git-diff'
+import { listOpenTargets, openInTarget } from './open-in'
 import { importSessionFile } from './sessions/import-session'
 import { getAgentDir } from './sessions/paths'
 import {
@@ -35,6 +36,7 @@ import {
 } from './sessions/session-meta'
 import { listSessions, watchSessions } from './sessions/session-index'
 import { readSessionTranscript } from './sessions/transcript'
+import { searchSessions } from './sessions/session-search'
 import { getCatalogCache } from './config/catalog-cache'
 import { mergeProjects } from './sessions/projects'
 import { PtyManager } from './terminal/pty-manager'
@@ -44,6 +46,7 @@ import { readAttachments } from './files/attachments'
 export const IPC_CHANNELS = {
   runtimeInfo: 'pi-desktop:runtime:info',
   sessionsList: 'pi-desktop:sessions:list',
+  sessionsSearch: 'pi-desktop:sessions:search',
   projectsList: 'pi-desktop:projects:list',
   settingsGet: 'pi-desktop:settings:get',
   appUserFirstName: 'pi-desktop:app:user-first-name',
@@ -121,6 +124,8 @@ export const IPC_CHANNELS = {
   browserDownloaded: 'pi-desktop:browser:downloaded',
   browserAgentTab: 'pi-desktop:browser:agent-tab',
   diffStatus: 'pi-desktop:diff:status',
+  diffSummary: 'pi-desktop:diff:summary',
+  appOpenInMenu: 'pi-desktop:app:open-in-menu',
   appQuit: 'pi-desktop:app:quit',
   appOpenExternal: 'pi-desktop:app:open-external',
   appLocalServers: 'pi-desktop:app:local-servers',
@@ -252,6 +257,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
     const hidden = new Set(settings.hiddenProjects)
     return sessions.filter((s) => !hidden.has(s.cwd))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.sessionsSearch, async (_e, input: { query?: unknown }) => {
+    const query = typeof input?.query === 'string' ? input.query.slice(0, 200) : ''
+    const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
+    const hidden = new Set(settings.hiddenProjects)
+    return searchSessions(
+      sessions.filter((s) => !hidden.has(s.cwd)).map((s) => s.path),
+      query
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.projectsList, async () => {
@@ -862,6 +877,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IPC_CHANNELS.diffStatus, (_e, input: { cwd: string }) =>
     validateCwd(input?.cwd).then((cwd) => getRepoDiff(cwd))
   )
+
+  ipcMain.handle(IPC_CHANNELS.diffSummary, (_e, input: { cwd: string }) =>
+    validateCwd(input?.cwd).then((cwd) => getRepoSummary(cwd))
+  )
+
+  // "Open in": the menu is built and acted on here, so the renderer never
+  // names an application to launch.
+  ipcMain.handle(IPC_CHANNELS.appOpenInMenu, async (event, input: { cwd: string }) => {
+    const cwd = await validateCwd(input?.cwd)
+    const targets = await listOpenTargets()
+    const fileManager = process.platform === 'darwin' ? 'Finder' : 'File Manager'
+    const choice = await popupMenu<string>(event, [
+      { id: 'finder', label: fileManager },
+      ...(targets.length > 0 ? [{ type: 'separator' as const }] : []),
+      ...targets.map((t) => ({ id: t.id, label: t.label })),
+      { type: 'separator' as const },
+      { id: 'copy', label: 'Copy Path' }
+    ])
+    if (choice === 'finder') {
+      await shell.openPath(cwd)
+    } else if (choice === 'copy') {
+      clipboard.writeText(cwd)
+    } else if (choice) {
+      const target = targets.find((t) => t.id === choice)
+      if (target) {
+        await openInTarget(target, cwd)
+      }
+    }
+  })
 
   // --- Release updates ------------------------------------------------------
 

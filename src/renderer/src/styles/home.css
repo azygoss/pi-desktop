@@ -242,3 +242,11 @@
 .onboarding-done {
   align-self: flex-end;
 }
+
+/* Active chats: status pixel, title, state, elapsed. */
+.home-active .home-recent-row {
+  grid-template-columns: 12px minmax(0, 1fr) auto 56px;
+}
+.home-active .home-recent-row > :first-child {
+  justify-self: center;
+}
