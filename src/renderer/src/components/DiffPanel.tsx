@@ -7,6 +7,7 @@ import {
   GitCommitHorizontal,
   Plus,
   RefreshCw,
+  ScanSearch,
   Send,
   Undo2,
   X
@@ -25,7 +26,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
-import { reviewPrompt, type ReviewComment } from '../lib/review-comments'
+import { anchorForLine, reviewPrompt, type ReviewComment } from '../lib/review-comments'
 import { joinPath } from '../lib/paths'
 
 const COLLAPSE_LINES = 400
@@ -155,8 +156,16 @@ const DiffFileView = memo(function DiffFileView({
                         </span>
                       </div>
                       {notes?.map((note) => (
-                        <div key={note.id} className="diff-comment">
-                          <span className="diff-comment-text">{note.text}</span>
+                        <div
+                          key={note.id}
+                          className={
+                            note.author === 'pi' ? 'diff-comment diff-comment-pi' : 'diff-comment'
+                          }
+                        >
+                          <span className="diff-comment-text">
+                            {note.author === 'pi' && <span className="diff-comment-by">pi</span>}
+                            {note.text}
+                          </span>
                           <button
                             type="button"
                             className="icon-btn"
@@ -311,7 +320,7 @@ export function DiffPanel({ active }: { active: boolean }) {
   const [comments, setComments] = useState<(ReviewComment & { key: string })[]>([])
   const [commitOpen, setCommitOpen] = useState(false)
   const [commitMessage, setCommitMessage] = useState('')
-  const [busy, setBusy] = useState<'commit' | 'push' | null>(null)
+  const [busy, setBusy] = useState<'commit' | 'push' | 'review' | null>(null)
 
   const refresh = useCallback(async () => {
     if (!cwd) {
@@ -406,6 +415,66 @@ export function DiffPanel({ active }: { active: boolean }) {
     return byFile
   }, [comments])
 
+  // Ask pi for a review pass (in its own session-less process) and pin its
+  // remarks to the diff lines they are about.
+  const review = async (): Promise<void> => {
+    if (busy) {
+      return
+    }
+    setBusy('review')
+    const chat = chatId ? useChatStore.getState().chats[chatId] : undefined
+    const model = chat?.model
+      ? { provider: chat.model.provider, modelId: chat.model.id }
+      : undefined
+    let remarks
+    try {
+      remarks = await window.piDesktop.diff.review({ cwd, ...(model ? { model } : {}) })
+    } catch (e) {
+      setBusy(null)
+      toast(`Review failed: ${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
+    setBusy(null)
+    if (remarks === null) {
+      toast("pi's review could not be read")
+      return
+    }
+    const placed: (ReviewComment & { key: string })[] = []
+    for (const remark of remarks) {
+      const file = files.find((f) => f.path === remark.path)
+      const anchor = file ? anchorForLine(file, remark.line) : null
+      if (!file || !anchor) {
+        continue
+      }
+      placed.push({
+        id: crypto.randomUUID(),
+        key: anchor.key,
+        path: file.path,
+        line: anchor.exact ? anchor.line : remark.line,
+        lineText: anchor.exact ? anchor.lineText : '',
+        text:
+          !anchor.exact && remark.line !== undefined
+            ? `Line ${remark.line}: ${remark.comment}`
+            : remark.comment,
+        author: 'pi'
+      })
+    }
+    // A new pass replaces pi's earlier remarks; yours stay.
+    setComments((prev) => [...prev.filter((c) => c.author !== 'pi'), ...placed])
+    setToggled((prev) => {
+      const next = new Map(prev)
+      for (const comment of placed) {
+        next.set(comment.path, true)
+      }
+      return next
+    })
+    toast(
+      placed.length === 0
+        ? 'pi found nothing to flag'
+        : `pi left ${placed.length} ${placed.length === 1 ? 'remark' : 'remarks'}`
+    )
+  }
+
   const sendComments = (): void => {
     if (!chatId || comments.length === 0) {
       return
@@ -491,6 +560,19 @@ export function DiffPanel({ active }: { active: boolean }) {
             >
               <Send size={11} />
               {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            </button>
+          )}
+          {result?.isRepo && files.length > 0 && (
+            <button
+              type="button"
+              className="diff-action"
+              data-testid="review-diff"
+              title="Have pi review these changes"
+              disabled={busy !== null}
+              onClick={() => void review()}
+            >
+              <ScanSearch size={12} />
+              {busy === 'review' ? 'Reviewing…' : 'Review'}
             </button>
           )}
           {result?.isRepo && files.length > 0 && (

@@ -8,6 +8,7 @@ import {
   Copy,
   CornerUpLeft,
   File,
+  History,
   Layers,
   ListTree,
   Pause,
@@ -48,6 +49,7 @@ import {
 } from '../lib/find'
 import { splitMentions } from '../lib/mentions'
 import { setSessionArchived } from '../lib/session-actions'
+import { restoreCheckpoint } from '../lib/checkpoint-actions'
 import { Perf } from '../lib/perf'
 import { computerGroupApp, summarizeToolRuns } from '../lib/tool-summary'
 import { formatDuration } from '../lib/trace'
@@ -582,6 +584,7 @@ function MessageRow({
   meta,
   pinnedActions,
   onFork,
+  onRestore,
   onRetry
 }: {
   message: DisplayMessage
@@ -602,6 +605,8 @@ function MessageRow({
   /** Keep the actions row visible without hover (last assistant turn). */
   pinnedActions?: boolean
   onFork?: (userIndex: number) => void
+  /** Restore the project's files to a prompt's checkpoint (idle chats only). */
+  onRestore?: (checkpoint: string) => void
   /** Retry handler; set only on the last assistant message. */
   onRetry?: () => void
 }) {
@@ -655,6 +660,17 @@ function MessageRow({
         </div>
         <div className="msg-actions">
           <CopyButton text={rest || message.text} />
+          {message.checkpoint && onRestore && (
+            <button
+              type="button"
+              className="icon-btn msg-action"
+              data-testid="restore-checkpoint"
+              title="Restore the files to before this prompt"
+              onClick={() => onRestore(message.checkpoint!)}
+            >
+              <History size={12} />
+            </button>
+          )}
           {onFork !== undefined && userIndex !== undefined && (
             <button
               type="button"
@@ -795,6 +811,7 @@ const MemoMessageRow = memo(
       prev.message !== next.message ||
       prev.userIndex !== next.userIndex ||
       prev.onFork !== next.onFork ||
+      prev.onRestore !== next.onRestore ||
       prev.onRetry !== next.onRetry ||
       prev.midx !== next.midx ||
       prev.cwd !== next.cwd ||
@@ -1243,6 +1260,16 @@ export function ChatView({ chatId }: { chatId: string }) {
         .getState()
         .forkFromUserMessage(chatId, userIdx)
         .catch(() => {})
+    },
+    [chatId]
+  )
+
+  const onRestoreCheckpoint = useCallback(
+    (checkpoint: string) => {
+      const cwd = useChatStore.getState().chats[chatId]?.cwd
+      if (cwd) {
+        void restoreCheckpoint(cwd, checkpoint)
+      }
     },
     [chatId]
   )
@@ -1710,6 +1737,7 @@ export function ChatView({ chatId }: { chatId: string }) {
                     userIndex={idx}
                     meta={messageMeta(m, chat.models)}
                     onFork={canFork ? onForkMessage : undefined}
+                    onRestore={chat.status === 'idle' ? onRestoreCheckpoint : undefined}
                   />
                 </Perf>
               )

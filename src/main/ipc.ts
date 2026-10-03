@@ -40,6 +40,9 @@ import {
   setAutomationSession
 } from './automations/automation-store'
 import { getFailedLog, getPrStatus } from './git/pr-status'
+import { createCheckpoint, restoreCheckpoint } from './git/checkpoints'
+import type { SideChatService } from './chat/side-service'
+import { REVIEW_PROMPT, parseReviewComments } from '../shared/review'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
 import { BrowserManager } from './browser/browser-manager'
@@ -153,6 +156,13 @@ export const IPC_CHANNELS = {
   automationsChanged: 'pi-desktop:automations:changed',
   prStatus: 'pi-desktop:pr:status',
   prFailedLog: 'pi-desktop:pr:failed-log',
+  diffReview: 'pi-desktop:diff:review',
+  checkpointsCreate: 'pi-desktop:checkpoints:create',
+  checkpointsRestore: 'pi-desktop:checkpoints:restore',
+  sideOpen: 'pi-desktop:side:open',
+  sideSend: 'pi-desktop:side:send',
+  sideAbort: 'pi-desktop:side:abort',
+  sideClose: 'pi-desktop:side:close',
   diffDiscard: 'pi-desktop:diff:discard',
   diffCommit: 'pi-desktop:diff:commit',
   diffPush: 'pi-desktop:diff:push',
@@ -218,6 +228,8 @@ export interface IpcDeps {
       | { status: 'unavailable' }
     >
   }
+  /** Side chats and one-shot asks; absent in unit-test setups. */
+  side?: SideChatService
   /** Automation scheduler; absent in unit-test setups. */
   automations?: {
     /** The list changed — re-aim the timer. */
@@ -361,6 +373,50 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const cwd = await validateCwd(input?.cwd)
     // The pi agent dir holds credentials; the app never reads them.
     return readProjectFile(cwd, input?.path, [getAgentDir()])
+  })
+
+  // --- Checkpoints, side chats, review ----------------------------------------
+
+  ipcMain.handle(IPC_CHANNELS.checkpointsCreate, async (_e, input: { cwd: string }) =>
+    createCheckpoint(await validateCwd(input?.cwd))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.checkpointsRestore,
+    async (_e, input: { cwd: string; checkpoint?: unknown }) =>
+      restoreCheckpoint(await validateCwd(input?.cwd), input?.checkpoint, (absolute) =>
+        shell.trashItem(absolute)
+      )
+  )
+  const requireSide = (): SideChatService => {
+    if (!deps.side) {
+      throw new Error('Side chats are not available')
+    }
+    return deps.side
+  }
+  ipcMain.handle(IPC_CHANNELS.sideOpen, (_e, input: Record<string, unknown>) =>
+    requireSide().open({
+      sideId: input?.['sideId'],
+      cwd: input?.['cwd'],
+      ...(input?.['sessionPath'] !== undefined ? { sessionPath: input['sessionPath'] } : {}),
+      model: input?.['model']
+    })
+  )
+  ipcMain.handle(IPC_CHANNELS.sideSend, (_e, input: Record<string, unknown>) =>
+    requireSide().send({ sideId: input?.['sideId'], message: input?.['message'] })
+  )
+  ipcMain.handle(IPC_CHANNELS.sideAbort, (_e, input: Record<string, unknown>) =>
+    requireSide().abort({ sideId: input?.['sideId'] })
+  )
+  ipcMain.handle(IPC_CHANNELS.sideClose, (_e, input: Record<string, unknown>) =>
+    requireSide().close({ sideId: input?.['sideId'] })
+  )
+  ipcMain.handle(IPC_CHANNELS.diffReview, async (_e, input: Record<string, unknown>) => {
+    const reply = await requireSide().ask({
+      cwd: input?.['cwd'],
+      prompt: REVIEW_PROMPT,
+      model: input?.['model']
+    })
+    return parseReviewComments(reply)
   })
 
   // --- Automations ----------------------------------------------------------
@@ -546,6 +602,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         !input.buttons.every((b) => typeof b === 'string' && b.length > 0 && b.length < 64)
       ) {
         throw new Error('Invalid dialog input')
+      }
+      // E2E hook: answer with a fixed button instead of showing the dialog.
+      const stub = process.env['PI_DESKTOP_CONFIRM_CHOICE']
+      if (process.env['PI_DESKTOP_E2E'] === '1' && stub !== undefined && /^\d$/.test(stub)) {
+        return Math.min(Number(stub), input.buttons.length - 1)
       }
       const win = BrowserWindow.fromWebContents(event.sender)
       const result = await dialog.showMessageBox(win ?? BrowserWindow.getAllWindows()[0]!, {
@@ -1267,6 +1328,7 @@ export function startSessionWatcher(): () => void {
 
 export function wireAppLifecycle(deps: IpcDeps): void {
   app.on('before-quit', () => {
+    void deps.side?.closeAll()
     void deps.chat.closeAll()
     void deps.pty.killAll()
     deps.browser.closeAll()

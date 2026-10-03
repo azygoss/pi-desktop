@@ -13,6 +13,18 @@ import type {
 import type { PiRuntimeInfo, PiSettings, ProjectSummary, SessionSummary } from './session-types'
 import type { Automation, AutomationSchedule } from './automations'
 import type { PrStatus } from './pr-status'
+import type { PiReviewComment } from './review'
+
+/** Which model a side chat or review pass should use (the chat's own). */
+export interface SideModelInput {
+  provider: string
+  modelId: string
+}
+
+export interface SideEventPayload {
+  sideId: string
+  events: PiEvent[]
+}
 
 /** Editable fields of an automation; `id` updates an existing one. */
 export interface AutomationInput {
@@ -412,6 +424,16 @@ export interface GitActionResult {
   message: string
 }
 
+/** Outcome of restoring a checkpoint. */
+export interface CheckpointRestoreResult {
+  /** Files put back (changed or deleted since the checkpoint). */
+  restored: number
+  /** Files created since the checkpoint, moved to the OS trash. */
+  trashed: number
+  /** Checkpoint of the state just before restoring, to undo it. */
+  undo: string
+}
+
 /** A worktree the app created for a project. */
 export interface WorktreeInfo {
   cwd: string
@@ -565,6 +587,11 @@ export interface PiDesktopApi {
     commit(input: { cwd: string; message: string }): Promise<GitActionResult>
     /** Push the current branch (sets the upstream on the first push). */
     push(input: { cwd: string }): Promise<GitActionResult>
+    /**
+     * Have pi review the working-tree changes in a separate, session-less
+     * process. Null when pi's reply was not a list of comments.
+     */
+    review(input: { cwd: string; model?: SideModelInput }): Promise<PiReviewComment[] | null>
   }
   projects: {
     list(): Promise<ProjectSummary[]>
@@ -682,6 +709,30 @@ export interface PiDesktopApi {
     onUiRequest(callback: (payload: ChatUiRequestPayload) => void): () => void
     onExit(callback: (payload: ChatExitPayload) => void): () => void
     onStartupHint(callback: (payload: ChatStartupHintPayload) => void): () => void
+  }
+  /** Snapshots of a git project's files, taken before each prompt. */
+  checkpoints: {
+    /** Record the working tree now; null outside a git repository. */
+    create(input: { cwd: string }): Promise<string | null>
+    /** Put the files back to a checkpoint (new files go to the OS trash). */
+    restore(input: { cwd: string; checkpoint: string }): Promise<CheckpointRestoreResult>
+  }
+  /**
+   * Side chats: questions answered with a chat's context that leave nothing
+   * in it (pi runs on a scratch copy of the session).
+   */
+  side: {
+    open(input: {
+      sideId: string
+      cwd: string
+      sessionPath?: string
+      model?: SideModelInput
+    }): Promise<void>
+    send(input: { sideId: string; message: string }): Promise<void>
+    abort(input: { sideId: string }): Promise<void>
+    close(input: { sideId: string }): Promise<void>
+    onEvent(callback: (payload: SideEventPayload) => void): () => void
+    onExit(callback: (payload: { sideId: string }) => void): () => void
   }
   /** Prompts pi runs on a schedule while the app is open. */
   automations: {

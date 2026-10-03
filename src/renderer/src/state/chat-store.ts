@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useAppStore } from './app-store'
 import { toast } from './toast-store'
 import { dropComposerDraft } from '../lib/composer-drafts'
+import { takeCheckpoint } from '../lib/checkpoint-actions'
 import { titleFromUserText } from '../../../shared/skill-prefix'
 import type {
   ChatOpenResult,
@@ -766,6 +767,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     // Still starting → keep the "Starting pi" status; the send is queued.
     draft.status = draft.piReady === false ? 'starting' : 'streaming'
     publish(chatId)
+    // Snapshot the project's files before pi can touch them, so this prompt's
+    // changes can be undone later. Skipped for a pi that is still starting
+    // (the queued send must not wait on git) and outside git repositories.
+    if (mode === 'prompt' && draft.piReady !== false) {
+      const checkpoint = await takeCheckpoint(draft.cwd)
+      const current = drafts.get(chatId)
+      if (checkpoint && current) {
+        const index = current.messages.findIndex((m) => m.key === display.key)
+        const row = current.messages[index]
+        if (row?.kind === 'user') {
+          current.messages[index] = { ...row, checkpoint }
+          publish(chatId)
+        }
+      }
+    }
     try {
       await window.piDesktop.chat.send({ chatId, message, images, mode })
     } catch (error) {

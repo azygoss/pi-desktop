@@ -41,6 +41,8 @@ export type DisplayMessage =
       images: ImageContent[]
       /** Sent while pi was still starting; delivered once it is ready. */
       queued?: boolean
+      /** Snapshot of the project's files taken just before this prompt. */
+      checkpoint?: string
       timestamp?: number
     }
   | {
@@ -414,11 +416,23 @@ function applyAssistantDelta(
   }
 }
 
+/** pi's echo of a prompt the app already shows: keep our key and checkpoint. */
+function keepLocal(
+  echo: Extract<DisplayMessage, { kind: 'user' }>,
+  local: Extract<DisplayMessage, { kind: 'user' }>
+): DisplayMessage {
+  return {
+    ...echo,
+    key: local.key,
+    ...(local.checkpoint ? { checkpoint: local.checkpoint } : {})
+  }
+}
+
 /** Push a display message, deduping user echoes of optimistic local sends. */
 function pushDeduped(state: ChatViewState, display: DisplayMessage): void {
   const last = lastMessage(state)
   if (display.kind === 'user' && last?.kind === 'user' && last.text === display.text) {
-    state.messages[state.messages.length - 1] = { ...display, key: last.key }
+    state.messages[state.messages.length - 1] = keepLocal(display, last)
     return
   }
   if (display.kind === 'bash' && last?.kind === 'bash' && last.command === display.command) {
@@ -536,7 +550,7 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
         state.messages[state.messages.length - 1] = { ...display, key: last.key }
       } else if (display.kind === 'user' && last?.kind === 'user' && last.text === display.text) {
         // Echo of an optimistically appended user message: keep our key.
-        state.messages[state.messages.length - 1] = { ...display, key: last.key }
+        state.messages[state.messages.length - 1] = keepLocal(display, last)
       } else if (
         display.kind === 'bash' &&
         last?.kind === 'bash' &&

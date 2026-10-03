@@ -97,6 +97,13 @@ export const APP_COMMANDS: SlashCommandItem[] = [
     idleOnly: true
   },
   {
+    name: 'btw',
+    description: 'Ask a side question that stays out of this chat',
+    source: 'app',
+    takesArgs: true,
+    chatOnly: true
+  },
+  {
     name: 'compact',
     description: 'Compact context (optional instructions)',
     source: 'app',

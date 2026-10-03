@@ -256,6 +256,7 @@ const HOTKEYS: { keys: string; action: string }[] = [
   { keys: '⌘N', action: 'New chat' },
   { keys: '⌘K', action: 'Search chats, conversations and actions' },
   { keys: '⌘F', action: 'Find in chat' },
+  { keys: '⌘;', action: 'Ask a side question' },
   { keys: '⌃Tab / ⌃⇧Tab', action: 'Next / previous open chat' },
   { keys: '⌥↑ / ⌥↓', action: 'Previous / next prompt' },
   { keys: '⌘↑ / ⌘↓', action: 'Top / bottom of the chat' },

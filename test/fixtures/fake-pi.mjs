@@ -551,6 +551,35 @@ function settleAskedTurn() {
  * a failing bash — so e2e can cover grouped tool summaries, diff stats and the
  * failed-tool counter.
  */
+/** A plain text reply with no thinking or tools. */
+async function scriptedTextReply(text) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  writeLine({ type: 'turn_start' })
+  const message = {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...message, content: [] } })
+  await sleep(DELAY_MS)
+  writeLine({
+    type: 'message_update',
+    usage: USAGE,
+    assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: text }
+  })
+  writeLine({ type: 'message_end', message })
+  writeLine({ type: 'turn_end', message, toolResults: [] })
+  streaming = false
+  writeLine({ type: 'agent_end', messages: [message], willRetry: false })
+  writeLine({ type: 'agent_settled' })
+}
+
 async function scriptedGroupReply(promptMessage) {
   streaming = true
   writeLine({ type: 'agent_start' })
@@ -1028,7 +1057,14 @@ function handle(command) {
       if (ctxMatch) {
         statsPct = Number(ctxMatch[1])
       }
-      if (/\bask me\b/i.test(String(command.message))) {
+      if (/Output only a JSON array/.test(String(command.message))) {
+        // The diff panel's review pass: a machine-readable list of remarks.
+        void scriptedTextReply(
+          '```json\n[{"path":"notes.txt","line":1,"comment":"Synthetic review remark."}]\n```'
+        )
+      } else if (/\bside question\b/i.test(String(command.message))) {
+        void scriptedTextReply('Synthetic side answer.')
+      } else if (/\bask me\b/i.test(String(command.message))) {
         void scriptedAskReply(command.message)
       } else if (/long tool/i.test(String(command.message))) {
         void scriptedLongTool(command.message)

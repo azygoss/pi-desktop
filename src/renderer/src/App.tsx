@@ -149,6 +149,12 @@ export function App() {
         usePanelStore.getState().togglePanel()
         return
       }
+      // ⌘;: ask a side question about the chat on screen.
+      if (e.metaKey && !e.shiftKey && !e.altKey && e.key === ';' && store.view.kind === 'chat') {
+        e.preventDefault()
+        usePanelStore.getState().openSide(store.view.chatId)
+        return
+      }
       // ⌘L: focus the new-tab page's omnibox (opens a tab when needed).
       if (e.metaKey && e.key === 'l' && usePanelStore.getState().open) {
         e.preventDefault()

@@ -6,6 +6,7 @@ import {
   FolderOpen,
   GitBranch,
   GitPullRequest,
+  MessageCircleQuestion,
   Pin,
   PanelLeft,
   PanelRight,
@@ -119,6 +120,13 @@ function buildItems(
     )
   }
   if (chatId) {
+    add(
+      'Actions',
+      <MessageCircleQuestion size={13} />,
+      'Ask a side question',
+      () => usePanelStore.getState().openSide(chatId),
+      '⌘;'
+    )
     add('Actions', <ClipboardCopy size={13} />, 'Copy chat as Markdown', () => {
       const current = useChatStore.getState().chats[chatId]
       if (!current || current.messages.length === 0) {
