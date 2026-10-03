@@ -13,28 +13,37 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
 ## Features
 
 - **One window, all your pi chats** — sessions are indexed, grouped by
-  project and date, searchable (⌘K palette, ⌘⇧F sidebar filter), and
-  shared with the pi TUI. Pin chats to the top or archive them. The home
-  screen lists your most recent chats across every project.
+  project and date, and shared with the pi TUI. The ⌘K palette searches
+  titles and the text of every conversation (opening a hit lands on the
+  match); ⌘⇧F filters the sidebar. Pin chats to the top or archive them. The
+  home screen lists the chats that are working or waiting for you, then your
+  most recent ones across every project. ⌃Tab cycles the open chats.
 - **Full chat engine** — streaming replies, thinking blocks, markdown with
   syntax highlighting, agent work as a soft list of steps (shell steps as
   terminal cards with exit status, edits with line stats, consecutive calls
   folded into one row with diff stats, long runs folded into a "Worked for 2m 15s"
-  summary), retry and compaction notices, stop / steer / follow-up
-  controls, find in chat (⌘F), and a live "Working 0:42" timer in the title bar
-  while pi works.
-- **Composer** — `@` mentions for project files, image and file
-  attachments (drag, paste or ⌘U), a pixel context-usage gauge with
-  session stats, and dictation (⌘⇧D; on-device where macOS supports the language).
+  summary), edits as unified diffs, retry and compaction notices (a
+  compaction unfolds its summary), output tokens and cost per turn, stop /
+  steer / follow-up controls with the queued messages shown above the
+  composer, find in chat (⌘F), ⌥↑/⌥↓ to step through prompts, an image
+  viewer, and a live "Working 0:42" timer in the title bar while pi works.
+- **Composer** — `@` mentions for project files, `!command` to run a shell
+  command in pi (its output joins the next prompt), image and file
+  attachments (drag, paste or ⌘U), a draft kept per chat, ↑ to recall
+  earlier prompts, a pixel context-usage gauge with session stats, and
+  dictation (⌘⇧D; on-device where macOS supports the language).
 - **Model & thinking-level picker** — live catalog from pi
   (`get_available_models`), grouped by provider, with a thinking-effort
   slider that charges up at the model's top level.
 - **Slash commands** — pi's skills, prompt templates and extension
   commands, plus app commands like `/new`, `/name`, `/compact`, `/fork`,
   `/tree`, `/export`, `/model`, `/thinking` and `/hotkeys`.
-- **Session management** — rename, export to HTML, import a `.jsonl`,
-  reveal in Finder, copy path, move to Trash, fork from any user message,
-  and clone a chat.
+- **Session management** — rename, export to HTML, copy as Markdown,
+  import a `.jsonl`, reveal in Finder, copy path, move to Trash, fork from
+  any user message, and clone a chat.
+- **Project at a glance** — the chat header shows the git branch and the
+  working tree's changes (click for the diff) and opens the project in
+  Finder, a terminal or an installed editor.
 - **Projects and chats** — sessions nest under their project folder, and
   each project gets its own pixel sigil so it is recognizable in every
   list; project-less chats run in an app-owned scratch workspace.
