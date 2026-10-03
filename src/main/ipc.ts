@@ -377,7 +377,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
 
   ipcMain.handle(IPC_CHANNELS.appRevealPath, (_e, path: string) => {
-    if (typeof path !== 'string' || !path.startsWith('/')) {
+    if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096) {
       throw new Error('Invalid path')
     }
     shell.showItemInFolder(path)

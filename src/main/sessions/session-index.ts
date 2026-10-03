@@ -263,10 +263,25 @@ async function summarizeFile(filePath: string): Promise<SessionSummary | null> {
   return summary
 }
 
-/** List all sessions across projects, newest first. */
-export async function listSessions(
-  env: NodeJS.ProcessEnv = process.env
-): Promise<SessionSummary[]> {
+/** Scans in flight per sessions dir, shared by concurrent callers. */
+const scansInFlight = new Map<string, Promise<SessionSummary[]>>()
+
+/**
+ * List all sessions across projects, newest first. Concurrent calls (the
+ * session list and the project list are refreshed together) share one scan.
+ */
+export function listSessions(env: NodeJS.ProcessEnv = process.env): Promise<SessionSummary[]> {
+  const key = getSessionsDir(env)
+  const running = scansInFlight.get(key)
+  if (running) {
+    return running
+  }
+  const scan = scanSessions(env).finally(() => scansInFlight.delete(key))
+  scansInFlight.set(key, scan)
+  return scan
+}
+
+async function scanSessions(env: NodeJS.ProcessEnv): Promise<SessionSummary[]> {
   const perfStart = process.env['PI_DESKTOP_PERF'] ? performance.now() : 0
   await loadPersistedCache()
   const sessionsDir = getSessionsDir(env)

@@ -294,6 +294,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend, onShell
   // while browsing, plus the text that was there when browsing began.
   const historyIndex = useRef<number | null>(null)
   const historyStash = useRef('')
+  const lastEscape = useRef(0)
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const [folderOpen, setFolderOpen] = useState(false)
@@ -1011,6 +1012,24 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend, onShell
         }
         return
       }
+    }
+    // Esc twice stops the run (one press could be a stray reach for the
+    // key that closes a popover).
+    if (e.key === 'Escape' && (streaming || bashRunning) && chat) {
+      e.preventDefault()
+      const now = e.timeStamp
+      if (lastEscape.current > 0 && now - lastEscape.current < 1500) {
+        lastEscape.current = 0
+        if (bashRunning) {
+          void useChatStore.getState().abortBash(chat.chatId)
+        } else {
+          void useChatStore.getState().abort(chat.chatId)
+        }
+      } else {
+        lastEscape.current = now
+        toast('Press Esc again to stop')
+      }
+      return
     }
     // Prompt history: ↑ on an empty composer (or while already browsing)
     // recalls earlier prompts; ↓ walks back toward the draft.

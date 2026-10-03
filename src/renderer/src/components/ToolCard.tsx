@@ -17,6 +17,7 @@ import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
 import { diffLines, trimContext } from '../lib/line-diff'
+import { isAbsolute, joinPath } from '../lib/paths'
 import { summarizeToolRuns, toolCallSummary } from '../lib/tool-summary'
 import {
   MIN_SHOWN_DURATION_MS,
@@ -260,12 +261,41 @@ function ShellDetail({ run, command }: { run: ToolRun; command: string }) {
   )
 }
 
-function ToolDetail({ run }: { run: ToolRun }) {
+function ToolDetail({ run, cwd }: { run: ToolRun; cwd: string }) {
   const command = commandOf(run)
-  if (toolKind(run.name) === 'bash' && command !== null) {
+  const kind = toolKind(run.name)
+  if (kind === 'bash' && command !== null) {
     return <ShellDetail run={run} command={command} />
   }
-  return <GenericDetail run={run} />
+  const path = kind === 'read' || kind === 'edit' || kind === 'write' ? argPath(run.args) : undefined
+  return (
+    <>
+      <GenericDetail run={run} />
+      {path && (
+        <div className="tool-file-actions">
+          <button
+            type="button"
+            className="tool-show-all"
+            onClick={() => {
+              const full = isAbsolute(path) ? path : cwd ? joinPath(cwd, path) : ''
+              if (full) {
+                void window.piDesktop.app.revealPath(full).catch(() => {})
+              }
+            }}
+          >
+            Reveal in Finder
+          </button>
+          <button
+            type="button"
+            className="tool-show-all"
+            onClick={() => void navigator.clipboard.writeText(path)}
+          >
+            Copy path
+          </button>
+        </div>
+      )}
+    </>
+  )
 }
 
 function GenericDetail({ run }: { run: ToolRun }) {
@@ -306,8 +336,15 @@ function GenericDetail({ run }: { run: ToolRun }) {
       )}
 
       {kind === 'write' && writeContent !== null && (
-        <pre className="tool-output">{firstLines(writeContent, PREVIEW_LINES).text}</pre>
+        <DiffView oldText="" newText={firstLines(writeContent, PREVIEW_LINES).text} />
       )}
+      {kind === 'write' &&
+        writeContent !== null &&
+        firstLines(writeContent, PREVIEW_LINES).truncated && (
+          <div className="tool-more-note">
+            first {PREVIEW_LINES} of {writeContent.split('\n').length} lines
+          </div>
+        )}
 
       {kind === 'read' && output && (
         <pre className={clsx('tool-output', { 'is-error': isError })}>
@@ -439,7 +476,7 @@ export const ToolCard = memo(function ToolCard({
         </span>
       </button>
 
-      {open && <ToolDetail run={run} />}
+      {open && <ToolDetail run={run} cwd={cwd} />}
     </div>
   )
 })
