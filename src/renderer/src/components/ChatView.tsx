@@ -55,6 +55,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore, type ChatState } from '../state/chat-store'
 import { Composer } from './Composer'
 import { Elapsed, LiveDot } from './LiveIndicators'
+import { zoomImage } from './Lightbox'
 import { ThinkingBlock } from './ThinkingBlock'
 import { DiffStat, StepIcon, ToolCard } from './ToolCard'
 
@@ -107,7 +108,12 @@ function AssistantBlock({
   }
   if (block.type === 'image') {
     return (
-      <img className="msg-image" src={`data:${block.mimeType};base64,${block.data}`} alt="" />
+      <img
+        className="msg-image"
+        src={`data:${block.mimeType};base64,${block.data}`}
+        alt=""
+        onClick={() => zoomImage(block.mimeType, block.data)}
+      />
     )
   }
   return null
@@ -490,6 +496,53 @@ function buildMessageMeta(message: DisplayMessage, models: Model[]): string {
   return parts.join(' · ')
 }
 
+function shortTokens(n: number): string {
+  if (n < 1000) {
+    return `${n}`
+  }
+  const k = n / 1000
+  return `${k >= 100 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, '')}k`
+}
+
+const turnMetaCache = new WeakMap<Model[], WeakMap<DisplayMessage, string>>()
+
+/**
+ * Meta for a whole assistant turn: "model · 14:02 · 1.8k tokens out · $0.04".
+ * Output tokens and cost are summed over the turn's requests. Cached on the
+ * turn's last message, which is replaced whenever the turn changes.
+ */
+function turnMeta(messages: DisplayMessage[], midxs: number[], models: Model[]): string {
+  const last = messages[midxs[midxs.length - 1]!]!
+  let byMessage = turnMetaCache.get(models)
+  if (!byMessage) {
+    byMessage = new WeakMap()
+    turnMetaCache.set(models, byMessage)
+  }
+  const cached = byMessage.get(last)
+  if (cached !== undefined) {
+    return cached
+  }
+  let output = 0
+  let cost = 0
+  for (const midx of midxs) {
+    const message = messages[midx]!
+    if (message.kind === 'assistant' && message.usage) {
+      output += message.usage.output
+      cost += message.usage.cost
+    }
+  }
+  const parts = [messageMeta(last, models)]
+  if (output > 0) {
+    parts.push(`${shortTokens(output)} tokens out`)
+  }
+  if (cost > 0) {
+    parts.push(`$${cost.toFixed(cost < 0.1 ? 3 : 2)}`)
+  }
+  const meta = parts.filter(Boolean).join(' · ')
+  byMessage.set(last, meta)
+  return meta
+}
+
 /** Render user text with `@path` tokens as inline file chips. */
 function UserText({ text }: { text: string }) {
   const segments = splitMentions(text)
@@ -578,6 +631,7 @@ function MessageRow({
               className="msg-image"
               src={`data:${img.mimeType};base64,${img.data}`}
               alt=""
+              onClick={() => zoomImage(img.mimeType, img.data)}
             />
           ))}
           {rest && (
@@ -692,9 +746,39 @@ function MessageRow({
       </div>
     )
   }
+  return <NoticeRow message={message} midx={midx} />
+}
+
+/** A notice line; ones with a detail (a compaction summary) unfold it. */
+function NoticeRow({
+  message,
+  midx
+}: {
+  message: Extract<DisplayMessage, { kind: 'notice' }>
+  midx: number
+}) {
+  const [open, setOpen] = useState(false)
+  if (!message.detail) {
+    return (
+      <div className={`msg-notice msg-notice-${message.tone} fade-in`} data-midx={midx}>
+        <span>{message.text}</span>
+      </div>
+    )
+  }
   return (
-    <div className={`msg-notice msg-notice-${message.tone} fade-in`} data-midx={midx}>
-      <span>{message.text}</span>
+    <div className="msg-notice-block fade-in" data-midx={midx}>
+      <div className={`msg-notice msg-notice-${message.tone}`}>
+        <button
+          type="button"
+          className="msg-notice-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {message.text}
+          <ChevronRight size={11} className={clsx('msg-notice-chevron', { 'is-open': open })} />
+        </button>
+      </div>
+      {open && <div className="msg-notice-detail">{message.detail}</div>}
     </div>
   )
 }
@@ -1483,7 +1567,7 @@ export function ChatView({ chatId }: { chatId: string }) {
                 const turnLast = chat.messages[turnMidx]!
                 const isLastTurn = turnMidx === chat.messages.length - 1
                 const hasCopy = item.midxs.some((mi) => hasAssistantText(chat.messages[mi]!))
-                const meta = messageMeta(turnLast, chat.models)
+                const meta = turnMeta(chat.messages, item.midxs, chat.models)
                 const retryUserIdx = userIndex >= 0 ? userIndex : undefined
                 const renderRow = (midx: number, k: number) => {
                   const m = chat.messages[midx]!

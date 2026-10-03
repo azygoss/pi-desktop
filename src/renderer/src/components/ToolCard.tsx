@@ -16,6 +16,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'reac
 import clsx from 'clsx'
 
 import type { ToolRun } from '../../../shared/chat-view'
+import { diffLines, trimContext } from '../lib/line-diff'
 import { summarizeToolRuns, toolCallSummary } from '../lib/tool-summary'
 import {
   MIN_SHOWN_DURATION_MS,
@@ -24,6 +25,7 @@ import {
   splitShellStatus
 } from '../lib/trace'
 import { Elapsed } from './LiveIndicators'
+import { zoomImage } from './Lightbox'
 
 const OUTPUT_LIMIT = 4000
 const PREVIEW_LINES = 40
@@ -117,19 +119,25 @@ function editEntries(args: Record<string, unknown>): EditEntry[] {
   return []
 }
 
+/** One edit as a unified diff: changes interleaved with a little context. */
 function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
+  const lines = useMemo(() => trimContext(diffLines(oldText, newText)), [oldText, newText])
   return (
-    <div className="tool-diff">
-      <pre className="diff-old">
-        {oldText.split('\n').map((line, i) => (
-          <div key={i}>- {line}</div>
-        ))}
-      </pre>
-      <pre className="diff-new">
-        {newText.split('\n').map((line, i) => (
-          <div key={i}>+ {line}</div>
-        ))}
-      </pre>
+    <div className="tool-diff" role="group" aria-label="Change">
+      {lines.map((line, i) =>
+        line === null ? (
+          <div key={i} className="diff-line diff-gap" aria-hidden="true">
+            ⋯
+          </div>
+        ) : (
+          <div key={i} className={`diff-line diff-${line.kind}`}>
+            <span className="diff-sign" aria-hidden="true">
+              {line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}
+            </span>
+            <span className="diff-text">{line.text || ' '}</span>
+          </div>
+        )
+      )}
     </div>
   )
 }
@@ -264,7 +272,6 @@ function GenericDetail({ run }: { run: ToolRun }) {
   const [showAll, setShowAll] = useState(false)
   const [showArgs, setShowArgs] = useState(false)
   const [showTree, setShowTree] = useState(false)
-  const [expandedImage, setExpandedImage] = useState<number | null>(null)
   const kind = toolKind(run.name)
 
   const output = useMemo(() => resultText(run), [run])
@@ -328,9 +335,9 @@ function GenericDetail({ run }: { run: ToolRun }) {
         <button
           key={i}
           type="button"
-          className={clsx('tool-image', { 'is-expanded': expandedImage === i })}
-          title={expandedImage === i ? 'Shrink' : 'Expand'}
-          onClick={() => setExpandedImage(expandedImage === i ? null : i)}
+          className="tool-image"
+          title="View image"
+          onClick={() => zoomImage(image.mimeType, image.data)}
         >
           <img src={`data:${image.mimeType};base64,${image.data}`} alt="Tool result" />
         </button>

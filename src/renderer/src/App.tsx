@@ -5,6 +5,7 @@ import { HomeView } from './components/HomeView'
 import { Sidebar } from './components/Sidebar'
 import { MainTopBar } from './components/TitleBar'
 import { Toasts } from './components/Toasts'
+import { Lightbox } from './components/Lightbox'
 import { useAppStore } from './state/app-store'
 import { initChatBridge, useChatStore } from './state/chat-store'
 import { initPanelBridge, usePanelStore } from './state/panel-store'
@@ -31,6 +32,7 @@ export function App() {
   const settingsOpen = useAppStore((s) => s.settingsOpen)
   const chatModal = useAppStore((s) => s.chatModal)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
+  const lightboxOpen = useAppStore((s) => s.lightbox !== null)
   const panelOpen = usePanelStore((s) => s.open)
   const browserActive = usePanelStore(
     (s) => s.open && s.tabs.find((t) => t.id === s.activeTabId)?.kind === 'browser'
@@ -126,9 +128,9 @@ export function App() {
 
   // DOM overlays must never be painted over by a browser view.
   useEffect(() => {
-    const overlay = settingsOpen || chatModal !== null || paletteOpen
+    const overlay = settingsOpen || chatModal !== null || paletteOpen || lightboxOpen
     void window.piDesktop.browser.setOverlayOpen({ open: overlay }).catch(() => {})
-  }, [settingsOpen, chatModal, paletteOpen])
+  }, [settingsOpen, chatModal, paletteOpen, lightboxOpen])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -229,6 +231,7 @@ export function App() {
       <Suspense fallback={null}>
         <CommandModals />
       </Suspense>
+      <Lightbox />
       <Toasts />
     </div>
   )
