@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "Pi Remote",
+    "slug": "pi-remote",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "piremote",
+    "android": {
+      "package": "io.github.azygoss.piremote",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#141517",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Pi Remote uses the camera to scan the pairing code shown by Pi Desktop.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pi Remote attaches the photos you pick to your message.",
+          "cameraPermission": "Pi Remote uses the camera to take a photo for your message.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#fbfbfa",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#141517"
+          }
+        }
+      ],
+      "expo-secure-store",
+      "expo-font"
+    ]
+  }
+}
