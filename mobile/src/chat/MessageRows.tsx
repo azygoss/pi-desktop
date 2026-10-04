@@ -1,4 +1,4 @@
-import { Copy } from 'lucide-react-native'
+import { Copy, RotateCcw } from 'lucide-react-native'
 import { memo, useMemo, useState } from 'react'
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 
@@ -116,6 +116,12 @@ export const UserRow = memo(function UserRow({
         delayLongPress={350}
         accessibilityRole="text"
         accessibilityHint="Long press for actions"
+        accessibilityActions={[{ name: 'longpress', label: 'Prompt actions: copy, edit, retry, restore' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'longpress') {
+            actions.onUserMenu(message, userIndex)
+          }
+        }}
         style={styles.user}
       >
         {/* A prompt, not a bubble: a › in the gutter. */}
@@ -571,11 +577,14 @@ export const NoticeRow = memo(function NoticeRow({
 export const MetaRow = memo(function MetaRow({
   text,
   reply,
-  onCopy
+  onCopy,
+  onRetry
 }: {
   text: string
   reply: string
   onCopy(text: string): void
+  /** The last turn: ask pi again from its prompt. */
+  onRetry?(): void
 }) {
   const styles = useStyles()
   return (
@@ -583,13 +592,16 @@ export const MetaRow = memo(function MetaRow({
       <Mono size={12} tone="muted" style={{ flex: 1 }}>
         {text}
       </Mono>
+      {onRetry ? (
+        <IconButton icon={RotateCcw} label="Retry: ask pi again from this prompt" size={15} tone="muted" onPress={onRetry} />
+      ) : null}
       {reply ? (
         <IconButton
           icon={Copy}
           label="Copy reply"
           size={15}
           tone="muted"
-          style={{ height: 40, marginRight: -space.md }}
+          style={{ marginRight: -space.md }}
           onPress={() => onCopy(reply)}
         />
       ) : null}

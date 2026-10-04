@@ -1,13 +1,13 @@
-import { File, Paths } from 'expo-file-system'
-import * as Sharing from 'expo-sharing'
 import { Share2, X } from 'lucide-react-native'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { FlatList, Image, Modal, PixelRatio, ScrollView, SectionList, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
+  flattenSessionTree,
   providerLabel,
   thinkingLevelLabel,
+  type TreeRow,
   type ChatSessionStats,
   type ExtensionUiRequest,
   type ForkMessage,
@@ -15,6 +15,7 @@ import {
   type ThinkingLevel
 } from '../desktop'
 import { compactNumber, formatCost } from '../lib/format'
+import { shareDataUri } from '../lib/share'
 import { api, errorText } from '../remote/api'
 import { useChats } from '../state/chats'
 import { radius, space, TOUCH, useTheme } from '../theme'
@@ -453,22 +454,95 @@ export function ForkSheet({
   )
 }
 
+/**
+ * /tree: the session's branches. A linear chat stays flat; branches indent
+ * and the one pi is on is marked. A prompt forks from before it.
+ */
+export function TreeSheet({ chatId, visible, onClose }: { chatId: string; visible: boolean; onClose(): void }) {
+  const theme = useTheme()
+  const [rows, setRows] = useState<TreeRow[] | null>(null)
+  useEffect(() => {
+    if (!visible) {
+      return
+    }
+    setRows(null)
+    let cancelled = false
+    api.chat
+      .tree(chatId)
+      .then((result) => {
+        if (!cancelled) {
+          setRows(flattenSessionTree(result))
+        }
+      })
+      .catch((e) => {
+        toast(errorText(e))
+        onClose()
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [visible, chatId, onClose])
+  const branches = rows?.filter((row) => row.branchStart).length ?? 0
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Session tree" scroll={false}>
+      <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <Txt size="small" tone="muted">
+          {branches > 0
+            ? `${branches} branches. The one pi is on is highlighted; tap a prompt to fork from before it.`
+            : 'Tap a prompt to continue on a new branch from before it.'}
+        </Txt>
+      </View>
+      <FlatList
+        style={{ maxHeight: 480 }}
+        data={rows ?? []}
+        keyExtractor={(row) => row.id}
+        initialNumToRender={30}
+        renderItem={({ item }) => (
+          <Tap
+            disabled={!item.forkable}
+            label={`${item.role}: ${item.snippet}${item.leaf ? ', current position' : ''}${item.forkable ? '. Fork from here' : ''}`}
+            onPress={() => {
+              onClose()
+              void useChats
+                .getState()
+                .forkAtEntry(chatId, item.id)
+                .catch((e) => toast(`Could not fork: ${errorText(e)}`))
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.sm,
+              minHeight: 40,
+              paddingVertical: space.xs,
+              paddingRight: space.lg,
+              paddingLeft: space.lg + item.depth * 14,
+              borderTopWidth: item.branchStart ? 1 : 0,
+              borderTopColor: theme.border,
+              opacity: item.active ? 1 : 0.62
+            }}
+          >
+            <Mono size={11} tone={item.role === 'user' ? 'accent' : 'muted'} style={{ width: 64 }} numberOfLines={1}>
+              {item.role}
+            </Mono>
+            <Txt size="small" tone={item.active ? 'text' : 'text2'} numberOfLines={1} style={{ flex: 1 }}>
+              {item.snippet}
+            </Txt>
+            {item.leaf ? (
+              <Mono size={11} tone="accent">
+                here
+              </Mono>
+            ) : null}
+          </Tap>
+        )}
+        ListEmptyComponent={<Empty title={rows === null ? 'Loading…' : 'Empty session'} />}
+      />
+    </Sheet>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Image viewer
 // ---------------------------------------------------------------------------
-
-/** Write a data: URI to the cache and open the share sheet (save to Photos, send…). */
-async function shareImage(uri: string): Promise<void> {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(uri)
-  if (!match) {
-    return
-  }
-  const mimeType = match[1]!
-  const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'
-  const file = new File(Paths.cache, `pi-image-${Date.now()}.${ext}`)
-  file.write(match[2]!, { encoding: 'base64' })
-  await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: 'Share image' })
-}
 
 /**
  * Full-screen image. Tap switches between fitting the screen and actual
@@ -512,7 +586,7 @@ export function Lightbox({ uri, onClose }: { uri: string | null; onClose(): void
             tone="onAccent"
             onPress={() => {
               if (uri) {
-                void shareImage(uri).catch((e) => toast(`Could not share: ${errorText(e)}`))
+                void shareDataUri(uri).catch((e) => toast(`Could not share: ${errorText(e)}`))
               }
             }}
             style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}

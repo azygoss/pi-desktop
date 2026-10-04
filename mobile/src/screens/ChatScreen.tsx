@@ -9,6 +9,7 @@ import {
   GitFork,
   GitPullRequest,
   Info,
+  ListTree,
   MessageCircleQuestionMark,
   Minimize2,
   Pause,
@@ -17,6 +18,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Share2,
   Split,
   Square,
   Trash,
@@ -29,9 +31,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { chatToMarkdown, parseSkillPrefix, thinkingLevelLabel, type DisplayMessage, type RepoSummary, type ThinkingLevel } from '../desktop'
 import { Composer, PHONE_COMMANDS } from '../chat/Composer'
 import { AssistantRow, BashRow, MetaRow, NoticeRow, UserRow, WorkGroupRow, type RowActions } from '../chat/MessageRows'
-import { ForkSheet, isInteractive, Lightbox, ModelSheet, StatsSheet, TextSheet, UiRequestCard } from '../chat/sheets'
+import { ForkSheet, isInteractive, Lightbox, ModelSheet, StatsSheet, TextSheet, TreeSheet, UiRequestCard } from '../chat/sheets'
 import { buildTranscript, type TranscriptItem } from '../chat/transcript'
 import { baseName } from '../lib/format'
+import { shareChatHtml } from '../lib/share'
 import { formatElapsed, useTick } from '../lib/live-clock'
 import type { ScreenProps } from '../nav'
 import { api, errorText } from '../remote/api'
@@ -39,7 +42,7 @@ import { useChats } from '../state/chats'
 import { useConnection } from '../state/connection'
 import { useData } from '../state/data'
 import { space, TOUCH, useTheme } from '../theme'
-import { Button, confirm, Empty, IconButton, Mono, Pixel, Screen, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
+import { Button, confirm, Empty, haptic, IconButton, Mono, Pixel, Screen, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
 
 type User = Extract<DisplayMessage, { kind: 'user' }>
 
@@ -117,6 +120,8 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const title = useChats((s) => s.chats[chatId]?.title ?? 'Chat')
   const cwd = useChats((s) => s.chats[chatId]?.cwd ?? '')
   const sessionPath = useChats((s) => s.chats[chatId]?.sessionPath)
+  const transcriptApplied = useChats((s) => s.chats[chatId]?.transcriptApplied === true)
+  const transcriptError = useChats((s) => s.chats[chatId]?.transcriptError)
   const error = useChats((s) => s.chats[chatId]?.error)
   const stderrTail = useChats((s) => s.chats[chatId]?.stderrTail)
   const startedAt = useChats((s) => s.chats[chatId]?.startedAt)
@@ -145,6 +150,8 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const [showStderr, setShowStderr] = useState(false)
   const list = useRef<FlatList<TranscriptItem>>(null)
   const closeFork = useCallback(() => setForkOpen(false), [])
+  const [treeOpen, setTreeOpen] = useState(false)
+  const closeTree = useCallback(() => setTreeOpen(false), [])
   const openModel = useCallback(() => setModelOpen(true), [])
   const openStats = useCallback(() => setStatsOpen(true), [])
   const streaming = status === 'streaming'
@@ -217,6 +224,27 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   )
 
   const runs = toolRuns ?? {}
+  // The last turn's meta line offers Retry: the newest meta row, when no
+  // prompt follows it and nothing is running.
+  const retry = useMemo(() => {
+    if (streaming) {
+      return null
+    }
+    const index = items.findIndex((item) => item.kind === 'meta' || item.kind === 'user')
+    const meta = items[index]
+    const prompt = items.find((item) => item.kind === 'user')
+    return meta?.kind === 'meta' && prompt?.kind === 'user' ? { key: meta.key, userIndex: prompt.userIndex } : null
+  }, [items, streaming])
+  const retryLast = useCallback(
+    (userIndex: number) => {
+      haptic()
+      void useChats
+        .getState()
+        .retryFromUserMessage(chatId, userIndex)
+        .catch((e) => toast(`Could not retry: ${errorText(e)}`))
+    },
+    [chatId]
+  )
   const renderItem = useCallback<ListRenderItem<TranscriptItem>>(
     ({ item }) => {
       switch (item.kind) {
@@ -241,10 +269,17 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
         case 'notice':
           return <NoticeRow message={item.message} />
         case 'meta':
-          return <MetaRow text={item.text} reply={item.reply} onCopy={actions.onCopy} />
+          return (
+            <MetaRow
+              text={item.text}
+              reply={item.reply}
+              onCopy={actions.onCopy}
+              {...(retry?.key === item.key ? { onRetry: () => retryLast(retry.userIndex) } : {})}
+            />
+          )
       }
     },
-    [actions, runs, cwd]
+    [actions, runs, cwd, retry, retryLast]
   )
 
   const guard = (run: () => Promise<unknown>, failure: string): void => {
@@ -284,6 +319,8 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
           setStatsOpen(true)
           return true
         case 'tree':
+          setTreeOpen(true)
+          return true
         case 'fork':
           setForkOpen(true)
           return true
@@ -393,6 +430,27 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   }
 
   const empty = items.length === 0
+
+  const loadEarlier = useCallback(() => {
+    setLoadingEarlier(true)
+    void chats
+      .loadEarlier(chatId)
+      .catch((e) => toast(errorText(e)))
+      .finally(() => setLoadingEarlier(false))
+  }, [chats, chatId])
+
+  // Something arrived while the user reads further up: mark the jump button.
+  const latestKey = items[0]?.key // reversed: newest first
+  const [unseen, setUnseen] = useState(false)
+  const seenKey = useRef(latestKey)
+  useEffect(() => {
+    if (!awayFromEnd) {
+      seenKey.current = latestKey
+      setUnseen(false)
+    } else if (latestKey !== seenKey.current) {
+      setUnseen(true)
+    }
+  }, [awayFromEnd, latestKey])
   return (
     <Screen
       onBack={() => navigation.goBack()}
@@ -428,7 +486,15 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         {empty ? (
           <View style={{ flex: 1 }}>
-            {status === 'starting' ? null : (
+            {transcriptError ? (
+              <Empty
+                title="Could not load this conversation"
+                detail={transcriptError}
+                action={<Button title="Try again" onPress={() => chats.retryTranscript(chatId)} />}
+              />
+            ) : sessionPath && !transcriptApplied ? (
+              <Empty title="Loading the conversation…" detail={online ? undefined : 'Waiting for the computer.'} />
+            ) : status === 'starting' ? null : (
               <Empty
                 title="What should pi do?"
                 detail={projectless ? 'This chat runs without a project.' : `pi works in ${baseName(cwd)} on your computer.`}
@@ -457,21 +523,18 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
               }
             }}
             scrollEventThrottle={100}
+            // Inverted: the "end" is the top. Reaching it pages in older messages.
+            onEndReachedThreshold={0.4}
+            onEndReached={() => {
+              if (hasEarlier && !loadingEarlier) {
+                loadEarlier()
+              }
+            }}
             // The list is inverted: its footer is the top of the conversation.
             ListFooterComponent={
               hasEarlier ? (
                 <View style={{ padding: space.lg, alignItems: 'center' }}>
-                  <Button
-                    title="Load earlier messages"
-                    busy={loadingEarlier}
-                    onPress={() => {
-                      setLoadingEarlier(true)
-                      void chats
-                        .loadEarlier(chatId)
-                        .catch((e) => toast(errorText(e)))
-                        .finally(() => setLoadingEarlier(false))
-                    }}
-                  />
+                  <Button title="Load earlier messages" busy={loadingEarlier} onPress={loadEarlier} />
                 </View>
               ) : null
             }
@@ -489,7 +552,17 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
               borderColor: theme.borderStrong
             }}
           >
-            <IconButton icon={ArrowDown} label="Jump to the latest message" onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })} />
+            <IconButton
+              icon={ArrowDown}
+              label={unseen ? 'New messages below. Jump to the latest' : 'Jump to the latest message'}
+              onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
+            />
+            {unseen ? (
+              <View
+                pointerEvents="none"
+                style={{ position: 'absolute', top: 6, right: 6, width: 9, height: 9, borderRadius: 2, backgroundColor: theme.accent }}
+              />
+            ) : null}
           </View>
         ) : null}
         {!online ? (
@@ -576,6 +649,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
         <SheetAction icon={PencilLine} title="Rename" onPress={() => { setMenuOpen(false); setRenameOpen(true) }} />
         <SheetAction icon={Minimize2} title="Compact context" detail="Summarize earlier messages to free up context" onPress={() => { setMenuOpen(false); setCompactOpen(true) }} />
         <SheetAction icon={Split} title="Fork from a prompt" onPress={() => { setMenuOpen(false); setForkOpen(true) }} />
+        <SheetAction icon={ListTree} title="Session tree" detail="Branches of this chat" onPress={() => { setMenuOpen(false); setTreeOpen(true) }} />
         <SheetAction icon={GitFork} title="Fork chat" detail="Continue on a copy; this chat stays as it is" onPress={() => { setMenuOpen(false); onCommand('clone', '') }} />
         <SheetAction
           icon={Copy}
@@ -589,6 +663,17 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             }
           }}
         />
+        {sessionPath ? (
+          <SheetAction
+            icon={Share2}
+            title="Share as a web page"
+            detail="The whole chat as one HTML file"
+            onPress={() => {
+              setMenuOpen(false)
+              void shareChatHtml(sessionPath, title).catch((e) => toast(`Could not share: ${errorText(e)}`))
+            }}
+          />
+        ) : null}
         <SheetAction icon={RefreshCw} title="Restart pi" detail="Reloads extensions, skills and prompts" onPress={() => { setMenuOpen(false); onCommand('reload', '') }} />
         {sessionPath ? (
           <>
@@ -668,6 +753,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       <ModelSheet chatId={chatId} visible={modelOpen} onClose={() => setModelOpen(false)} />
       <StatsSheet stats={stats} visible={statsOpen} onClose={() => setStatsOpen(false)} />
       <ForkSheet chatId={chatId} visible={forkOpen} onClose={closeFork} />
+      <TreeSheet chatId={chatId} visible={treeOpen} onClose={closeTree} />
       <TextSheet
         visible={renameOpen}
         title="Rename chat"

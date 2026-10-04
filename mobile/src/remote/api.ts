@@ -53,7 +53,8 @@ export const api = {
     runtime: () => request<PiRuntimeInfo>('pi-desktop:runtime:info'),
     catalog: () => request<CatalogSnapshot>('pi-desktop:catalog:get'),
     listDirs: (path?: string) =>
-      request<RemoteDirListing>('pi-desktop:remote:list-dirs', { path })
+      request<RemoteDirListing>('pi-desktop:remote:list-dirs', { path }),
+    settings: () => request<{ computerUse: { enabled: boolean } }>('pi-desktop:app-settings:get')
   },
   sessions: {
     list: () => request<SessionSummary[]>('pi-desktop:sessions:list'),
@@ -78,7 +79,16 @@ export const api = {
   files: {
     list: (cwd: string) => request<{ files: string[] }>('pi-desktop:files:list', { cwd }),
     read: (cwd: string, path: string) =>
-      request<FileReadResult>('pi-desktop:files:read', { cwd, path })
+      request<FileReadResult>('pi-desktop:files:read', { cwd, path }),
+    readImage: (cwd: string, path: string) =>
+      request<{ mimeType: string; data: string; size: number }>(
+        'pi-desktop:remote:read-image',
+        { cwd, path },
+        120_000
+      ),
+    /** Store a file from the phone on the computer; pi reads it by path. */
+    upload: (name: string, data: string) =>
+      request<{ path: string; size: number }>('pi-desktop:remote:upload', { name, data }, 5 * 60_000)
   },
   chat: {
     live: () => request<RemoteLiveChat[]>('pi-desktop:remote:live-chats'),
@@ -97,8 +107,15 @@ export const api = {
       request<ChatOpenResult>('pi-desktop:chat:reload', { chatId, ...LITE }, OPEN_TIMEOUT_MS),
     setCwd: (chatId: string, cwd: string) =>
       request<ChatOpenResult>('pi-desktop:chat:set-cwd', { chatId, cwd, ...LITE }, OPEN_TIMEOUT_MS),
-    transcript: (sessionPath: string, limit?: number) =>
-      request<ChatTranscriptResult>('pi-desktop:chat:transcript', { sessionPath, limit }, 60_000),
+    /** The newest `limit` messages, leaving out the newest `skip` (paging back). */
+    transcript: (sessionPath: string, limit?: number, skip?: number) =>
+      request<ChatTranscriptResult>(
+        'pi-desktop:chat:transcript',
+        { sessionPath, limit, ...(skip ? { skip } : {}) },
+        60_000
+      ),
+    exportHtml: (sessionPath: string) =>
+      request<{ html: string }>('pi-desktop:remote:export-html', { sessionPath }, OPEN_TIMEOUT_MS),
     send: (input: {
       chatId: string
       message: string
@@ -178,7 +195,9 @@ export const api = {
     permissions: () => request<CuaPermissions>('pi-desktop:cua:permissions'),
     pause: () => request<void>('pi-desktop:cua:pause'),
     resume: () => request<void>('pi-desktop:cua:resume'),
-    stop: () => request<void>('pi-desktop:cua:stop')
+    stop: () => request<void>('pi-desktop:cua:stop'),
+    setEnabled: (enabled: boolean) =>
+      request<{ enabled: boolean }>('pi-desktop:remote:set-computer-use', { enabled })
   }
 }
 

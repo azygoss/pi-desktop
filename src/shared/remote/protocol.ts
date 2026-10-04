@@ -23,8 +23,21 @@ export const REMOTE_CHANNELS = {
   /** Sub-directories of a folder on the computer (the project picker). */
   listDirs: 'pi-desktop:remote:list-dirs',
   /** Broadcast: an extension dialog was answered (from any device). */
-  uiResolved: 'pi-desktop:chat:ui-resolved'
+  uiResolved: 'pi-desktop:chat:ui-resolved',
+  /** Turn computer use on or off (the one app setting a phone may change). */
+  setComputerUse: 'pi-desktop:remote:set-computer-use',
+  /** A session rendered as a standalone HTML page, returned as text. */
+  exportHtml: 'pi-desktop:remote:export-html',
+  /** A file from the phone, stored on the computer for pi to read. */
+  upload: 'pi-desktop:remote:upload',
+  /** An image file inside a project, as base64 (the phone's file viewer). */
+  readImage: 'pi-desktop:remote:read-image'
 } as const
+
+/** Largest file a phone may upload (base64 is a third bigger on the wire). */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+/** Largest image the file viewer sends to a phone. */
+export const MAX_REMOTE_IMAGE_BYTES = 12 * 1024 * 1024
 
 export interface RemoteLiveChat {
   chatId: string

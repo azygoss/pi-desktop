@@ -16,6 +16,8 @@ export interface TranscriptResult {
   hasEarlier: boolean
   /** Total message entries on the active branch. */
   totalMessages: number
+  /** Index of the first returned message on the branch (for paging back). */
+  startIndex?: number
 }
 
 interface SessionEntry {
@@ -33,9 +35,12 @@ interface SessionEntry {
  */
 export function readSessionTranscript(
   filePath: string,
-  options: { limit?: number } = {}
+  options: { limit?: number; before?: number } = {}
 ): Promise<TranscriptResult> {
   const limit = Math.min(Math.max(options.limit ?? TRANSCRIPT_LIMIT, 1), 20_000)
+  // Paging backwards: only messages before this index of the branch (the
+  // ones from it on are already shown; new ones may have been appended).
+  const before = options.before
 
   return new Promise((resolvePromise) => {
     const entries = new Map<string, SessionEntry>()
@@ -88,11 +93,14 @@ export function readSessionTranscript(
       branch.reverse()
 
       const all = branch.filter((e) => e.message !== undefined).map((e) => e.message!)
-      const truncated = all.length > limit
+      const end =
+        before === undefined ? all.length : Math.min(Math.max(Math.floor(before), 0), all.length)
+      const start = Math.max(end - limit, 0)
       resolvePromise({
-        messages: truncated ? all.slice(all.length - limit) : all,
-        hasEarlier: truncated,
-        totalMessages: all.length
+        messages: all.slice(start, end),
+        hasEarlier: start > 0,
+        totalMessages: all.length,
+        startIndex: start
       })
     }
 
