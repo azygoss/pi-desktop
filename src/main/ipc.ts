@@ -958,9 +958,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       })
     }
     deps.cua?.recycle()
-    // Re-registers Pi Desktop in the list and shows the system prompt.
+    // Re-registers Pi Desktop in both lists: the Accessibility prompt comes
+    // from the app itself, the Screen Recording one from the (fresh) helper.
     systemPreferences.isTrustedAccessibilityClient(true)
-    return cuaPermissions(false)
+    return cuaPermissions(true)
   })
   handle(IPC_CHANNELS.cuaOpenSettings, (_e, input: { pane?: unknown }) => {
     const pane = input?.pane
