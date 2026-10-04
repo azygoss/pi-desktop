@@ -141,8 +141,20 @@ function parseArgs(argv: string[]): Args {
 
 const socketPath = (args: Args): Promise<string> => controlSocketPath(args.dataDir)
 
+// Whoever reads the log may go away (a closed terminal, `| head`): a write
+// to the broken pipe must not take the host and every phone down with it.
+let stdoutGone = false
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code !== 'EPIPE') {
+    throw error
+  }
+  stdoutGone = true
+})
+
 function log(line: string): void {
-  process.stdout.write(`${line}\n`)
+  if (!stdoutGone) {
+    process.stdout.write(`${line}\n`)
+  }
 }
 
 async function printPairing(payload: string, expiresAt: number): Promise<void> {
@@ -155,7 +167,7 @@ async function printPairing(payload: string, expiresAt: number): Promise<void> {
   log('')
   log('Scan this with Pi Remote on your phone (Pair a computer → Scan):')
   log('')
-  process.stdout.write(qr)
+  log(qr.trimEnd())
   log('')
   log('No camera? Send this link to the phone and paste it in Pi Remote:')
   log(payload)
@@ -386,7 +398,7 @@ function serviceUnit(args: Args, argv: string[]): string {
 async function commandService(args: Args, argv: string[]): Promise<void> {
   const unit = serviceUnit(args, argv)
   if (args.positional[0] !== 'install') {
-    process.stdout.write(unit)
+    log(unit.trimEnd())
     return
   }
   if (process.platform !== 'linux') {
