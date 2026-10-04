@@ -3,6 +3,8 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 /** Every screen of the app and what it is opened with. */
 export type RootStackParamList = {
   Pair: undefined
+  /** Pair one more computer (from Settings, or a pairing link while paired). */
+  AddComputer: { link?: string }
   Home: undefined
   Chat: { chatId: string }
   /** Working-tree changes of a project: review, commit, push. */

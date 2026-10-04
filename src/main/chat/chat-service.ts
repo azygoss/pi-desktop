@@ -41,16 +41,20 @@ export interface ChatBroadcast {
 }
 
 /**
- * Bridge wiring for the pi browser-tools extension: tokens are issued per
- * chat and revoked when the chat's pi process exits or is closed.
+ * Bridge wiring for the pi browser-tools extension: every pi process gets
+ * its own token, revoked when that process exits or is closed. Tokens are
+ * per process rather than per chat id so a late exit can never revoke the
+ * token of a newer process spawned under the same id (the pinned spare's
+ * id is reused, revived chats keep theirs).
  */
 export interface ChatBridgeDeps {
   /** Loopback bridge base URL; empty string disables browser tools. */
   url(): string
+  /** A fresh token for one pi process, answering as `chatId`. */
   issue(chatId: string): string
-  revoke(chatId: string): void
-  /** Re-map a token (issued for the warm spare) onto an adopted chat id. */
-  adopt?(fromChatId: string, toChatId: string): void
+  revoke(token: string): void
+  /** Point a live process's token at another chat id (warm spare adopted). */
+  assign?(token: string, chatId: string): void
   /** Absolute path to the browser-tools extension; '' when not shipped. */
   extensionPath(): string
   /** Whether to expose computer_* tools to this chat's pi process. */
@@ -247,6 +251,8 @@ export class ChatService {
   private readonly evicted = new Map<string, { cwd: string; sessionPath?: string }>()
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private readonly eviction: Required<EvictionOptions>
+  /** Bridge token of each pi process spawned through spawn(). */
+  private readonly tokens = new WeakMap<PiRpcClient, string>()
 
   constructor(
     private readonly pool: PiProcessPool,
@@ -266,17 +272,65 @@ export class ChatService {
     this.sweepTimer.unref?.()
   }
 
+  /**
+   * Spawn (or reuse) the pi process for `id` with the browser-tools
+   * extension and a bridge token of its own, revoked when it exits.
+   */
+  private async spawn(
+    id: string,
+    options: Pick<OpenChatOptions, 'cwd' | 'sessionPath'>
+  ): Promise<PiRpcClient> {
+    const { token, ...extras } = this.bridgeExtras(id)
+    let client: PiRpcClient
+    try {
+      client = await this.pool.open(id, { ...options, ...extras })
+    } catch (error) {
+      if (token) {
+        this.bridge?.revoke(token)
+      }
+      throw error
+    }
+    if (token) {
+      if (this.tokens.has(client)) {
+        // The pool handed back a live process that already holds a token.
+        this.bridge?.revoke(token)
+      } else {
+        this.tokens.set(client, token)
+        client.once('exit', () => this.bridge?.revoke(token))
+      }
+    }
+    return client
+  }
+
+  private revokeToken(client: PiRpcClient): void {
+    const token = this.tokens.get(client)
+    if (token) {
+      this.bridge?.revoke(token)
+    }
+  }
+
+  private assignToken(client: PiRpcClient, chatId: string): void {
+    const token = this.tokens.get(client)
+    if (token) {
+      this.bridge?.assign?.(token, chatId)
+    }
+  }
+
   /** Extra spawn args/env for the browser-tools extension + bridge token. */
-  private bridgeExtras(chatId: string): Pick<OpenChatOptions, 'extraArgs' | 'extraEnv'> {
+  private bridgeExtras(
+    chatId: string
+  ): Pick<OpenChatOptions, 'extraArgs' | 'extraEnv'> & { token?: string } {
     const extraArgs: string[] = []
     const extraEnv: Record<string, string> = {}
+    let token: string | undefined
     if (this.bridge && this.bridge.url()) {
       const extensionPath = this.bridge.extensionPath()
       if (extensionPath) {
         extraArgs.push('--extension', extensionPath)
       }
+      token = this.bridge.issue(chatId)
       extraEnv['PI_DESKTOP_BRIDGE_URL'] = this.bridge.url()
-      extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = this.bridge.issue(chatId)
+      extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = token
       // The extension registers computer_* tools only when this env flag is
       // present, so a disabled setting or missing helper hides them entirely.
       if (this.bridge.computerToolsEnabled?.() === true) {
@@ -285,7 +339,8 @@ export class ChatService {
     }
     return {
       extraArgs: extraArgs.length ? extraArgs : undefined,
-      extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined
+      extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined,
+      ...(token ? { token } : {})
     }
   }
 
@@ -328,7 +383,7 @@ export class ChatService {
           await ensureWorkspaceDir()
         }
         const id = pinned ? SPARE_CHAT_ID : `__warm__${++this.warmSeq}`
-        const client = await this.pool.open(id, { cwd, ...this.bridgeExtras(id) })
+        const client = await this.spawn(id, { cwd })
         if (generation !== this.spareGeneration || this.spares.has(cwd)) {
           void client.stop() // stale spawn env or a parked spare arrived first
           return
@@ -344,7 +399,6 @@ export class ChatService {
           if (this.spares.get(cwd)?.client === client) {
             this.spares.delete(cwd)
           }
-          this.bridge?.revoke(id)
         })
         this.capSpares()
       } catch {
@@ -373,7 +427,7 @@ export class ChatService {
       return
     }
     this.spares.delete(cwd)
-    this.bridge?.revoke(spare.id)
+    this.revokeToken(spare.client)
     await this.pool.close(spare.id)
   }
 
@@ -415,11 +469,11 @@ export class ChatService {
     record.client.off('ui-request', record.listeners.uiRequest)
     record.client.off('exit', record.listeners.exit)
     record.client.off('stderr', record.listeners.stderr)
-    this.bridge?.adopt?.(record.chatId, id)
+    this.assignToken(record.client, id)
     const replaced = this.spares.get(record.cwd)
     if (replaced) {
       this.spares.delete(record.cwd)
-      this.bridge?.revoke(replaced.id)
+      this.revokeToken(replaced.client)
       void this.pool.close(replaced.id)
     }
     const { client, cwd } = record
@@ -427,7 +481,6 @@ export class ChatService {
       if (this.spares.get(cwd)?.client === client) {
         this.spares.delete(cwd)
       }
-      this.bridge?.revoke(id)
     })
     this.spares.set(cwd, {
       id,
@@ -449,7 +502,7 @@ export class ChatService {
     if (!spare || !spare.client.isRunning || !this.pool.adopt(spare.id, chatId)) {
       return undefined
     }
-    this.bridge?.adopt?.(spare.id, chatId)
+    this.assignToken(spare.client, chatId)
     this.spares.delete(cwd)
     if (spare.pinned) {
       void this.warmSpare() // spawn the replacement in the background
@@ -488,7 +541,7 @@ export class ChatService {
     } catch {
       // fall through to a fresh spawn
     }
-    this.bridge?.revoke(chatId)
+    this.revokeToken(spare.client)
     await this.pool.close(chatId)
     return false
   }
@@ -548,7 +601,7 @@ export class ChatService {
         }
       }
       if (!client) {
-        client = await this.pool.open(chatId, { cwd, sessionPath, ...this.bridgeExtras(chatId) })
+        client = await this.spawn(chatId, { cwd, sessionPath })
       }
       if (this.pendingOpens.get(chatId) !== openGate) {
         // close() ran (or a newer open superseded us) while pi was
@@ -883,6 +936,19 @@ export class ChatService {
     }
   }
 
+  /**
+   * The chat's session file as pi reports it now (one light get_state).
+   * Never revives an evicted chat: undefined when no pi is running for it.
+   */
+  async sessionFile(input: { chatId: string }): Promise<string | undefined> {
+    const record = this.chats.get(validateChatId(input.chatId))
+    if (!record?.ready || !record.client.isRunning) {
+      return undefined
+    }
+    await this.followSession(record)
+    return record.sessionPath
+  }
+
   async clone(input: { chatId: string }): Promise<{ cancelled?: boolean }> {
     const record = await this.requireReady(validateChatId(input.chatId))
     const result = (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}
@@ -1038,7 +1104,9 @@ export class ChatService {
     if (record && this.parkRecord(record)) {
       return
     }
-    this.bridge?.revoke(chatId)
+    if (record) {
+      this.revokeToken(record.client)
+    }
     await this.pool.close(chatId)
   }
 
@@ -1155,7 +1223,7 @@ export class ChatService {
       ...(sessionPath ? { sessionPath } : {})
     })
     record.gate.reject(new Error('Chat evicted'))
-    this.bridge?.revoke(record.chatId)
+    this.revokeToken(record.client)
     await this.pool.close(record.chatId)
   }
 
@@ -1196,7 +1264,6 @@ export class ChatService {
       record.gate.reject(
         new Error(`pi process exited (code ${code ?? 'null'}, signal ${signal ?? 'null'})`)
       )
-      this.bridge?.revoke(chatId)
       if (current !== record) {
         // Silent teardown: evicted or explicitly closed chats keep their
         // transcript in the renderer; nothing to notify.

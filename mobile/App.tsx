@@ -53,7 +53,35 @@ function showChat(chatId: string): void {
   }
 }
 
+/** The launch URL is looked at once for a pairing link (it stays the same all session). */
+let initialPairLinkSeen = false
+
+/** A pairing link that arrived while paired, before the navigator was up. */
+let pendingPair: string | null = null
+
+/**
+ * A pairing link while a computer is already paired: pair one more. (Without
+ * any pairing the Pair screen is up and takes the link itself.)
+ */
+function openPairLink(url: string | null): boolean {
+  if (!url?.startsWith('pidesktop://pair') || !useConnection.getState().pairing) {
+    return false
+  }
+  if (navigationRef.isReady()) {
+    navigationRef.navigate('AddComputer', { link: url })
+  } else {
+    pendingPair = url
+  }
+  return true
+}
+
 function showPendingChat(): void {
+  const link = pendingPair
+  pendingPair = null
+  if (link) {
+    navigationRef.navigate('AddComputer', { link })
+    return
+  }
   const chatId = pendingChat
   pendingChat = null
   if (chatId && useChats.getState().chats[chatId]) {
@@ -86,15 +114,28 @@ export default function App() {
   useEffect(() => {
     // The native side keeps the link when the process was restarted for it
     // (JS was not listening yet); `Linking` covers the rest.
-    const fromLaunch = (): boolean => openChatLink(takeLaunchLink('pidesktop://chat'), showChat)
+    const fromLaunch = (): boolean => {
+      if (useConnection.getState().pairing) {
+        const pairLink = takeLaunchLink('pidesktop://pair')
+        if (pairLink && openPairLink(pairLink)) {
+          return true
+        }
+      }
+      return openChatLink(takeLaunchLink('pidesktop://chat'), showChat)
+    }
     if (!fromLaunch()) {
       void Linking.getInitialURL()
-        .then((url) => openChatLink(url, showChat))
+        .then((url) => openPairLink(url) || openChatLink(url, showChat))
         .catch(() => {})
     }
     const subscription = Linking.addEventListener('url', (event) => {
       takeLaunchLink('pidesktop://chat') // the same link, delivered live
-      openChatLink(event.url, showChat)
+      if (useConnection.getState().pairing) {
+        takeLaunchLink('pidesktop://pair')
+      }
+      if (!openPairLink(event.url)) {
+        openChatLink(event.url, showChat)
+      }
     })
     const appState = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
@@ -106,6 +147,25 @@ export default function App() {
       appState.remove()
     }
   }, [])
+
+  // A pairing link that launched the app: once the stored pairings are read
+  // it is known whether the Pair screen (first pairing) or AddComputer takes it.
+  const loaded = phase !== 'loading'
+  useEffect(() => {
+    if (!loaded || !useConnection.getState().pairing) {
+      return
+    }
+    if (!openPairLink(takeLaunchLink('pidesktop://pair'))) {
+      void Linking.getInitialURL()
+        .then((url) => {
+          if (url && !initialPairLinkSeen) {
+            initialPairLinkSeen = true
+            openPairLink(url)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [loaded])
 
   const ready = (fontsLoaded || fontError !== null) && prefsLoaded && phase !== 'loading'
   useEffect(() => {
@@ -155,6 +215,7 @@ export default function App() {
               <Stack.Screen name="AutomationEdit" component={AutomationEditScreen} />
               <Stack.Screen name="Usage" component={UsageScreen} />
               <Stack.Screen name="FolderPicker" component={FolderPickerScreen} />
+              <Stack.Screen name="AddComputer" component={PairScreen} options={{ animation: 'slide_from_bottom' }} />
             </>
           ) : (
             <Stack.Screen name="Pair" component={PairScreen} options={{ animation: 'fade' }} />

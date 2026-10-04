@@ -135,6 +135,17 @@ export class CuaService {
     this.emitter.removeAllListeners()
   }
 
+  /**
+   * Stop an idle helper so the next call starts a fresh one. A process keeps
+   * the permission state it saw at launch for some AX calls, so after the
+   * user grants access a new helper is the reliable way to pick it up.
+   */
+  recycle(): void {
+    if (this.pending.size === 0 && this.process) {
+      this.killProcess()
+    }
+  }
+
   private killProcess(): void {
     const proc = this.process
     this.process = null
@@ -192,17 +203,19 @@ export class CuaService {
         index = this.buffer.indexOf('\n')
       }
     })
+    // Only the current helper's death fails what is pending: a recycled
+    // one exits after its replacement may already hold new requests.
     proc.on('exit', () => {
       if (this.process === proc) {
         this.process = null
+        this.rejectAll(new Error('cua helper exited'))
       }
-      this.rejectAll(new Error('cua helper exited'))
     })
     proc.on('error', () => {
       if (this.process === proc) {
         this.process = null
+        this.rejectAll(new Error('cua helper failed to start'))
       }
-      this.rejectAll(new Error('cua helper failed to start'))
     })
     this.process = proc
     return proc

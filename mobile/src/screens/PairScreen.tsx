@@ -1,3 +1,4 @@
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as Clipboard from 'expo-clipboard'
 import { ClipboardPaste, ScanLine, X } from 'lucide-react-native'
@@ -6,11 +7,12 @@ import { BackHandler, Linking, ScrollView, StyleSheet, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { parsePairingPayload } from '../desktop'
+import type { Nav, RootStackParamList } from '../nav'
 import { takeLaunchLink } from '../lib/background'
 import { errorText } from '../remote/api'
 import { useConnection } from '../state/connection'
 import { radius, space, useTheme } from '../theme'
-import { Button, Field, haptic, IconButton, Mono, Pixel, Screen, Txt } from '../ui'
+import { Button, Field, haptic, IconButton, Mono, Pixel, Screen, toast, Txt } from '../ui'
 
 let initialUrlSeen = false
 
@@ -40,12 +42,18 @@ function Mark() {
 }
 
 /**
- * First run: pair this phone with a computer by scanning the one-time QR
- * code Pi Desktop shows (or pasting its link).
+ * Pair this phone with a computer by scanning the one-time QR code Pi
+ * Desktop (or `pi-remote pair`) shows, or by pasting its link. The first
+ * run shows it on its own; later it opens over the app to add a computer.
  */
 export function PairScreen() {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const navigation = useNavigation<Nav>()
+  const route = useRoute<RouteProp<RootStackParamList, 'AddComputer' | 'Pair'>>()
+  // Mounted as AddComputer: another computer is already paired.
+  const adding = route.name === 'AddComputer'
+  const routeLink = adding ? (route.params as { link?: string } | undefined)?.link : undefined
   const storeError = useConnection((s) => s.error)
   const [permission, requestPermission] = useCameraPermissions()
   const [scanning, setScanning] = useState(false)
@@ -66,6 +74,13 @@ export function PairScreen() {
     try {
       await useConnection.getState().pair(text)
       haptic('success')
+      if (adding) {
+        toast(`Paired with ${useConnection.getState().pairing?.name ?? payload.name}`)
+        // Closed while it connected: nothing to leave.
+        if (navigation.isFocused()) {
+          navigation.goBack()
+        }
+      }
     } catch (e) {
       haptic('warning')
       setError(useConnection.getState().error ?? errorText(e))
@@ -86,6 +101,11 @@ export function PairScreen() {
         void pairRef.current(url)
       }
     }
+    if (adding) {
+      // Links that arrive while paired are routed here by the app.
+      open(routeLink ?? null)
+      return
+    }
     // The launch link is only news once: after an unpair it is long spent.
     const kept = takeLaunchLink('pidesktop://pair')
     if (kept) {
@@ -97,7 +117,7 @@ export function PairScreen() {
     }
     const subscription = Linking.addEventListener('url', (event) => open(event.url))
     return () => subscription.remove()
-  }, [])
+  }, [adding, routeLink])
 
   // Back leaves the scanner, not the app.
   useEffect(() => {
@@ -150,7 +170,7 @@ export function PairScreen() {
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space.xxl, alignItems: 'center', paddingHorizontal: space.xl }}>
           <View style={{ backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.md }}>
             <Txt size="small" style={{ color: '#ececee', textAlign: 'center' }}>
-              Point the camera at the pairing code in Pi Desktop
+              Point the camera at the pairing code
             </Txt>
           </View>
         </View>
@@ -161,18 +181,29 @@ export function PairScreen() {
   const shownError = error ?? storeError
   return (
     <Screen>
+      {adding ? (
+        <View style={{ paddingTop: space.sm, paddingHorizontal: space.sm, flexDirection: 'row' }}>
+          <IconButton icon={X} label="Close" onPress={() => navigation.goBack()} />
+        </View>
+      ) : null}
       <ScrollView
-        contentContainerStyle={{ padding: space.xl, paddingTop: space.xxl * 1.5, gap: space.xl }}
+        contentContainerStyle={{ padding: space.xl, paddingTop: adding ? space.lg : space.xxl * 1.5, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
       >
         <Mark />
         <View style={{ gap: space.sm }}>
           <Txt size="title" weight="semibold" accessibilityRole="header">
-            Pair with your computer
+            {adding ? 'Pair another computer' : 'Pair with your computer'}
           </Txt>
+          {adding ? (
+            <Txt tone="text2">
+              It is added to your computers and used from now on. Switch between them in Settings.
+            </Txt>
+          ) : null}
           <Txt tone="text2">
             Pi Remote controls Pi Desktop from your phone: start and follow chats, answer pi&apos;s questions, review and
-            commit changes. The two talk directly over your network, end-to-end encrypted.
+            commit changes. The two talk directly over your network, end-to-end encrypted. On a server without the
+            desktop app, run pi-remote there and scan the code from &quot;pi-remote pair&quot;.
           </Txt>
         </View>
         <View style={{ gap: space.md }}>

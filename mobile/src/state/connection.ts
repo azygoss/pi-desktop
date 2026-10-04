@@ -4,22 +4,33 @@ import { create } from 'zustand'
 
 import { parsePairingPayload, type KeyPair, type RemoteServerInfo } from '../desktop'
 import { RemoteClient, RemoteDeniedError, RemoteDisconnectedError } from '../remote/client'
-import { loadIdentity, loadPairing, savePairing, type StoredPairing } from '../remote/storage'
+import {
+  loadComputers,
+  loadIdentity,
+  MAX_COMPUTERS,
+  saveComputers,
+  type StoredPairing
+} from '../remote/storage'
 
 export type ConnectionPhase = 'loading' | 'unpaired' | 'connecting' | 'online' | 'offline'
 
 interface ConnectionState {
   phase: ConnectionPhase
+  /** The computer in use. */
   pairing: StoredPairing | null
+  /** Every paired computer, the one in use included. */
+  computers: StoredPairing[]
   server: RemoteServerInfo | null
   /** Why the last attempt failed, in words for the user. */
   error: string | null
-  /** Load the stored pairing and connect. Once, at launch. */
+  /** Load the stored pairings and connect. Once, at launch. */
   init(): Promise<void>
-  /** Pair with the computer whose QR code (or pasted link) this is. */
+  /** Pair with the computer whose QR code (or pasted link) this is, and use it. */
   pair(text: string): Promise<void>
-  /** Forget the computer. */
-  unpair(): Promise<void>
+  /** Use another paired computer. */
+  switchTo(key: string): Promise<void>
+  /** Forget a computer (default: the one in use). */
+  unpair(key?: string): Promise<void>
   /** Try again now instead of waiting for the next automatic attempt. */
   retry(): void
   /** Add an address to try (the computer moved to another network). */
@@ -33,6 +44,8 @@ let client: RemoteClient | null = null
 let attempt = 0
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let connecting = false
+/** The dial in progress, so a switch can wait for it to let go. */
+let inflight: Promise<void> | null = null
 let subscribedChats: string[] = []
 
 let backgroundLink = false
@@ -78,11 +91,21 @@ export function onOnline(listener: () => void): () => void {
 }
 
 const unpairListeners = new Set<() => void>()
+const removedListeners = new Set<(key: string) => void>()
 
-/** Runs when the pairing ends: everything learned from that computer goes. */
+/**
+ * Runs when the computer in use changes or its pairing ends: everything
+ * learned from that computer leaves memory.
+ */
 export function onUnpair(listener: () => void): () => void {
   unpairListeners.add(listener)
   return () => unpairListeners.delete(listener)
+}
+
+/** Runs when a computer is forgotten: what was kept on disk for it can go. */
+export function onComputerRemoved(listener: (key: string) => void): () => void {
+  removedListeners.add(listener)
+  return () => removedListeners.delete(listener)
 }
 
 function forget(): void {
@@ -90,6 +113,28 @@ function forget(): void {
   for (const listener of unpairListeners) {
     listener()
   }
+}
+
+function removed(key: string): void {
+  for (const listener of removedListeners) {
+    listener(key)
+  }
+}
+
+/** Store the list (and which one is in use) and publish it. */
+function storeComputers(list: StoredPairing[], active: StoredPairing | null): void {
+  useConnection.setState({ computers: list })
+  void saveComputers({ list, active: active?.key ?? null }).catch(() => {})
+}
+
+/** Hang up on the computer in use and drop what was learned from it. */
+async function detach(): Promise<void> {
+  clearRetry()
+  const current = client
+  client = null
+  current?.close()
+  forget()
+  await inflight?.catch(() => {})
 }
 
 /** Run one of the desktop's IPC handlers. Rejects at once while offline. */
@@ -129,7 +174,25 @@ function scheduleRetry(): void {
  * is a pairing attempt: nothing is stored or shown as paired until the
  * computer accepts.
  */
-async function connect(token?: string, candidate?: StoredPairing): Promise<void> {
+function connect(token?: string, candidate?: StoredPairing): Promise<void> {
+  if (connecting) {
+    return candidate
+      ? Promise.reject(new Error('Already connecting. Try again in a moment.'))
+      : Promise.resolve()
+  }
+  const run = dial(token, candidate)
+  inflight = run
+  void run
+    .catch(() => {})
+    .finally(() => {
+      if (inflight === run) {
+        inflight = null
+      }
+    })
+  return run
+}
+
+async function dial(token?: string, candidate?: StoredPairing): Promise<void> {
   const pairing = candidate ?? useConnection.getState().pairing
   if (!pairing || !identity || connecting) {
     if (candidate) {
@@ -191,14 +254,22 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
       ...pairing,
       hosts: known,
       name: result.server.name,
-      lastHost: result.host
+      lastHost: result.host,
+      kind: result.server.kind ?? 'desktop'
     }
+    const { computers } = useConnection.getState()
     if (
-      updated.lastHost !== pairing.lastHost ||
-      updated.name !== pairing.name ||
-      known.join() !== pairing.hosts.join()
+      !candidate &&
+      (updated.lastHost !== pairing.lastHost ||
+        updated.name !== pairing.name ||
+        updated.kind !== pairing.kind ||
+        known.join() !== pairing.hosts.join())
     ) {
-      void savePairing(updated).catch(() => {})
+      // A candidate is stored by pair() once it is accepted.
+      storeComputers(
+        computers.map((c) => (c.key === updated.key ? updated : c)),
+        updated
+      )
     }
     useConnection.setState({ phase: 'online', server: result.server, pairing: updated, error: null })
     if (subscribedChats.length > 0) {
@@ -208,29 +279,45 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
       listener()
     }
   } catch (error) {
-    if (client === next) {
+    // Hung up on (a switch or a new pairing took over): not this dial's news.
+    const superseded = client !== next
+    if (!superseded) {
       client = null
     }
     next.close()
-    if (error instanceof RemoteDeniedError) {
-      // Removed on the computer (or the code was spent): pairing is over.
-      await savePairing(null).catch(() => {})
-      forget()
-      useConnection.setState({
-        phase: 'unpaired',
-        pairing: null,
-        server: null,
-        error: candidate
-          ? 'That code no longer works. Show a new one on the computer and scan again.'
-          : 'This phone was removed on the computer. Pair it again to continue.'
-      })
-      throw error
-    }
     const unreachable =
-      'Cannot reach the computer. Check that Pi Desktop is open, remote control is on, and both are on the same network.'
+      'Cannot reach the computer. Check that Pi Desktop is open with remote control on (or pi-remote is running on the server), and that this phone can reach it.'
     if (candidate) {
-      useConnection.setState({ error: unreachable })
-      throw new Error(unreachable)
+      const message =
+        error instanceof RemoteDeniedError
+          ? 'That code no longer works. Show a new one on the computer and scan again.'
+          : unreachable
+      useConnection.setState({ error: message })
+      throw new Error(message)
+    }
+    if (superseded) {
+      return
+    }
+    if (error instanceof RemoteDeniedError) {
+      // Removed on the computer: that pairing is over. Another paired
+      // computer, if there is one, takes over.
+      const { computers } = useConnection.getState()
+      const rest = computers.filter((c) => c.key !== pairing.key)
+      const fallback = rest[0] ?? null
+      forget()
+      removed(pairing.key)
+      storeComputers(rest, fallback)
+      useConnection.setState({
+        phase: fallback ? 'connecting' : 'unpaired',
+        pairing: fallback,
+        server: null,
+        error: `${pairing.name} removed this phone. Pair it again to use it.`
+      })
+      if (fallback) {
+        attempt = 0
+        queueMicrotask(() => void connect().catch(() => {}))
+      }
+      throw error
     }
     useConnection.setState({ phase: 'offline', error: unreachable })
     scheduleRetry()
@@ -242,17 +329,19 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
 export const useConnection = create<ConnectionState>((set, get) => ({
   phase: 'loading',
   pairing: null,
+  computers: [],
   server: null,
   error: null,
 
   async init() {
     identity = await loadIdentity()
-    const pairing = await loadPairing()
+    const { list, active } = await loadComputers()
+    const pairing = list.find((c) => c.key === active) ?? null
     if (!pairing) {
-      set({ phase: 'unpaired' })
+      set({ phase: 'unpaired', computers: list })
       return
     }
-    set({ pairing, phase: 'connecting' })
+    set({ pairing, computers: list, phase: 'connecting' })
     void connect().catch(() => {})
   },
 
@@ -262,28 +351,79 @@ export const useConnection = create<ConnectionState>((set, get) => ({
       throw new Error('That is not a Pi Desktop pairing code')
     }
     identity ??= await loadIdentity()
-    const pairing: StoredPairing = {
+    const { computers } = get()
+    const known = computers.some((c) => c.key === payload.key)
+    if (!known && computers.length >= MAX_COMPUTERS) {
+      throw new Error(`Pi Remote keeps up to ${MAX_COMPUTERS} computers. Remove one in Settings first.`)
+    }
+    const candidate: StoredPairing = {
       key: payload.key,
       port: payload.port,
       hosts: payload.hosts,
       name: payload.name
     }
-    set({ error: null })
-    await connect(payload.token, pairing)
-    if (get().phase !== 'online') {
-      throw new Error(get().error ?? 'Could not reach the computer')
+    // The computer in use (if any) steps aside while the new one answers,
+    // and comes back if it does not.
+    const previous = get().pairing
+    if (previous) {
+      await detach()
+      set({ phase: 'connecting', server: null })
     }
-    await savePairing(get().pairing)
+    set({ error: null })
+    try {
+      await connect(payload.token, candidate)
+    } catch (error) {
+      if (previous) {
+        const message = get().error
+        set({ pairing: previous, phase: 'connecting', error: null })
+        attempt = 0
+        void connect()
+          .catch(() => {})
+          .finally(() => {
+            // The phone is back on the old computer; the failure is what to show.
+            if (message && get().phase === 'online') {
+              set({ error: message })
+            }
+          })
+      }
+      throw error
+    }
+    const added = get().pairing!
+    storeComputers([added, ...computers.filter((c) => c.key !== added.key)], added)
   },
 
-  async unpair() {
-    clearRetry()
-    const current = client
-    client = null
-    current?.close()
-    await savePairing(null).catch(() => {})
-    forget()
-    set({ phase: 'unpaired', pairing: null, server: null, error: null })
+  async switchTo(key) {
+    const target = get().computers.find((c) => c.key === key)
+    if (!target || get().pairing?.key === key) {
+      return
+    }
+    await detach()
+    storeComputers(get().computers, target)
+    set({ pairing: target, server: null, phase: 'connecting', error: null })
+    attempt = 0
+    void connect().catch(() => {})
+  },
+
+  async unpair(key) {
+    const { computers, pairing } = get()
+    const gone = key ?? pairing?.key
+    if (!gone) {
+      return
+    }
+    const rest = computers.filter((c) => c.key !== gone)
+    removed(gone)
+    if (gone !== pairing?.key) {
+      storeComputers(rest, pairing)
+      return
+    }
+    await detach()
+    const next = rest[0] ?? null
+    storeComputers(rest, next)
+    set({ phase: next ? 'connecting' : 'unpaired', pairing: next, server: null, error: null })
+    if (next) {
+      attempt = 0
+      void connect().catch(() => {})
+    }
   },
 
   retry() {
@@ -301,7 +441,10 @@ export const useConnection = create<ConnectionState>((set, get) => ({
     }
     const updated = { ...pairing, hosts: [clean, ...pairing.hosts.filter((h) => h !== clean)] }
     set({ pairing: updated })
-    await savePairing(updated)
+    storeComputers(
+      get().computers.map((c) => (c.key === updated.key ? updated : c)),
+      updated
+    )
     if (get().phase !== 'online') {
       attempt = 0
       void connect().catch(() => {})

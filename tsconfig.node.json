@@ -19,5 +19,5 @@
     "useDefineForClassFields": true,
     "types": ["node"]
   },
-  "include": ["electron.vite.config.ts", "vitest.config.ts", "src/main", "src/preload", "src/shared", "test"]
+  "include": ["electron.vite.config.ts", "host.vite.config.ts", "vitest.config.ts", "src/main", "src/host", "src/preload", "src/shared", "test"]
 }

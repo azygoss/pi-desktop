@@ -15,14 +15,15 @@ export type BridgeHandler = (call: BridgeCall) => Promise<unknown>
 
 /**
  * Loopback HTTP bridge that lets per-chat pi processes (via the bundled
- * extension) invoke app services. A random token is issued per chat and
- * injected into that chat's pi env; requests without a valid token are
- * rejected before any dispatch.
+ * extension) invoke app services. A random token is issued per pi process
+ * and injected into its env; requests without a valid token are rejected
+ * before any dispatch. The token answers as a chat id, which moves when a
+ * warm spare is adopted.
  */
 export class BridgeServer {
   private server: Server | null = null
+  /** token → chat id the process currently answers as */
   private readonly tokens = new Map<string, string>()
-  private readonly tokensByChat = new Map<string, string>()
   private handler: BridgeHandler | null = null
   private baseUrl = ''
 
@@ -56,38 +57,22 @@ export class BridgeServer {
     return this.baseUrl
   }
 
-  /** Token for a chat's pi process; stable for the life of the chat. */
+  /** A fresh token for one pi process, answering as `chatId`. */
   issue(chatId: string): string {
-    const existing = this.tokensByChat.get(chatId)
-    if (existing) {
-      return existing
-    }
     const token = randomBytes(TOKEN_BYTES).toString('hex')
     this.tokens.set(token, chatId)
-    this.tokensByChat.set(chatId, token)
     return token
   }
 
-  revoke(chatId: string): void {
-    const token = this.tokensByChat.get(chatId)
-    if (token) {
-      this.tokensByChat.delete(chatId)
-      this.tokens.delete(token)
-    }
+  revoke(token: string): void {
+    this.tokens.delete(token)
   }
 
-  /**
-   * Re-map a token onto a different chat id — used when a draft chat adopts
-   * the warm spare process, which was spawned with a spare-id token in env.
-   */
-  adopt(fromChatId: string, toChatId: string): void {
-    const token = this.tokensByChat.get(fromChatId)
-    if (!token) {
-      return
+  /** Point a live token at another chat id (a warm spare was adopted). */
+  assign(token: string, chatId: string): void {
+    if (this.tokens.has(token)) {
+      this.tokens.set(token, chatId)
     }
-    this.tokensByChat.delete(fromChatId)
-    this.tokensByChat.set(toChatId, token)
-    this.tokens.set(token, toChatId)
   }
 
   async stop(): Promise<void> {
@@ -95,7 +80,6 @@ export class BridgeServer {
     this.server = null
     this.baseUrl = ''
     this.tokens.clear()
-    this.tokensByChat.clear()
     if (server) {
       await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()))
     }

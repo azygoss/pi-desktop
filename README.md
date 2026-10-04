@@ -90,7 +90,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   [`mobile/`](mobile/README.md): follow and steer chats, answer pi's
   questions, review and commit. The phone connects straight to your computer
   over your network, end-to-end encrypted, with no account or relay
-  ([how it works](docs/remote.md)).
+  ([how it works](docs/remote.md)). On a server, `pi-remote` hosts the same
+  link without the desktop app ([pi-remote](docs/pi-remote.md)).
 - **Notifications** — a native notification and dock badge when a run
   finishes or pi needs your input while you are elsewhere.
 - **Runtime flexibility** — uses your installed `pi`, the bundled pinned

@@ -46,6 +46,7 @@ import type { SideChatService } from './chat/side-service'
 import { REVIEW_PROMPT, parseReviewComments } from '../shared/review'
 import { readSettings } from './config/settings'
 import { loginShellEnv } from './pi/locator'
+import { APP_BUNDLE_ID } from './cua/cua-tools'
 import { BrowserManager } from './browser/browser-manager'
 import { getRepoDiff, getRepoSummary } from './diff/git-diff'
 import { listOpenTargets, openInTarget } from './open-in'
@@ -187,6 +188,7 @@ export const IPC_CHANNELS = {
   cuaPermissions: 'pi-desktop:cua:permissions',
   cuaRequestPermissions: 'pi-desktop:cua:request-permissions',
   cuaOpenSettings: 'pi-desktop:cua:open-settings',
+  cuaResetPermissions: 'pi-desktop:cua:reset-permissions',
   cuaPause: 'pi-desktop:cua:pause',
   cuaResume: 'pi-desktop:cua:resume',
   cuaStop: 'pi-desktop:cua:stop',
@@ -417,6 +419,8 @@ export interface IpcDeps {
     resume(): void
     abortAll(message?: string): void
     dispose(): void
+    /** Stop an idle helper so the next call sees fresh permissions. */
+    recycle(): void
   }
   /** Release update checker; absent in unit-test setups. */
   updates?: {
@@ -433,8 +437,8 @@ export interface IpcDeps {
   automations?: {
     /** The list changed — re-aim the timer. */
     refresh(): void
-    /** Ask a window to start the run; false when there is none. */
-    trigger(automation: Automation): boolean
+    /** Start the run; false when it could not start (no window). */
+    trigger(automation: Automation): boolean | Promise<boolean>
   }
   /** Remote-control host for paired phones; absent in unit-test setups. */
   remote?: {
@@ -698,7 +702,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       throw new Error('Unknown automation')
     }
     // Runs are hosted by a window (the chat starts in its renderer).
-    if (!deps.automations?.trigger(automation)) {
+    if (!(await deps.automations?.trigger(automation))) {
       throw new Error('Open a Pi Desktop window on the computer to run automations')
     }
     await markAutomationRun(automation.id, Date.now())
@@ -920,10 +924,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       accessibility?: boolean
       screenRecording?: boolean
     }
+    const accessibility = result.accessibility === true
+    if (!accessibility) {
+      // A running helper may hold on to the state it saw at launch.
+      cua.recycle()
+    }
     return {
       available: true,
-      accessibility: result.accessibility === true,
-      screenRecording: result.screenRecording === true
+      accessibility,
+      screenRecording: result.screenRecording === true,
+      appAccessibility: systemPreferences.isTrustedAccessibilityClient(false),
+      canReset: canResetCuaPermissions()
     }
   }
 
@@ -931,6 +942,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle(IPC_CHANNELS.cuaRequestPermissions, () => {
     // Registers the app in the Accessibility list; the helper inherits the
     // grant as our child (TCC attributes it to the responsible process).
+    systemPreferences.isTrustedAccessibilityClient(true)
+    return cuaPermissions(true)
+  })
+  handle(IPC_CHANNELS.cuaResetPermissions, async () => {
+    if (!canResetCuaPermissions()) {
+      return cuaPermissions(false)
+    }
+    // A privacy entry stores the code requirement of the build that asked
+    // first; after a signing change the switch shows "on" but no longer
+    // matches. tccutil drops only Pi Desktop's own entries.
+    for (const service of ['Accessibility', 'ScreenCapture']) {
+      await new Promise<void>((resolvePromise) => {
+        execFile('/usr/bin/tccutil', ['reset', service, APP_BUNDLE_ID], () => resolvePromise())
+      })
+    }
+    deps.cua?.recycle()
+    // Re-registers Pi Desktop in both lists: the Accessibility prompt comes
+    // from the app itself, the Screen Recording one from the (fresh) helper.
     systemPreferences.isTrustedAccessibilityClient(true)
     return cuaPermissions(true)
   })
@@ -1605,3 +1634,8 @@ export function broadcastAll(channel: string, payload: unknown): void {
 }
 
 export { CHAT_CHANNELS }
+
+/** Resetting privacy entries only makes sense for the signed app bundle. */
+function canResetCuaPermissions(): boolean {
+  return process.platform === 'darwin' && app.isPackaged
+}

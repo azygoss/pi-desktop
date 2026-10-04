@@ -236,7 +236,7 @@ export function AutomationsTab() {
   const header = (
     <View style={styles.intro}>
       <Txt size="small" tone="muted">
-        Prompts pi runs on a schedule while Pi Desktop is open on the computer.
+        Prompts pi runs on a schedule while Pi Desktop (or pi-remote) is running on the computer.
       </Txt>
       <Button
         title="New automation"

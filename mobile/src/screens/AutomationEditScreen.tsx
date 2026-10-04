@@ -404,7 +404,7 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
             <View style={styles.body}>
               <Txt>Enabled</Txt>
               <Txt size="caption" tone="muted">
-                Runs only while Pi Desktop is open on the computer.
+                Runs only while Pi Desktop (or pi-remote) is running on the computer.
               </Txt>
             </View>
             <Switch

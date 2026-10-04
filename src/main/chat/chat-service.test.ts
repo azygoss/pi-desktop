@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { BridgeServer } from '../bridge/bridge-server'
 import { PiProcessPool } from '../pi/pool'
 import type { LocatorDeps } from '../pi/locator'
 import {
@@ -245,6 +246,59 @@ describe('ChatService', () => {
     }
   })
 
+  it('keeps the bridge token of a respawned pinned spare valid', async () => {
+    const pool = new PiProcessPool({ preferBundled: true, deps: fakeDeps() })
+    const server = new BridgeServer()
+    await server.start()
+    server.setHandler(async (call) => call.chatId)
+    const issued: { id: string; token: string }[] = []
+    const service = new ChatService(
+      pool,
+      () => {},
+      {
+        url: () => server.url,
+        issue: (id) => {
+          const token = server.issue(id)
+          issued.push({ id, token })
+          return token
+        },
+        revoke: (token) => server.revoke(token),
+        assign: (token, chatId) => server.assign(token, chatId),
+        extensionPath: () => ''
+      },
+      { sweepIntervalMs: 3_600_000 }
+    )
+    const callAs = async (token: string) => {
+      const response = await fetch(`${server.url}/call`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tool: 'browser_probe' })
+      })
+      return (await response.json()) as { ok: boolean; result?: unknown; error?: string }
+    }
+    try {
+      const scratch = join(userDataRoot, 'workspace')
+      await service.warmSpare()
+      await service.open({ chatId: 'chat-a', cwd: scratch })
+      // Adoption re-warms the pinned spare under the same id.
+      await expect
+        .poll(() => issued.filter((entry) => entry.id === '__spare__').length, { timeout: 5000 })
+        .toBe(2)
+      await expect.poll(() => pool.get('__spare__')?.isRunning === true).toBe(true)
+      expect(await callAs(issued[0]!.token)).toEqual({ ok: true, result: 'chat-a' })
+      // The first spare's process exits; that must not revoke the token of
+      // the spare now waiting under the same id.
+      await service.close({ chatId: 'chat-a' })
+      expect((await callAs(issued[0]!.token)).ok).toBe(false)
+      await service.open({ chatId: 'chat-b', cwd: scratch })
+      expect(await callAs(issued[1]!.token)).toEqual({ ok: true, result: 'chat-b' })
+    } finally {
+      await service.closeAll()
+      await pool.closeAll()
+      await server.stop()
+    }
+  })
+
   it('drops warm spares when the computer-use flag flips and rewarms with new env', async () => {
     const pool = new PiProcessPool({ preferBundled: true, deps: fakeDeps() })
     let cuaOn = true
@@ -252,7 +306,7 @@ describe('ChatService', () => {
       url: () => 'http://127.0.0.1:9',
       issue: () => 'tok',
       revoke: () => {},
-      adopt: () => {},
+      assign: () => {},
       extensionPath: () => '',
       computerToolsEnabled: () => cuaOn
     }

@@ -9,8 +9,11 @@ import type { CuaService } from './cua-service'
  */
 
 /** Bundle ids the agent must never control — the app itself and dev Electron. */
+/** Pi Desktop's own bundle id (electron-builder appId). */
+export const APP_BUNDLE_ID = 'io.github.azygoss.pidesktop'
+
 export const SELF_BUNDLE_IDS = new Set([
-  'io.github.azygoss.pidesktop',
+  APP_BUNDLE_ID,
   'com.github.Electron'
 ])
 
@@ -98,13 +101,17 @@ export class ComputerToolBridge {
       }
       throw toolError(
         'Accessibility permission is required. Grant it in System Settings → ' +
-          'Privacy & Security → Accessibility for Pi Desktop, then retry.'
+          'Privacy & Security → Accessibility for Pi Desktop, then retry. If Pi Desktop ' +
+          'is already switched on there, the entry belongs to an older build: use ' +
+          'Reset permissions in Pi Desktop Settings → Computer use and grant it again.'
       )
     }
     if (needsScreen && perms.screenRecording !== true) {
       throw toolError(
         'Screen Recording permission is required. Grant it in System Settings → ' +
-          'Privacy & Security → Screen Recording for Pi Desktop, then retry.'
+          'Privacy & Security → Screen Recording for Pi Desktop, then retry. If Pi ' +
+          'Desktop is already switched on there, use Reset permissions in Pi Desktop ' +
+          'Settings → Computer use and grant it again.'
       )
     }
   }
@@ -125,9 +132,12 @@ export class ComputerToolBridge {
       screenRecording: result.screenRecording === true
     }
     // Only a granted state is trustworthy enough to cache: a denied user may
-    // flip the switch in System Settings mid-session and expect it to work.
+    // flip the switch in System Settings mid-session and expect it to work,
+    // and the next check must come from a fresh helper to see it.
     if (value.accessibility) {
       this.permsCache = { at: Date.now(), value }
+    } else {
+      this.service.recycle()
     }
     return value
   }

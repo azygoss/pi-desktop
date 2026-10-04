@@ -53,8 +53,8 @@ const updates = new UpdateChecker({}, (info) =>
 const chat = new ChatService(pool, broadcastAll, {
   url: () => bridge.url,
   issue: (chatId) => bridge.issue(chatId),
-  revoke: (chatId) => bridge.revoke(chatId),
-  adopt: (fromChatId, toChatId) => bridge.adopt(fromChatId, toChatId),
+  revoke: (token) => bridge.revoke(token),
+  assign: (token, chatId) => bridge.assign(token, chatId),
   extensionPath: piExtensionPath,
   computerToolsEnabled: () =>
     cua.available() && (getCachedAppSettings()?.computerUse.enabled ?? true)
@@ -79,7 +79,8 @@ const remote = new RemoteServer({
     platform: process.platform,
     homeDir: homedir(),
     workspaceDir: workspaceDir(),
-    tzOffset: new Date().getTimezoneOffset()
+    tzOffset: new Date().getTimezoneOffset(),
+    kind: 'desktop'
   }),
   onChanged: () => {
     for (const win of BrowserWindow.getAllWindows()) {

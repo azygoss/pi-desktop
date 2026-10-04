@@ -12,7 +12,7 @@ import type {
   SessionSummary
 } from '../desktop'
 import { api, EVENTS } from '../remote/api'
-import { onOnline, onRemote, onUnpair, useConnection } from './connection'
+import { onComputerRemoved, onOnline, onRemote, onUnpair, useConnection } from './connection'
 
 interface DataState {
   /** False until the first answer from the computer. */
@@ -92,6 +92,8 @@ export function liveStateFor(
 
 const SESSIONS_REFRESH_MS = 2000
 const CACHE_KEY = 'pi-remote.lists'
+/** One cache per paired computer: switching shows that computer's lists at once. */
+const cacheKey = (computer: string): string => `${CACHE_KEY}:${computer}`
 /** Sessions kept for the next cold start (the newest ones). */
 const CACHE_SESSIONS = 300
 /** The cache only serves the next launch: writing it rarely is enough. */
@@ -119,7 +121,7 @@ function scheduleCacheWrite(): void {
       return
     }
     void AsyncStorage.setItem(
-      CACHE_KEY,
+      cacheKey(key),
       JSON.stringify({ key, sessions: sessions.slice(0, CACHE_SESSIONS), projects, meta, appInfo })
     ).catch(() => {})
   }, CACHE_WRITE_MS)
@@ -127,9 +129,17 @@ function scheduleCacheWrite(): void {
 
 async function restoreCache(): Promise<void> {
   try {
-    const raw = await AsyncStorage.getItem(CACHE_KEY)
-    const cached = raw ? (JSON.parse(raw) as Partial<DataState> & { key?: string }) : null
     const key = useConnection.getState().pairing?.key
+    if (!key) {
+      return
+    }
+    // Before several computers there was one cache, under the plain key.
+    const legacy = await AsyncStorage.getItem(CACHE_KEY)
+    if (legacy !== null) {
+      await AsyncStorage.removeItem(CACHE_KEY).catch(() => {})
+    }
+    const raw = (await AsyncStorage.getItem(cacheKey(key))) ?? legacy
+    const cached = raw ? (JSON.parse(raw) as Partial<DataState> & { key?: string }) : null
     if (!cached || !key || cached.key !== key || useData.getState().loaded) {
       return
     }
@@ -240,14 +250,21 @@ export function initDataBridge(): void {
       appInfo: null,
       userName: ''
     })
-    void AsyncStorage.removeItem(CACHE_KEY).catch(() => {})
+  })
+  onComputerRemoved((key) => {
+    void AsyncStorage.removeItem(cacheKey(key)).catch(() => {})
   })
 
-  // The pairing is known a moment after launch: show the cached lists then.
-  const unsubscribe = useConnection.subscribe((state) => {
-    if (state.pairing) {
-      unsubscribe()
-      void restoreCache()
+  // Whenever another computer comes into use (and at launch, once the
+  // pairing is known): show its cached lists until it answers.
+  let shownFor: string | null = null
+  useConnection.subscribe((state) => {
+    const key = state.pairing?.key ?? null
+    if (key !== shownFor) {
+      shownFor = key
+      if (key) {
+        void restoreCache()
+      }
     }
   })
   onRemote<ChatEventPayload>(EVENTS.chatEvent, ({ chatId, events }) => {

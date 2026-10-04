@@ -60,6 +60,7 @@ export function SettingsModal() {
   const [displayName, setDisplayName] = useState(appSettings.displayName ?? '')
   const [refreshing, setRefreshing] = useState(false)
   const [cuaPerms, setCuaPerms] = useState<CuaPermissions | null>(null)
+  const [resettingCua, setResettingCua] = useState(false)
   const [updateResult, setUpdateResult] = useState<string | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [dictationLocales, setDictationLocales] = useState<string[] | null>(null)
@@ -488,6 +489,36 @@ export function SettingsModal() {
                       </div>
                     </div>
                   ))}
+                  {cuaPerms.canReset &&
+                    (!cuaPerms.accessibility || !cuaPerms.screenRecording) && (
+                      <div className="settings-row">
+                        <div className="settings-row-text">
+                          <div className="settings-label">Switched on but still not granted?</div>
+                          <div className="settings-hint">
+                            {cuaPerms.appAccessibility && !cuaPerms.accessibility
+                              ? 'macOS trusts Pi Desktop but not its helper. Reset the entries, then grant them again.'
+                              : 'An entry left by an older build no longer matches this one. Reset removes Pi Desktop from both lists; grant it again when macOS asks.'}
+                          </div>
+                        </div>
+                        <div className="perm-actions">
+                          <button
+                            type="button"
+                            className="ui-btn"
+                            disabled={resettingCua}
+                            onClick={() => {
+                              setResettingCua(true)
+                              void window.piDesktop.cua
+                                .resetPermissions()
+                                .then(setCuaPerms)
+                                .catch(() => {})
+                                .finally(() => setResettingCua(false))
+                            }}
+                          >
+                            Reset permissions
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   <div className="settings-note">
                     Unsigned builds: macOS may ask again after an update.
                   </div>
