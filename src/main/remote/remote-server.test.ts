@@ -91,10 +91,13 @@ describe('RemoteServer', () => {
 
   it('turns away strangers and spent or wrong codes', async () => {
     const { pairing } = await pairPhone()
-    // No code on screen: an unknown key is dropped before the handshake.
-    await expect(TestPhone.connect(pairing, generateKeyPair())).rejects.toThrow(
-      'This phone is not paired with the computer'
-    )
+    // No code on screen: an unknown phone is told so, inside the channel.
+    const stranger = await TestPhone.connect(pairing, generateKeyPair())
+    phones.push(stranger)
+    expect(
+      await stranger.next((f): f is Extract<ServerFrame, { t: 'denied' }> => f.t === 'denied')
+    ).toMatchObject({ reason: 'This phone is not paired with the computer' })
+    expect(await stranger.ready()).toBeNull()
     // A code on screen, but the phone presents the old one.
     server.beginPairing()
     const stale = await TestPhone.connect(pairing, generateKeyPair(), { pair: pairing.token })
@@ -149,7 +152,9 @@ describe('RemoteServer', () => {
     await server.revoke(server.status().devices[0]!.id)
     expect(await phone.ready()).toBeNull() // socket closed
     expect(server.status().devices).toHaveLength(0)
-    await expect(TestPhone.connect(pairing, identity)).rejects.toThrow()
+    const back = await TestPhone.connect(pairing, identity)
+    phones.push(back)
+    expect(await back.ready()).toBeNull()
   })
 
   it('keeps its identity and phones across restarts', async () => {

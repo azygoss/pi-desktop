@@ -1,9 +1,11 @@
 import { Clock, FolderGit2, MessagesSquare, Settings, type LucideIcon } from 'lucide-react-native'
-import { useState } from 'react'
+import { useFocusEffect } from '@react-navigation/native'
+import { useCallback, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useConnection } from '../state/connection'
+import { setListsVisible } from '../state/data'
 import { radius, space, useTheme } from '../theme'
 import { Button, Mono, Pixel, Tap, Txt } from '../ui'
 import { AutomationsTab } from './AutomationsTab'
@@ -32,6 +34,14 @@ export function HomeScreen() {
   const name = useConnection((s) => s.server?.name ?? s.pairing?.name ?? 'Computer')
   const [tab, setTab] = useState<TabId>('chats')
   const [mounted, setMounted] = useState<Set<TabId>>(() => new Set<TabId>(['chats']))
+
+  // The lists only follow the computer while this screen is on top.
+  useFocusEffect(
+    useCallback(() => {
+      setListsVisible(true)
+      return () => setListsVisible(false)
+    }, [])
+  )
 
   const select = (id: TabId): void => {
     if (!mounted.has(id)) {

@@ -22,6 +22,8 @@ interface ConnectionState {
   unpair(): Promise<void>
   /** Try again now instead of waiting for the next automatic attempt. */
   retry(): void
+  /** Add an address to try (the computer moved to another network). */
+  addHost(host: string): Promise<void>
 }
 
 const BACKOFF_MS = [500, 1000, 2000, 4000, 8000]
@@ -59,6 +61,21 @@ export function onRemote<T>(channel: string, listener: (payload: T) => void): ()
 export function onOnline(listener: () => void): () => void {
   onlineListeners.add(listener)
   return () => onlineListeners.delete(listener)
+}
+
+const unpairListeners = new Set<() => void>()
+
+/** Runs when the pairing ends: everything learned from that computer goes. */
+export function onUnpair(listener: () => void): () => void {
+  unpairListeners.add(listener)
+  return () => unpairListeners.delete(listener)
+}
+
+function forget(): void {
+  subscribedChats = []
+  for (const listener of unpairListeners) {
+    listener()
+  }
 }
 
 /** Run one of the desktop's IPC handlers. Rejects at once while offline. */
@@ -142,12 +159,31 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
     next.onClose = () => {
       if (client === next) {
         client = null
-        useConnection.setState({ phase: 'offline', error: 'Lost the connection to the computer' })
-        scheduleRetry()
+        // Usually the phone slept or changed network: redial at once and
+        // only call it offline if that fails.
+        useConnection.setState({ phase: 'connecting', error: null })
+        attempt = 0
+        if (AppState.currentState === 'active') {
+          void connect().catch(() => {})
+        }
       }
     }
-    const updated: StoredPairing = { ...pairing, name: result.server.name, lastHost: result.host }
-    if (updated.lastHost !== pairing.lastHost || updated.name !== pairing.name) {
+    // The computer reports its addresses on every connection: keep them, so
+    // it is still found after its address changes or on another network.
+    const known = [
+      ...new Set([result.host, ...(result.server.hosts ?? []), ...pairing.hosts])
+    ].slice(0, 16)
+    const updated: StoredPairing = {
+      ...pairing,
+      hosts: known,
+      name: result.server.name,
+      lastHost: result.host
+    }
+    if (
+      updated.lastHost !== pairing.lastHost ||
+      updated.name !== pairing.name ||
+      known.join() !== pairing.hosts.join()
+    ) {
       void savePairing(updated).catch(() => {})
     }
     useConnection.setState({ phase: 'online', server: result.server, pairing: updated, error: null })
@@ -165,6 +201,7 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
     if (error instanceof RemoteDeniedError) {
       // Removed on the computer (or the code was spent): pairing is over.
       await savePairing(null).catch(() => {})
+      forget()
       useConnection.setState({
         phase: 'unpaired',
         pairing: null,
@@ -231,11 +268,27 @@ export const useConnection = create<ConnectionState>((set, get) => ({
     client = null
     current?.close()
     await savePairing(null).catch(() => {})
+    forget()
     set({ phase: 'unpaired', pairing: null, server: null, error: null })
   },
 
   retry() {
     if (get().pairing && get().phase !== 'online') {
+      attempt = 0
+      void connect().catch(() => {})
+    }
+  },
+
+  async addHost(host) {
+    const pairing = get().pairing
+    const clean = host.trim().replace(/^wss?:\/\//, '').replace(/[:/].*$/, '')
+    if (!pairing || !/^[A-Za-z0-9.-]{1,255}$/.test(clean)) {
+      throw new Error('That is not an address')
+    }
+    const updated = { ...pairing, hosts: [clean, ...pairing.hosts.filter((h) => h !== clean)] }
+    set({ pairing: updated })
+    await savePairing(updated)
+    if (get().phase !== 'online') {
       attempt = 0
       void connect().catch(() => {})
     }

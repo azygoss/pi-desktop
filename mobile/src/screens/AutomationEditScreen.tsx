@@ -1,5 +1,6 @@
 import { ChevronRight, FolderOpen, Trash2 } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { usePreventRemove } from '@react-navigation/native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Switch, View } from 'react-native'
 
 import {
@@ -87,6 +88,27 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
   const [saving, setSaving] = useState(false)
   const [projectSheet, setProjectSheet] = useState(false)
 
+  const initial = useRef({ name: '', prompt: '' })
+  // Back would throw away what was typed here: ask first.
+  const leaving = useRef(false)
+  usePreventRemove(name !== initial.current.name || prompt !== initial.current.prompt, ({ data }) => {
+    if (leaving.current) {
+      navigation.dispatch(data.action)
+      return
+    }
+    void confirm({
+      title: 'Discard your changes?',
+      message: 'This automation has not been saved.',
+      action: 'Discard',
+      danger: true
+    }).then((ok) => {
+      if (ok) {
+        leaving.current = true
+        navigation.dispatch(data.action)
+      }
+    })
+  })
+
   const load = useCallback(() => {
     if (!id) {
       return
@@ -101,6 +123,7 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
           setState('error')
           return
         }
+        initial.current = { name: found.name, prompt: found.prompt }
         setName(found.name)
         setPrompt(found.prompt)
         setCwd(found.cwd)
@@ -177,6 +200,7 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
         schedule,
         enabled
       })
+      leaving.current = true
       navigation.goBack()
     } catch (e) {
       toast(errorText(e))
@@ -199,6 +223,7 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
     }
     try {
       await api.automations.delete(id)
+      leaving.current = true
       navigation.goBack()
     } catch (e) {
       toast(errorText(e))

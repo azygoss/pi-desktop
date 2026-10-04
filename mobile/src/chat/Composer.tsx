@@ -20,6 +20,7 @@ import {
 } from '../desktop'
 import { api, errorText } from '../remote/api'
 import { useChats } from '../state/chats'
+import { useConnection } from '../state/connection'
 import { makeStyles, radius, space, TOUCH, useTheme, type Theme } from '../theme'
 import { haptic, IconButton, Mono, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
 
@@ -112,14 +113,15 @@ const useStyles = makeStyles((t: Theme) => ({
   bar: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2, paddingRight: space.xs, paddingBottom: space.xs },
   chip: {
     flexShrink: 1,
-    minHeight: 40,
+    minHeight: TOUCH,
     justifyContent: 'center',
     paddingHorizontal: space.sm,
     borderRadius: radius.sm
   },
+  // 44 on screen; the hit slop below brings the touch target to 48.
   send: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.md,
     overflow: 'hidden'
   },
@@ -205,7 +207,7 @@ function QueueStrip({ chatId }: { chatId: string }) {
       ))}
       <Tap
         onPress={() => void useChats.getState().clearQueue(chatId)}
-        style={{ minHeight: 36, justifyContent: 'center' }}
+        style={{ minHeight: TOUCH, justifyContent: 'center' }}
       >
         <Txt size="small" tone="accent">
           Take back to edit
@@ -229,7 +231,7 @@ export interface ComposerProps {
  * works, the send button stops it; text sent mid-run steers the run or waits
  * for it to end.
  */
-export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: ComposerProps) {
+export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: ComposerProps) {
   const styles = useStyles()
   const theme = useTheme()
   const status = useChats((s) => s.chats[chatId]?.status)
@@ -242,7 +244,10 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
   const percent = useChats((s) => s.chats[chatId]?.stats?.contextUsage?.percent)
   const hasMessages = useChats((s) => (s.chats[chatId]?.messages.length ?? 0) > 0)
 
-  const [text, setTextState] = useState(() => draftCache.get(chatId) ?? '')
+  // A chat gets a new id on every app run; its session file is what lasts.
+  const sessionPath = useChats((s) => s.chats[chatId]?.sessionPath)
+  const draftId = sessionPath ?? chatId
+  const [text, setTextState] = useState(() => draftCache.get(draftId) ?? '')
   const [cursor, setCursor] = useState(0)
   const [images, setImages] = useState<(ImageContent & { uri: string })[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
@@ -254,21 +259,29 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
   const setText = useCallback(
     (next: string) => {
       setTextState(next)
-      saveDraft(chatId, next)
+      saveDraft(draftId, next)
     },
-    [chatId]
+    [draftId]
   )
 
   // Restore a draft written in an earlier app run.
+  const textRef = useRef(text)
+  textRef.current = text
   useEffect(() => {
-    if (draftCache.has(chatId)) {
+    // The draft id changes once when a new chat gets its session file: what
+    // is typed moves along.
+    if (textRef.current) {
+      saveDraft(draftId, textRef.current)
+      return
+    }
+    if (draftCache.has(draftId)) {
       return
     }
     let cancelled = false
-    void AsyncStorage.getItem(draftKey(chatId))
+    void AsyncStorage.getItem(draftKey(draftId))
       .then((stored) => {
-        if (!cancelled && stored && !draftCache.has(chatId)) {
-          draftCache.set(chatId, stored)
+        if (!cancelled && stored && !draftCache.has(draftId) && !textRef.current) {
+          draftCache.set(draftId, stored)
           setTextState(stored)
         }
       })
@@ -276,13 +289,16 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
     return () => {
       cancelled = true
     }
-  }, [chatId])
+  }, [draftId])
 
   // Text handed over by the app: a fork's prompt, review comments, a queue taken back.
   const seedNonce = seed?.nonce
   useEffect(() => {
     if (seed) {
-      setText(seed.text)
+      // Handed-over text joins what is already typed; an empty hand-over
+      // (a retry that sends at once) clears the box.
+      const current = draftCache.get(draftId) ?? ''
+      setText(seed.text && current.trim() && current.trim() !== seed.text.trim() ? `${current.trimEnd()}\n\n${seed.text}` : seed.text)
       if (seed.text) {
         input.current?.focus()
       }
@@ -398,7 +414,17 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
     if (!message && images.length === 0) {
       return
     }
+    if (useConnection.getState().phase !== 'online') {
+      // Keep what was typed: it can be sent once the computer is back.
+      haptic('warning')
+      toast('Not connected to the computer. Your message is kept.')
+      return
+    }
     if (message.startsWith('!') && message.length > 1 && images.length === 0) {
+      if (bashRunning) {
+        toast('A command is still running. Stop it or wait for it to finish.')
+        return
+      }
       haptic()
       setText('')
       void chats.runBash(chatId, message.slice(1).trim())
@@ -412,11 +438,14 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
     haptic()
     const payload = images.length > 0 ? images.map(({ type, data, mimeType }) => ({ type, data, mimeType })) : undefined
     const sentText = message || 'See the attached image.'
+    const sentImages = images
     setText('')
     setImages([])
-    void chats
-      .send(chatId, sentText, payload, streaming ? queueMode : 'prompt')
-      .catch((e) => toast(`Could not send: ${errorText(e)}`))
+    void chats.send(chatId, sentText, payload, streaming ? queueMode : 'prompt').catch((e) => {
+      // The store hands the text back; the photos come back with it.
+      setImages(sentImages)
+      toast(`Could not send: ${errorText(e)}`)
+    })
   }
 
   const stop = (): void => {
@@ -496,7 +525,7 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
                   accessibilityState={{ selected }}
                   onPress={() => setQueueMode(mode)}
                   style={{
-                    minHeight: 36,
+                    minHeight: TOUCH,
                     paddingHorizontal: space.md,
                     justifyContent: 'center',
                     borderRadius: radius.sm,
@@ -512,7 +541,7 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
           </View>
         ) : null}
         <View style={styles.bar}>
-          <IconButton icon={Plus} label="Attach or insert" onPress={() => setAttachOpen(true)} style={{ width: 44, height: 44 }} />
+          <IconButton icon={Plus} label="Attach or insert" onPress={() => setAttachOpen(true)} />
           <Tap onPress={onOpenModel} style={styles.chip} accessibilityLabel={`Model: ${model?.name ?? 'none'}. Change model`}>
             <Mono size={12} tone="text2" numberOfLines={1}>
               {model ? model.name || model.id : 'model'}
@@ -520,7 +549,7 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
             </Mono>
           </Tap>
           <View style={{ flex: 1 }} />
-          {typeof percent === 'number' ? (
+          {typeof percent === 'number' && percent >= 1 ? (
             <Tap onPress={onOpenStats} style={styles.chip} accessibilityLabel={`Context ${Math.round(percent)} percent used. Session details`}>
               <Mono size={12} tone={percent >= 85 ? 'warning' : 'muted'}>{`${Math.round(percent)}%`}</Mono>
             </Tap>
@@ -529,6 +558,7 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
             <Tap
               testID="composer-send"
               label={showStop ? 'Stop pi' : 'Send'}
+              hitSlop={4}
               disabled={!showStop && !canSend}
               onPress={showStop ? stop : submit}
               style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
@@ -556,4 +586,4 @@ export function Composer({ chatId, onCommand, onOpenModel, onOpenStats }: Compos
       </Sheet>
     </View>
   )
-}
+})

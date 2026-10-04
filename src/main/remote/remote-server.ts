@@ -503,17 +503,6 @@ export class RemoteServer {
       this.fail(connection)
       return
     }
-    // Strangers are only worth a handshake while a pairing code is showing.
-    // Saying so costs nothing and lets a removed phone stop retrying; it is
-    // not counted as a failed attempt, so pairing again is not held up.
-    if (!this.deps.store.deviceByKey(hello.c) && !this.activePairing()) {
-      const reply: HelloFromServer = {
-        v: REMOTE_PROTOCOL_VERSION,
-        denied: 'This phone is not paired with the computer'
-      }
-      connection.socket.send(JSON.stringify(reply), () => this.drop(connection))
-      return
-    }
     try {
       const serverEphemeral = generateKeyPair()
       const keys = serverSessionKeys({
@@ -551,8 +540,15 @@ export class RemoteServer {
         token = null
       }
       if (!pairing || !token || !equalBytes(token, pairing.token)) {
+        // Said inside the encrypted channel, so the phone knows it is this
+        // computer speaking and can stop retrying (it was removed here).
         this.send(connection, { t: 'denied', reason: 'This phone is not paired with the computer' })
-        this.fail(connection)
+        if (token) {
+          this.fail(connection) // a wrong code counts toward the lockout
+        } else {
+          connection.socket.close()
+          this.drop(connection)
+        }
         return
       }
       this.pairing = null // one phone per code
@@ -571,7 +567,7 @@ export class RemoteServer {
     connection.deviceId = device.id
     connection.state = 'ready'
     this.failures.delete(connection.ip)
-    this.send(connection, { t: 'ready', deviceId: device.id, server: this.deps.info() })
+    this.send(connection, { t: 'ready', deviceId: device.id, server: { ...this.deps.info(), hosts: this.hosts() } })
     this.deps.onChanged?.()
   }
 

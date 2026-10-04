@@ -26,6 +26,8 @@ setRandomSource((target) => {
 })
 
 const OPEN_TIMEOUT_MS = 3500
+/** Delay before the next address is dialed alongside the previous one. */
+const STAGGER_MS = 500
 const HANDSHAKE_TIMEOUT_MS = 8000
 const REQUEST_TIMEOUT_MS = 30_000
 const PING_INTERVAL_MS = 20_000
@@ -113,6 +115,10 @@ export class RemoteClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private lastFrameAt = 0
   private closed = false
+  /** Cancels for handshakes still in flight (addresses are raced). */
+  private readonly attempts = new Set<() => void>()
+  /** Settles a race of addresses that is still under way. */
+  private abortRace: (() => void) | null = null
   onClose: (() => void) | null = null
   /** One of the desktop's broadcasts arrived. */
   onEvent: ((channel: string, payload: unknown) => void) | null = null
@@ -123,23 +129,78 @@ export class RemoteClient {
     return this.channel !== null && !this.closed
   }
 
-  /** Try each address in turn until one completes the handshake. */
+  /**
+   * Reach the computer at one of its addresses. Pairing tries them in turn
+   * (the one-time token must not be presented twice); a paired phone dials
+   * them staggered and keeps the first that completes the handshake, so a
+   * stale first address costs half a second, not a timeout.
+   */
   async connect(target: ConnectTarget): Promise<Connected> {
-    let lastError: Error = new RemoteDisconnectedError()
-    for (const host of target.hosts) {
-      if (this.closed) {
-        break
-      }
-      try {
-        return await this.connectTo(host, target)
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-        if (error instanceof RemoteDeniedError) {
-          break // the computer answered and said no: other addresses will too
+    if (target.token || target.hosts.length <= 1) {
+      let lastError: Error = new RemoteDisconnectedError()
+      for (const host of target.hosts) {
+        if (this.closed) {
+          break
+        }
+        try {
+          return await this.connectTo(host, target)
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error))
+          if (error instanceof RemoteDeniedError) {
+            break // the computer answered and said no: other addresses will too
+          }
         }
       }
+      throw lastError
     }
-    throw lastError
+    return new Promise<Connected>((resolve, reject) => {
+      let remaining = target.hosts.length
+      let done = false
+      let denied: Error | null = null
+      const timers: ReturnType<typeof setTimeout>[] = []
+      const finish = (result: Connected | null, error?: Error): void => {
+        if (done) {
+          return
+        }
+        done = true
+        this.abortRace = null
+        timers.forEach(clearTimeout)
+        for (const cancel of [...this.attempts]) {
+          cancel()
+        }
+        if (result) {
+          resolve(result)
+        } else {
+          reject(error ?? new RemoteDisconnectedError())
+        }
+      }
+      this.abortRace = () => finish(null, new RemoteDisconnectedError())
+      target.hosts.forEach((host, index) => {
+        timers.push(
+          setTimeout(() => {
+            if (done) {
+              return
+            }
+            if (this.closed) {
+              finish(null, new RemoteDisconnectedError())
+              return
+            }
+            this.connectTo(host, target).then(
+              (result) => finish(result),
+              (error: Error) => {
+                if (error instanceof RemoteDeniedError) {
+                  denied = error
+                }
+                remaining -= 1
+                if (remaining === 0) {
+                  finish(null, denied ?? error)
+                }
+              }
+            )
+          }, index * STAGGER_MS)
+        )
+      })
+    })
   }
 
   private connectTo(host: string, target: ConnectTarget): Promise<Connected> {
@@ -151,11 +212,13 @@ export class RemoteClient {
       let settled = false
       let timer = setTimeout(() => fail(new Error('The computer did not answer')), OPEN_TIMEOUT_MS)
 
+      const cancel = (): void => fail(new RemoteDisconnectedError())
       const fail = (error: Error): void => {
         if (settled) {
           return
         }
         settled = true
+        this.attempts.delete(cancel)
         clearTimeout(timer)
         socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null
         try {
@@ -165,6 +228,8 @@ export class RemoteClient {
         }
         reject(error)
       }
+
+      this.attempts.add(cancel)
 
       socket.onopen = () => {
         clearTimeout(timer)
@@ -178,13 +243,9 @@ export class RemoteClient {
         )
       }
       socket.onerror = () => fail(new Error('Could not reach the computer'))
-      socket.onclose = () =>
-        fail(
-          // Closed before saying hello: the computer does not know this phone.
-          channel
-            ? new RemoteDeniedError('The computer refused this phone')
-            : new Error('Could not reach the computer')
-        )
+      // Only a sealed `denied` frame is the computer saying no; a bare close
+      // could be anything on that address.
+      socket.onclose = () => fail(new Error('Could not reach the computer'))
       socket.onmessage = (event) => {
         try {
           if (!channel) {
@@ -192,10 +253,6 @@ export class RemoteClient {
               throw new Error('Unexpected reply')
             }
             const hello = JSON.parse(event.data) as HelloFromServer
-            if (typeof hello.denied === 'string') {
-              fail(new RemoteDeniedError(hello.denied))
-              return
-            }
             if (hello.v !== REMOTE_PROTOCOL_VERSION || typeof hello.e !== 'string') {
               throw new Error('Pi Desktop and this app are different versions')
             }
@@ -228,7 +285,12 @@ export class RemoteClient {
           if (frame.t !== 'ready') {
             return
           }
+          if (this.socket) {
+            fail(new RemoteDisconnectedError()) // another address won the race
+            return
+          }
           settled = true
+          this.attempts.delete(cancel)
           clearTimeout(timer)
           this.adopt(socket, channel)
           resolve({ host, deviceId: frame.deviceId, server: frame.server })
@@ -335,6 +397,10 @@ export class RemoteClient {
       return
     }
     this.closed = true
+    this.abortRace?.()
+    for (const cancel of [...this.attempts]) {
+      cancel()
+    }
     if (this.pingTimer) {
       clearInterval(this.pingTimer)
       this.pingTimer = null

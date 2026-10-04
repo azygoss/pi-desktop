@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 
 import type {
@@ -11,7 +12,7 @@ import type {
   SessionSummary
 } from '../desktop'
 import { api, EVENTS } from '../remote/api'
-import { onOnline, onRemote } from './connection'
+import { onOnline, onRemote, onUnpair, useConnection } from './connection'
 
 interface DataState {
   /** False until the first answer from the computer. */
@@ -90,8 +91,80 @@ export function liveStateFor(
 }
 
 const SESSIONS_REFRESH_MS = 2000
+const CACHE_KEY = 'pi-remote.lists'
+/** Sessions kept for the next cold start (the newest ones). */
+const CACHE_SESSIONS = 300
+/** The cache only serves the next launch: writing it rarely is enough. */
+const CACHE_WRITE_MS = 20_000
 
 let wired = false
+let listsVisible = true
+let listsDirty = false
+let cacheTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * The lists as last seen, so a cold start paints the chat list at once and
+ * the computer's answer replaces it a moment later. Tied to the computer's
+ * key: another pairing never sees them.
+ */
+function scheduleCacheWrite(): void {
+  if (cacheTimer) {
+    return
+  }
+  cacheTimer = setTimeout(() => {
+    cacheTimer = null
+    const key = useConnection.getState().pairing?.key
+    const { sessions, projects, meta, appInfo, loaded } = useData.getState()
+    if (!key || !loaded) {
+      return
+    }
+    void AsyncStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ key, sessions: sessions.slice(0, CACHE_SESSIONS), projects, meta, appInfo })
+    ).catch(() => {})
+  }, CACHE_WRITE_MS)
+}
+
+async function restoreCache(): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY)
+    const cached = raw ? (JSON.parse(raw) as Partial<DataState> & { key?: string }) : null
+    const key = useConnection.getState().pairing?.key
+    if (!cached || !key || cached.key !== key || useData.getState().loaded) {
+      return
+    }
+    useData.setState({
+      sessions: Array.isArray(cached.sessions) ? cached.sessions : [],
+      projects: Array.isArray(cached.projects) ? cached.projects : [],
+      meta: cached.meta && typeof cached.meta === 'object' ? cached.meta : {},
+      appInfo: cached.appInfo ?? null,
+      loaded: true
+    })
+  } catch {
+    // no cache: the lists arrive with the connection
+  }
+}
+
+function refreshLists(): void {
+  listsDirty = false
+  void useData
+    .getState()
+    .refresh()
+    .then(scheduleCacheWrite)
+    .catch(() => {})
+}
+
+/**
+ * Whether a screen showing the lists is on top. While a chat covers them,
+ * session changes (pi appends to the file the whole time it works) only
+ * mark the lists stale; they are fetched when the user comes back.
+ */
+export function setListsVisible(visible: boolean): void {
+  listsVisible = visible
+  if (visible && listsDirty && useConnection.getState().phase === 'online') {
+    refreshLists()
+  }
+}
 let sessionsTimer: ReturnType<typeof setTimeout> | null = null
 let liveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -120,7 +193,7 @@ export function initDataBridge(): void {
 
   onOnline(() => {
     const state = useData.getState()
-    void state.refresh().catch(() => {})
+    refreshLists()
     void state.refreshLive().catch(() => {})
     void api.sessions
       .meta()
@@ -139,16 +212,42 @@ export function initDataBridge(): void {
   onRemote(EVENTS.sessionsChanged, () => {
     // pi appends to session files the whole time it works, and each refresh
     // downloads the full list: at most one every couple of seconds.
+    if (!listsVisible) {
+      listsDirty = true
+      return
+    }
     if (!sessionsTimer) {
       sessionsTimer = setTimeout(() => {
         sessionsTimer = null
-        void useData.getState().refresh().catch(() => {})
+        refreshLists()
       }, SESSIONS_REFRESH_MS)
     }
   })
   onRemote<SessionMetaMap>(EVENTS.sessionMetaChanged, (meta) => {
     if (meta && typeof meta === 'object') {
       useData.setState({ meta })
+      scheduleCacheWrite()
+    }
+  })
+
+  onUnpair(() => {
+    useData.setState({
+      loaded: false,
+      sessions: [],
+      projects: [],
+      meta: {},
+      live: {},
+      appInfo: null,
+      userName: ''
+    })
+    void AsyncStorage.removeItem(CACHE_KEY).catch(() => {})
+  })
+
+  // The pairing is known a moment after launch: show the cached lists then.
+  const unsubscribe = useConnection.subscribe((state) => {
+    if (state.pairing) {
+      unsubscribe()
+      void restoreCache()
     }
   })
   onRemote<ChatEventPayload>(EVENTS.chatEvent, ({ chatId, events }) => {

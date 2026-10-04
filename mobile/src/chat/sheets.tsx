@@ -234,17 +234,20 @@ export function UiRequestCard({ chatId, request }: { chatId: string; request: In
         </Txt>
       </View>
       {message ? (
-        <Txt size="small" tone="text2">
-          {message}
-        </Txt>
+        <ScrollView style={{ maxHeight: 120 }}>
+          <Txt size="small" tone="text2">
+            {message}
+          </Txt>
+        </ScrollView>
       ) : null}
       {request.method === 'select' ? (
-        <View style={{ gap: space.sm }}>
+        // Many options scroll inside the card; the composer stays on screen.
+        <ScrollView style={{ maxHeight: 264 }} contentContainerStyle={{ gap: space.sm }} keyboardShouldPersistTaps="handled">
           {request.options.map((option) => (
             <Button key={option} title={option} onPress={() => respond(chatId, { id: request.id, value: option })} />
           ))}
           <Button title="Cancel" kind="ghost" onPress={() => respond(chatId, { id: request.id, cancelled: true })} />
-        </View>
+        </ScrollView>
       ) : request.method === 'confirm' ? (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button
@@ -267,7 +270,7 @@ export function UiRequestCard({ chatId, request }: { chatId: string; request: In
             multiline={request.method === 'editor'}
             accessibilityLabel={title}
             placeholder={(request as { placeholder?: string }).placeholder}
-            style={request.method === 'editor' ? { minHeight: 96, textAlignVertical: 'top' } : undefined}
+            style={request.method === 'editor' ? { minHeight: 96, maxHeight: 180, textAlignVertical: 'top' } : undefined}
           />
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Button title="Cancel" style={{ flex: 1 }} onPress={() => respond(chatId, { id: request.id, cancelled: true })} />

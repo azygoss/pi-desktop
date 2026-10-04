@@ -98,7 +98,9 @@ export default function App() {
           {paired ? (
             <>
               <Stack.Screen name="Home" component={HomeScreen} />
-              <Stack.Screen name="Chat" component={ChatScreen} />
+              {/* One screen per chat: opening another chat never reuses the
+                  mounted one (and its half-typed message). */}
+              <Stack.Screen name="Chat" component={ChatScreen} getId={({ params }) => params.chatId} />
               <Stack.Screen name="Diff" component={DiffScreen} />
               <Stack.Screen name="Pr" component={PrScreen} />
               <Stack.Screen name="File" component={FileScreen} />

@@ -1,8 +1,8 @@
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import * as Clipboard from 'expo-clipboard'
 import { ClipboardPaste, ScanLine, X } from 'lucide-react-native'
-import { useRef, useState } from 'react'
-import { Linking, ScrollView, StyleSheet, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { BackHandler, Linking, ScrollView, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { parsePairingPayload } from '../desktop'
@@ -10,6 +10,8 @@ import { errorText } from '../remote/api'
 import { useConnection } from '../state/connection'
 import { radius, space, useTheme } from '../theme'
 import { Button, Field, haptic, IconButton, Mono, Pixel, Screen, Txt } from '../ui'
+
+let initialUrlSeen = false
 
 const STEPS = [
   'Open Pi Desktop on your computer',
@@ -71,6 +73,38 @@ export function PairScreen() {
       handled.current = false
     }
   }
+
+  // The system camera (or a tapped link) can open the app with the pairing
+  // link itself: pair straight away.
+  const pairRef = useRef(pair)
+  pairRef.current = pair
+  useEffect(() => {
+    const open = (url: string | null): void => {
+      if (url && parsePairingPayload(url) && !handled.current) {
+        handled.current = true
+        void pairRef.current(url)
+      }
+    }
+    // The launch link is only news once: after an unpair it is long spent.
+    if (!initialUrlSeen) {
+      initialUrlSeen = true
+      void Linking.getInitialURL().then(open).catch(() => {})
+    }
+    const subscription = Linking.addEventListener('url', (event) => open(event.url))
+    return () => subscription.remove()
+  }, [])
+
+  // Back leaves the scanner, not the app.
+  useEffect(() => {
+    if (!scanning) {
+      return
+    }
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setScanning(false)
+      return true
+    })
+    return () => subscription.remove()
+  }, [scanning])
 
   const startScan = async (): Promise<void> => {
     setError(null)

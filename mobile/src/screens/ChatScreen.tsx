@@ -127,6 +127,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const hasEarlier = useChats((s) => s.chats[chatId]?.hasEarlier === true)
   const stats = useChats((s) => s.chats[chatId]?.stats)
   const online = useConnection((s) => s.phase === 'online')
+  const connecting = useConnection((s) => s.phase === 'connecting')
   const workspaceDir = useData((s) => s.appInfo?.workspaceDir)
   const meta = useData((s) => (sessionPath ? s.meta[sessionPath] : undefined))
 
@@ -145,6 +146,8 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const [showStderr, setShowStderr] = useState(false)
   const list = useRef<FlatList<TranscriptItem>>(null)
   const closeFork = useCallback(() => setForkOpen(false), [])
+  const openModel = useCallback(() => setModelOpen(true), [])
+  const openStats = useCallback(() => setStatsOpen(true), [])
   const streaming = status === 'streaming'
   const projectless = cwd !== '' && cwd === workspaceDir
 
@@ -492,7 +495,25 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             <IconButton icon={ArrowDown} label="Jump to the latest message" onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })} />
           </View>
         ) : null}
-        {status === 'starting' ? <StartingLine since={startedAt} hint={startupHint} /> : null}
+        {!online ? (
+          <View
+            accessibilityRole="alert"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.sm }}
+          >
+            <Pixel tone={connecting ? 'working' : 'error'} />
+            <Mono size={12} tone="muted" style={{ flex: 1 }}>
+              {connecting ? 'Reconnecting to the computer…' : 'Not connected to the computer'}
+            </Mono>
+            {connecting ? null : (
+              <Tap onPress={() => useConnection.getState().retry()} style={{ minHeight: TOUCH, justifyContent: 'center', paddingHorizontal: space.sm }}>
+                <Txt size="small" tone="accent">
+                  Retry
+                </Txt>
+              </Tap>
+            )}
+          </View>
+        ) : null}
+        {status === 'starting' && online ? <StartingLine since={startedAt} hint={startupHint} /> : null}
         {error ? (
           <View style={{ marginHorizontal: space.md, marginBottom: space.sm, padding: space.md, borderRadius: 10, backgroundColor: theme.dangerSoft, gap: space.sm }}>
             <Txt size="small" tone="danger" selectable>
@@ -517,8 +538,8 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
           <Composer
             chatId={chatId}
             onCommand={onCommand}
-            onOpenModel={() => setModelOpen(true)}
-            onOpenStats={() => setStatsOpen(true)}
+            onOpenModel={openModel}
+            onOpenStats={openStats}
           />
         </View>
       </KeyboardAvoidingView>
@@ -528,7 +549,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
           <SheetAction
             icon={GitBranch}
             title="Changes"
-            detail={repo.files > 0 ? `${repo.files} files changed on ${repo.branch ?? 'this branch'}` : 'Review, commit and push'}
+            detail={repo.files > 0 ? `${repo.files} ${repo.files === 1 ? 'file' : 'files'} changed on ${repo.branch ?? 'this branch'}` : 'Review, commit and push'}
             onPress={() => {
               setMenuOpen(false)
               navigation.navigate('Diff', { cwd, chatId })

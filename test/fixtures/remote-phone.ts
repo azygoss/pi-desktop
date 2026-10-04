@@ -58,9 +58,6 @@ export class TestPhone {
       })
     )
     const hello = await reply
-    if (!hello.e) {
-      throw new Error(hello.denied ?? 'no key in the reply')
-    }
     phone.channel = channelForClient(
       clientSessionKeys({
         clientStatic: identity,

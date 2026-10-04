@@ -13,7 +13,9 @@ and everything between the two is end-to-end encrypted
 ## Pairing
 
 1. On the computer: Pi Desktop → Settings → Remote control → **Show pairing code**.
-2. On the phone: open Pi Remote and scan the code (or paste the pairing link).
+2. On the phone: open Pi Remote and scan the code. Scanning it with the
+   phone's own camera, or opening the pairing link, opens the app and pairs
+   as well; the link can also be pasted in.
 
 The code works once, for five minutes. Remove a phone under Settings → Remote
 control on the computer, or choose "Unpair this phone" in the app's settings.

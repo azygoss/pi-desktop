@@ -132,7 +132,7 @@ export const CodeBlock = memo(function CodeBlock({ text, lang }: { text: string;
           label="Copy code"
           size={15}
           tone="muted"
-          style={{ width: 44, height: 36 }}
+          style={{ height: 40 }}
           onPress={() => {
             void Clipboard.setStringAsync(text)
             toast('Copied')

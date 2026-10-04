@@ -21,9 +21,18 @@ import {
 import type { ScreenProps } from '../nav'
 import { api, errorText, EVENTS } from '../remote/api'
 import { useChats } from '../state/chats'
-import { onRemote } from '../state/connection'
+import { onOnline, onRemote } from '../state/connection'
 import { makeStyles, radius, space } from '../theme'
 import { Button, Field, IconButton, Mono, Pixel, Screen, toast, Txt } from '../ui'
+
+// Side chats whose close could not reach the computer (the link was down):
+// closed as soon as it is back, so no pi is left running there.
+const unclosed = new Set<string>()
+onOnline(() => {
+  for (const id of [...unclosed]) {
+    void api.side.close(id).then(() => unclosed.delete(id)).catch(() => {})
+  }
+})
 
 /** Streamed tokens reach React at most this often. */
 const PUBLISH_MS = 60
@@ -225,6 +234,15 @@ export function SideChatScreen({ navigation, route }: ScreenProps<'Side'>) {
       setError('The side chat stopped')
     })
 
+    // Side events are not replayed: after a dropped link the end of a run
+    // may have been missed, so never stay stuck on "Working".
+    const offOnline = onOnline(() => {
+      if (view.current.status === 'streaming') {
+        view.current.status = 'idle'
+        publishNow()
+      }
+    })
+
     const promise = api.side.open({
       sideId: id,
       cwd: chat.cwd,
@@ -262,7 +280,8 @@ export function SideChatScreen({ navigation, route }: ScreenProps<'Side'>) {
         clearTimeout(publishTimer.current)
         publishTimer.current = null
       }
-      void api.side.close(id).catch(() => {})
+      offOnline()
+      void api.side.close(id).catch(() => unclosed.add(id))
     }
   }, [chatId, generation, question, publishNow, publishSoon, send])
 

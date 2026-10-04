@@ -9,6 +9,7 @@ import {
   ScanSearch,
   Undo2
 } from 'lucide-react-native'
+import { usePreventRemove } from '@react-navigation/native'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Keyboard, KeyboardAvoidingView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -261,8 +262,10 @@ const LineRow = memo(function LineRow({
   return (
     <Tap
       style={[styles.line, add ? styles.added : del ? styles.removed : null]}
-      onPress={() => onPress(row)}
-      accessibilityHint="Comment on this line"
+      // A long press, so scrolling a diff never opens the comment sheet.
+      onLongPress={() => onPress(row)}
+      delayLongPress={300}
+      accessibilityHint="Long press to comment on this line"
     >
       <Mono size={12} tone="muted" numberOfLines={1} style={styles.lineNo}>
         {line.oldNo ?? ''}
@@ -633,6 +636,25 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   }
 
   const mine = useMemo(() => comments.filter((c) => c.author !== 'pi'), [comments])
+  // Back would throw away what was typed here: ask first.
+  const leaving = useRef(false)
+  usePreventRemove(mine.length > 0 || message.trim() !== '', ({ data }) => {
+    if (leaving.current) {
+      navigation.dispatch(data.action)
+      return
+    }
+    void confirm({
+      title: 'Discard your comments?',
+      message: 'Your line comments and the commit message have not been sent.',
+      action: 'Discard',
+      danger: true
+    }).then((ok) => {
+      if (ok) {
+        leaving.current = true
+        navigation.dispatch(data.action)
+      }
+    })
+  })
 
   const sendComments = (): void => {
     if (!chatId || mine.length === 0) {
@@ -640,6 +662,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     }
     useChats.getState().seedComposer(chatId, reviewPrompt(mine))
     toast(mine.length === 1 ? 'Comment added to the composer' : 'Comments added to the composer')
+    leaving.current = true
     navigation.goBack()
   }
 

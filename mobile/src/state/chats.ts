@@ -27,13 +27,17 @@ import {
 } from '../desktop'
 import { api, errorText, EVENTS } from '../remote/api'
 import { toast } from '../ui'
-import { onOnline, onRemote, subscribeChats } from './connection'
+import { haptic } from '../ui'
+import { onOnline, onRemote, onUnpair, subscribeChats } from './connection'
 import { useData } from './data'
+import type { RemoteLiveChat } from '../desktop'
 
 /** Messages read from the session file when a chat opens / per "Load earlier". */
 const TRANSCRIPT_PAGE = 150
 /** Chats whose token stream stays subscribed (most recently opened first). */
 const MAX_SUBSCRIBED = 12
+/** Chats kept in memory; older idle ones are dropped and reopen from the list. */
+const MAX_OPEN = 16
 const CHECKPOINT_TIMEOUT_MS = 4000
 
 export interface ChatState extends ChatViewState {
@@ -66,6 +70,11 @@ export interface ChatState extends ChatViewState {
   cuaActive?: boolean
   cuaPaused?: boolean
   bashRunning?: boolean
+  /**
+   * Events may have been missed (the link dropped, or the chat fell out of
+   * the subscription window): re-read it before it is shown again.
+   */
+  stale?: boolean
 }
 
 interface ChatStoreState {
@@ -107,9 +116,12 @@ const drafts = new Map<string, ChatState>()
 const pendingEvents = new Map<string, PiEvent[]>()
 const openOrder: string[] = []
 const cuaTails = new Map<string, ReturnType<typeof setTimeout>>()
+/** Session opens still asking the computer who owns the session. */
+const opening = new Map<string, Promise<string>>()
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let lastFlushAt = 0
 let statsTimer: ReturnType<typeof setTimeout> | null = null
+const statsDirty = new Set<string>()
 let visibleChatId: string | null = null
 let optimisticCounter = 0
 let seedCounter = 0
@@ -143,7 +155,34 @@ function touchSubscription(chatId: string): void {
     openOrder.splice(at, 1)
   }
   openOrder.unshift(chatId)
+  // A long day opens many chats: let go of the oldest that are at rest.
+  for (let i = openOrder.length - 1; i >= MAX_OPEN; i--) {
+    const old = drafts.get(openOrder[i]!)
+    if (old && (old.status === 'streaming' || old.unread || old.bashRunning || old.chatId === visibleChatId)) {
+      continue
+    }
+    const [dropped] = openOrder.splice(i, 1)
+    if (dropped) {
+      drafts.delete(dropped)
+      pendingEvents.delete(dropped)
+      useChats.setState((s) => {
+        const chats = { ...s.chats }
+        delete chats[dropped]
+        return { chats }
+      })
+    }
+  }
+  // Past the window a chat only hears that runs start and settle.
+  for (let i = MAX_SUBSCRIBED; i < openOrder.length; i++) {
+    const beyond = drafts.get(openOrder[i]!)
+    if (beyond) {
+      beyond.stale = true
+    }
+  }
   subscribeChats(openOrder.slice(0, MAX_SUBSCRIBED))
+  if (drafts.get(chatId)?.stale) {
+    void resync(chatId)
+  }
 }
 
 function titleOf(messages: DisplayMessage[]): string | undefined {
@@ -181,7 +220,6 @@ function clearCua(draft: ChatState): void {
 function flushPending(): void {
   flushTimer = null
   lastFlushAt = Date.now()
-  let statsDirty = false
   for (const [chatId, events] of pendingEvents) {
     const draft = drafts.get(chatId)
     if (!draft) {
@@ -189,24 +227,28 @@ function flushPending(): void {
     }
     for (const event of events) {
       if (reducePiEvent(draft, event)) {
-        statsDirty = true
+        statsDirty.add(chatId)
       }
     }
     const settled = events.some((e) => e.type === 'agent_settled')
     if (settled || events.some((e) => e.type === 'agent_end')) {
       clearCua(draft)
     }
-    if (settled && draft.status === 'idle' && visibleChatId !== chatId) {
-      draft.unread = true
-      const id = chatId
-      toast(`${draft.title || 'Chat'} finished`, {
-        action: { label: 'Open', run: () => openChatHandler?.(id) }
-      })
+    if (settled && draft.status === 'idle') {
+      if (visibleChatId === chatId) {
+        haptic('success')
+      } else {
+        draft.unread = true
+        const id = chatId
+        toast(`${draft.title || 'Chat'} finished`, {
+          action: { label: 'Open', run: () => openChatHandler?.(id) }
+        })
+      }
     }
     publish(chatId)
   }
   pendingEvents.clear()
-  if (statsDirty) {
+  if (statsDirty.size > 0) {
     scheduleStats()
   }
 }
@@ -225,8 +267,13 @@ function scheduleStats(): void {
   }
   statsTimer = setTimeout(() => {
     statsTimer = null
-    for (const [chatId, draft] of drafts) {
-      if (draft.piReady && (draft.status === 'idle' || draft.status === 'streaming')) {
+    // Only the chats that just ran: asking an idle chat for stats would
+    // wake a pi process the computer had put to sleep.
+    const dirty = [...statsDirty]
+    statsDirty.clear()
+    for (const chatId of dirty) {
+      const draft = drafts.get(chatId)
+      if (draft?.piReady && (draft.status === 'idle' || draft.status === 'streaming')) {
         void refreshStats(chatId)
       }
     }
@@ -266,24 +313,96 @@ function applyCatalog(draft: ChatState, result: ChatOpenResult): void {
   clearQueuedFlags(draft)
 }
 
-/** Render the tail of the session file: instant, and independent of pi. */
-async function applyTranscript(chatId: string, sessionPath: string, limit: number): Promise<void> {
+/**
+ * Render the tail of the session file: instant, and independent of pi.
+ * `authoritative` is for catching up after missed events: whatever the phone
+ * assembled from the stream is dropped in favor of the file.
+ */
+async function applyTranscript(
+  chatId: string,
+  sessionPath: string,
+  limit: number,
+  authoritative = false
+): Promise<void> {
   const transcript = await api.chat.transcript(sessionPath, limit)
   const current = drafts.get(chatId)
   if (!current) {
     return
   }
   const view = buildChatViewState(transcript.messages)
-  // A message pi is streaming right now is not in the file yet: keep it.
-  const last = current.messages[current.messages.length - 1]
-  const streaming = last?.kind === 'assistant' && last.streaming ? last : undefined
-  current.messages = streaming ? [...view.messages, streaming] : view.messages
-  current.toolRuns = { ...view.toolRuns, ...current.toolRuns }
+  if (authoritative) {
+    pendingEvents.delete(chatId)
+    current.messages = view.messages
+    current.toolRuns = view.toolRuns
+  } else {
+    // A message pi is streaming right now is not in the file yet: keep it.
+    const last = current.messages[current.messages.length - 1]
+    const streaming = last?.kind === 'assistant' && last.streaming ? last : undefined
+    current.messages = streaming ? [...view.messages, streaming] : view.messages
+    current.toolRuns = { ...view.toolRuns, ...current.toolRuns }
+  }
   current.hasEarlier = transcript.hasEarlier
   current.transcriptLimit = Math.max(limit, transcript.messages.length)
   current.transcriptApplied = true
   current.title = sessionTitle(sessionPath) ?? titleOf(view.messages) ?? current.title
   publish(chatId)
+}
+
+/** What the computer says about a chat right now: running, waiting on the user. */
+function applyLive(draft: ChatState, live: RemoteLiveChat | undefined): void {
+  const request = live?.uiRequest as ExtensionUiRequest | undefined
+  draft.uiRequest = request
+  if (live?.streaming) {
+    draft.status = 'streaming'
+    draft.runStartedAt ??= Date.now()
+  } else if (draft.status === 'streaming') {
+    draft.status = 'idle'
+    delete draft.runStartedAt
+    delete draft.queue
+  }
+  if (live?.sessionPath && !draft.sessionPath) {
+    draft.sessionPath = live.sessionPath
+  }
+}
+
+async function liveChat(chatId: string): Promise<RemoteLiveChat | undefined> {
+  await useData.getState().refreshLive()
+  return useData.getState().live[chatId]
+}
+
+/**
+ * Catch a chat up after events were missed, without waking its pi: the
+ * transcript comes from the session file and its state from the computer's
+ * list of live chats.
+ */
+async function resync(chatId: string): Promise<void> {
+  const draft = drafts.get(chatId)
+  if (!draft) {
+    return
+  }
+  draft.stale = false
+  try {
+    const live = await liveChat(chatId)
+    const current = drafts.get(chatId)
+    if (!current) {
+      return
+    }
+    applyLive(current, live)
+    if (!live) {
+      // Not running on the computer any more; the next send reopens it.
+      clearCua(current)
+    }
+    publish(chatId)
+    const sessionPath = current.sessionPath
+    if (sessionPath) {
+      await applyTranscript(chatId, sessionPath, current.transcriptLimit ?? TRANSCRIPT_PAGE, true)
+    }
+  } catch {
+    const current = drafts.get(chatId)
+    if (current) {
+      current.stale = true // offline again: try when it is next shown
+    }
+  }
 }
 
 function createDraft(chatId: string, input: { cwd?: string; sessionPath?: string }): ChatState {
@@ -376,6 +495,18 @@ async function bringUp(
     void applyTranscript(chatId, current.sessionPath, TRANSCRIPT_PAGE).catch(() => {})
   }
   void refreshStats(chatId)
+  // A question pi asked before this phone opened the chat.
+  if (input.live) {
+    void liveChat(chatId)
+      .then((live) => {
+        const joined = drafts.get(chatId)
+        if (joined && live?.uiRequest && !joined.uiRequest) {
+          joined.uiRequest = live.uiRequest as ExtensionUiRequest
+          publish(chatId)
+        }
+      })
+      .catch(() => {})
+  }
 }
 
 /** Run a chat request; if the computer no longer runs this chat, reopen it once. */
@@ -420,12 +551,27 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
         return draft.chatId
       }
     }
-    // The computer (or its window) may already run this session: join it.
-    const liveId = await api.chat.idForSession(sessionPath).catch(() => undefined)
-    const chatId = liveId ?? randomUUID()
-    createDraft(chatId, { sessionPath })
-    void bringUp(chatId, { sessionPath, live: liveId !== undefined })
-    return chatId
+    // A second tap while the first is still asking the computer.
+    const pending = opening.get(sessionPath)
+    if (pending) {
+      return pending
+    }
+    const open = (async () => {
+      // The computer (or its window) may already run this session: join it.
+      const liveId = await api.chat.idForSession(sessionPath).catch(() => undefined)
+      const chatId = liveId ?? randomUUID()
+      if (!drafts.has(chatId)) {
+        createDraft(chatId, { sessionPath })
+        void bringUp(chatId, { sessionPath, live: liveId !== undefined })
+      }
+      return chatId
+    })()
+    opening.set(sessionPath, open)
+    try {
+      return await open
+    } finally {
+      opening.delete(sessionPath)
+    }
   },
 
   joinLive(chatId, cwd, sessionPath) {
@@ -471,7 +617,23 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
       try {
         await api.chat.send({ chatId, message, images, mode })
       } catch (error) {
-        toast(`Could not queue the message: ${errorText(error)}`)
+        // It never reached pi's queue: take it off the strip, give it back.
+        const current = drafts.get(chatId)
+        if (current?.queue) {
+          const drop = (list: string[]): string[] => {
+            const at = list.lastIndexOf(message)
+            return at === -1 ? list : list.filter((_, i) => i !== at)
+          }
+          const steering = drop(current.queue.steering)
+          const followUp = drop(current.queue.followUp)
+          if (steering.length + followUp.length === 0) {
+            delete current.queue
+          } else {
+            current.queue = { steering, followUp }
+          }
+          current.composerSeed = { text: message, nonce: ++seedCounter }
+          publish(chatId)
+        }
         throw error
       }
       return
@@ -512,10 +674,16 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
     try {
       await withRevive(chatId, () => api.chat.send({ chatId, message, images, mode }))
     } catch (error) {
+      // Nothing reached pi: take the prompt back out of the transcript and
+      // hand its text back to the message box instead of losing it.
       const current = drafts.get(chatId)
       if (current) {
-        current.error = errorText(error)
-        current.status = 'error'
+        current.messages = current.messages.filter((m) => m.key !== display.key)
+        if (current.status === 'streaming') {
+          current.status = 'idle'
+          delete current.runStartedAt
+        }
+        current.composerSeed = { text: message, nonce: ++seedCounter }
         publish(chatId)
       }
       throw error
@@ -833,7 +1001,29 @@ export function initChatBridge(): void {
     if (draft) {
       draft.uiRequest = request
       publish(chatId)
+      // pi is blocked until someone answers: say so wherever the user is.
+      if (
+        request.method === 'confirm' ||
+        request.method === 'select' ||
+        request.method === 'input' ||
+        request.method === 'editor'
+      ) {
+        haptic('warning')
+        if (visibleChatId !== chatId) {
+          toast(`pi needs you: ${request.title ?? draft.title}`, {
+            action: { label: 'Open', run: () => openChatHandler?.(chatId) }
+          })
+        }
+      }
     }
+  })
+
+  onUnpair(() => {
+    drafts.clear()
+    pendingEvents.clear()
+    openOrder.length = 0
+    visibleChatId = null
+    useChats.setState({ chats: {} })
   })
 
   onRemote<{ chatId: string; id: string }>(EVENTS.chatUiResolved, ({ chatId, id }) => {
@@ -893,8 +1083,9 @@ export function initChatBridge(): void {
     publish(id)
   })
 
-  // Back online: whatever streamed while the link was down is in the session
-  // file and in pi's state — read both again for every open chat.
+  // Back online: events were missed. The chat on screen and the ones that
+  // were running catch up now (from the session file and the computer's
+  // live list, so no sleeping pi is woken); the rest when they are shown.
   let first = true
   onOnline(() => {
     if (first) {
@@ -903,35 +1094,11 @@ export function initChatBridge(): void {
     }
     subscribeChats(openOrder.slice(0, MAX_SUBSCRIBED))
     for (const draft of drafts.values()) {
-      void (async () => {
-        const chatId = draft.chatId
-        if (draft.sessionPath) {
-          await applyTranscript(chatId, draft.sessionPath, draft.transcriptLimit ?? TRANSCRIPT_PAGE).catch(
-            () => {}
-          )
-        }
-        try {
-          const result = await api.chat.refresh(chatId)
-          const current = drafts.get(chatId)
-          if (current) {
-            applyCatalog(current, result)
-            if (!result.state.isStreaming) {
-              current.status = 'idle'
-              delete current.runStartedAt
-              delete current.queue
-            }
-            publish(chatId)
-          }
-        } catch {
-          // Not running on the computer any more; the next send reopens it.
-          const current = drafts.get(chatId)
-          if (current && current.status === 'streaming') {
-            current.status = 'idle'
-            delete current.runStartedAt
-            publish(chatId)
-          }
-        }
-      })()
+      if (draft.chatId === visibleChatId || draft.status === 'streaming' || draft.uiRequest) {
+        void resync(draft.chatId)
+      } else {
+        draft.stale = true
+      }
     }
   })
 }

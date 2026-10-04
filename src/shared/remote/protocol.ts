@@ -51,6 +51,11 @@ export interface RemoteServerInfo {
   platform: string
   homeDir: string
   workspaceDir: string
+  /**
+   * The computer's addresses right now. The phone keeps them, so it still
+   * finds the computer after its address changed or on another network.
+   */
+  hosts?: string[]
 }
 
 /** Plaintext handshake, phone → desktop. */
@@ -66,12 +71,7 @@ export interface HelloFromClient {
 export interface HelloFromServer {
   v: number
   /** Desktop's ephemeral public key (base64url). */
-  e?: string
-  /**
-   * Sent instead of a key when the desktop does not know this phone and no
-   * pairing code is showing: the phone was removed and must pair again.
-   */
-  denied?: string
+  e: string
 }
 
 export type ClientFrame =

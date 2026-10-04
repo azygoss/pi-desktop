@@ -192,7 +192,7 @@ function Folded({ text, tail = false }: { text: string; tail?: boolean }) {
   return (
     <>
       {long && !all && tail ? (
-        <Tap onPress={() => setAll(true)} style={{ minHeight: 36, justifyContent: 'center' }}>
+        <Tap onPress={() => setAll(true)} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
           <Text style={styles.gap}>{`⋯ show all ${lines.length} lines`}</Text>
         </Tap>
       ) : null}
@@ -200,7 +200,7 @@ function Folded({ text, tail = false }: { text: string; tail?: boolean }) {
         {shown}
       </Text>
       {long && !all && !tail ? (
-        <Tap onPress={() => setAll(true)} style={{ minHeight: 36, justifyContent: 'center' }}>
+        <Tap onPress={() => setAll(true)} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
           <Text style={styles.gap}>{`⋯ show all ${lines.length} lines`}</Text>
         </Tap>
       ) : null}
@@ -247,7 +247,7 @@ export const DiffBlock = memo(function DiffBlock({ lines }: { lines: (DiffLine |
           )
         )}
         {lines.length > MAX_LINES && !all ? (
-          <Tap onPress={() => setAll(true)} style={{ minHeight: 36, justifyContent: 'center' }}>
+          <Tap onPress={() => setAll(true)} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
             <Text style={styles.gap}>{`⋯ ${lines.length - MAX_LINES} more lines`}</Text>
           </Tap>
         ) : null}
@@ -300,7 +300,7 @@ function ToolDetail({
             label="Copy output"
             size={14}
             tone="muted"
-            style={{ width: 44, height: 36 }}
+            style={{ height: 40 }}
             onPress={() => {
               void Clipboard.setStringAsync(output)
               toast('Copied')

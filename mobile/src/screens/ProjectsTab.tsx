@@ -229,6 +229,7 @@ export function ProjectsTab() {
   const createWorktree = useCallback(
     async (cwd: string) => {
       try {
+        toast('Creating a worktree…')
         const worktree = await api.projects.createWorktree(cwd)
         await useData.getState().refresh()
         startChat(navigation, worktree.cwd)

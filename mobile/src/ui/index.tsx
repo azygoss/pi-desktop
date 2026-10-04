@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics'
 import { ChevronLeft, type LucideIcon } from 'lucide-react-native'
-import { memo, useEffect, useRef, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Alert,
   Animated,
   Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -636,8 +637,9 @@ export function Sheet({
               }
             ]}
           >
-            {/* Swallow presses so taps inside the sheet do not close it. */}
-            <Pressable onPress={() => {}} accessible={false}>
+            {/* Swallow presses so taps inside the sheet do not close it. It
+                must be allowed to shrink, or a long sheet never scrolls. */}
+            <Pressable onPress={() => {}} accessible={false} style={{ flexShrink: 1 }}>
               <View style={styles.sheetHandle} />
               {title ? (
                 <View style={styles.sheetTitle}>
@@ -647,7 +649,7 @@ export function Sheet({
                 </View>
               ) : null}
               {scroll ? (
-                <ScrollView keyboardShouldPersistTaps="handled" bounces={false}>
+                <ScrollView keyboardShouldPersistTaps="handled" bounces={false} style={{ flexShrink: 1 }}>
                   {children}
                 </ScrollView>
               ) : (
@@ -719,12 +721,22 @@ export function ToastHost() {
   const styles = useLayoutStyles()
   const insets = useSafeAreaInsets()
   const current = useToast((s) => s.current)
+  const [keyboard, setKeyboard] = useState(0)
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKeyboard(e.endCoordinates.height))
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
   if (!current) {
     return null
   }
   return (
     <View
-      style={[styles.toast, { bottom: insets.bottom + 84 }]}
+      // Above the tab bar, or above the keyboard when it is up.
+      style={[styles.toast, { bottom: keyboard > 0 ? keyboard + space.md : insets.bottom + 84 }]}
       accessibilityLiveRegion="polite"
       accessibilityRole="alert"
     >

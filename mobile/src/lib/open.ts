@@ -4,6 +4,8 @@ import { errorText } from '../remote/api'
 import { useChats } from '../state/chats'
 import { toast } from '../ui'
 
+let lastStart = 0
+
 /** Open (or join) a session's chat and show it. */
 export async function openSession(navigation: Nav, session: SessionSummary): Promise<void> {
   try {
@@ -16,5 +18,11 @@ export async function openSession(navigation: Nav, session: SessionSummary): Pro
 
 /** Start a draft chat in a folder on the computer and show it. */
 export function startChat(navigation: Nav, cwd: string): void {
+  // A double tap must not start two pi processes.
+  const now = Date.now()
+  if (now - lastStart < 700) {
+    return
+  }
+  lastStart = now
   navigation.navigate('Chat', { chatId: useChats.getState().newChat(cwd) })
 }

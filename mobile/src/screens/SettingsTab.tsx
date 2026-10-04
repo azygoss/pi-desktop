@@ -18,9 +18,12 @@ import {
   Row,
   SectionLabel,
   Segmented,
+  toast,
   Txt,
   type PixelTone
 } from '../ui'
+import { TextSheet } from '../chat/sheets'
+import { errorText } from '../remote/api'
 
 const APP_VERSION = '0.1.0'
 
@@ -93,6 +96,7 @@ export function SettingsTab() {
   const haptics = usePrefs((s) => s.haptics)
   const [runtime, setRuntime] = useState<PiRuntimeInfo | null>(null)
   const [cua, setCua] = useState<CuaPermissions | null>(null)
+  const [addressOpen, setAddressOpen] = useState(false)
 
   const load = useCallback(() => {
     api.app
@@ -177,9 +181,24 @@ export function SettingsTab() {
           <Txt size="small" tone="muted">
             End-to-end encrypted between this phone and the computer.
           </Txt>
+          <Button title="Use another address" onPress={() => setAddressOpen(true)} />
           <Button title="Unpair this phone" kind="danger" onPress={() => void unpair()} />
         </View>
       </Card>
+      <TextSheet
+        visible={addressOpen}
+        title="Computer address"
+        label="The computer's IP address or name on this network (for example its Tailscale address). It is tried first from now on."
+        action="Use this address"
+        onClose={() => setAddressOpen(false)}
+        onSubmit={(value) => {
+          void useConnection
+            .getState()
+            .addHost(value)
+            .then(() => toast('Address added'))
+            .catch((e) => toast(errorText(e)))
+        }}
+      />
 
       <Card label="Appearance">
         <View style={styles.block}>
