@@ -10,6 +10,13 @@ Wi-Fi, or a VPN such as Tailscale). There is no account and no relay server,
 and everything between the two is end-to-end encrypted
 (see [docs/remote.md](../docs/remote.md)).
 
+## Install
+
+Download `Pi-Remote-<version>.apk` from
+[Releases](https://github.com/azygoss/pi-desktop/releases) and open it on the
+phone (Android asks once to allow installing from that source). It needs Pi
+Desktop 0.11.0 or newer on the computer.
+
 ## Pairing
 
 1. On the computer: Pi Desktop → Settings → Remote control → **Show pairing code**.
