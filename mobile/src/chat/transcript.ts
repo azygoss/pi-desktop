@@ -11,7 +11,7 @@ export type TranscriptItem =
   | { kind: 'bash'; key: string; message: Extract<DisplayMessage, { kind: 'bash' }> }
   | { kind: 'notice'; key: string; message: Extract<DisplayMessage, { kind: 'notice' }> }
   /** "model · 14:02 · 1.8k tokens out · $0.04" under a finished turn. */
-  | { kind: 'meta'; key: string; text: string }
+  | { kind: 'meta'; key: string; text: string; reply: string }
 
 /** Consecutive trace-only messages folded into one work row. */
 const WORK_GROUP_MIN = 2
@@ -114,8 +114,13 @@ export function buildTranscript(
     flushRun()
     if (!live) {
       const text = turnMeta(turn, models)
-      if (text) {
-        items.push({ kind: 'meta', key: `${turn[turn.length - 1]!.key}:meta`, text })
+      // What "copy" under the turn takes: the prose of its messages.
+      const reply = turn
+        .flatMap((message) => message.blocks.map((b) => (b.type === 'text' ? b.text : '')))
+        .filter((part) => part.trim())
+        .join('\n\n')
+      if (text || reply) {
+        items.push({ kind: 'meta', key: `${turn[turn.length - 1]!.key}:meta`, text, reply })
       }
     }
     turn = []

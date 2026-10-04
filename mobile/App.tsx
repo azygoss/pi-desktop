@@ -9,6 +9,7 @@ import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import * as SystemUI from 'expo-system-ui'
 import { useEffect, useMemo } from 'react'
+import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import type { RootStackParamList } from './src/nav'
@@ -22,6 +23,7 @@ import { PairScreen } from './src/screens/PairScreen'
 import { PrScreen } from './src/screens/PrScreen'
 import { SideChatScreen } from './src/screens/SideChatScreen'
 import { UsageScreen } from './src/screens/UsageScreen'
+import { initBackground, openChatLink } from './src/lib/background'
 import { initChatBridge, setOpenChatHandler, useChats } from './src/state/chats'
 import { useConnection } from './src/state/connection'
 import { initDataBridge } from './src/state/data'
@@ -38,6 +40,13 @@ const navigationRef = createNavigationContainerRef<RootStackParamList>()
 // first connection so no broadcast is missed.
 initDataBridge()
 initChatBridge()
+initBackground()
+
+function showChat(chatId: string): void {
+  if (navigationRef.isReady()) {
+    navigationRef.navigate('Chat', { chatId })
+  }
+}
 setOpenChatHandler((chatId) => {
   if (navigationRef.isReady() && useChats.getState().chats[chatId]) {
     navigationRef.navigate('Chat', { chatId })
@@ -58,6 +67,15 @@ export default function App() {
   useEffect(() => {
     void usePrefs.getState().load()
     void useConnection.getState().init()
+  }, [])
+
+  // A tapped notification opens the app on its chat.
+  useEffect(() => {
+    void Linking.getInitialURL()
+      .then((url) => openChatLink(url, showChat))
+      .catch(() => {})
+    const subscription = Linking.addEventListener('url', (event) => openChatLink(event.url, showChat))
+    return () => subscription.remove()
   }, [])
 
   const ready = (fontsLoaded || fontError !== null) && prefsLoaded && phase !== 'loading'

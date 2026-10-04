@@ -4,8 +4,9 @@ import { memo, useMemo, type ReactNode } from 'react'
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { splitMarkdownBlocks } from '../desktop'
+import { highlight, type TokenKind } from '../lib/highlight'
 import { inlineText, parseMarkdown, type Block, type Inline } from '../lib/markdown'
-import { fonts, makeStyles, radius, space, type Theme } from '../theme'
+import { fonts, makeStyles, radius, space, useTheme, type Theme } from '../theme'
 import { IconButton, toast } from '../ui'
 
 const useStyles = makeStyles((t: Theme) => ({
@@ -123,6 +124,18 @@ function renderInline(nodes: Inline[], styles: Styles, keyPrefix = ''): ReactNod
 /** A fenced code block: scrolls sideways instead of wrapping, with a copy button. */
 export const CodeBlock = memo(function CodeBlock({ text, lang }: { text: string; lang?: string }) {
   const styles = useStyles()
+  const theme = useTheme()
+  const tokens = useMemo(() => highlight(text, lang), [text, lang])
+  // Text-grade colors only: each meets AA on the code surface in both themes.
+  const colors: Record<TokenKind, string | undefined> = {
+    plain: undefined,
+    comment: theme.muted,
+    string: theme.success,
+    keyword: theme.accent,
+    number: theme.warning,
+    added: theme.success,
+    removed: theme.danger
+  }
   return (
     <View style={styles.codeBox}>
       <View style={styles.codeHead}>
@@ -141,7 +154,17 @@ export const CodeBlock = memo(function CodeBlock({ text, lang }: { text: string;
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <Text style={styles.codeText} selectable>
-          {text}
+          {tokens.length === 1
+            ? text
+            : tokens.map((token, index) =>
+                token.kind === 'plain' ? (
+                  token.text
+                ) : (
+                  <Text key={index} style={{ color: colors[token.kind] }}>
+                    {token.text}
+                  </Text>
+                )
+              )}
         </Text>
       </ScrollView>
     </View>

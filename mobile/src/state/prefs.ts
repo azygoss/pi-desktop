@@ -6,9 +6,11 @@ export type ThemePref = 'system' | 'light' | 'dark'
 interface PrefsState {
   theme: ThemePref
   haptics: boolean
+  /** Background notifications: null until the user has been asked. */
+  notifications: boolean | null
   loaded: boolean
   load(): Promise<void>
-  set(patch: Partial<Pick<PrefsState, 'theme' | 'haptics'>>): void
+  set(patch: Partial<Pick<PrefsState, 'theme' | 'haptics' | 'notifications'>>): void
 }
 
 const KEY = 'pi-remote.prefs'
@@ -17,6 +19,7 @@ const KEY = 'pi-remote.prefs'
 export const usePrefs = create<PrefsState>((set, get) => ({
   theme: 'system',
   haptics: true,
+  notifications: null,
   loaded: false,
 
   async load() {
@@ -29,6 +32,7 @@ export const usePrefs = create<PrefsState>((set, get) => ({
             ? stored.theme
             : 'system',
         haptics: stored.haptics !== false,
+        notifications: typeof stored.notifications === 'boolean' ? stored.notifications : null,
         loaded: true
       })
     } catch {
@@ -38,7 +42,7 @@ export const usePrefs = create<PrefsState>((set, get) => ({
 
   set(patch) {
     set(patch)
-    const { theme, haptics } = get()
-    void AsyncStorage.setItem(KEY, JSON.stringify({ theme, haptics })).catch(() => {})
+    const { theme, haptics, notifications } = get()
+    void AsyncStorage.setItem(KEY, JSON.stringify({ theme, haptics, notifications })).catch(() => {})
   }
 }))

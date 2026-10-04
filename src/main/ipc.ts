@@ -16,7 +16,7 @@ import type {
   TerminalSpawnInput
 } from '../shared/api'
 import type { PiRuntimeInfo } from '../shared/session-types'
-import type { ThinkingLevel } from '../shared/pi-types'
+import type { AgentMessage, ThinkingLevel } from '../shared/pi-types'
 import type { PiProcessPool } from './pi/pool'
 import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateCwd, validateSessionPath } from './chat/validation'
@@ -67,6 +67,7 @@ import { readAttachments } from './files/attachments'
 import { REMOTE_CHANNELS } from '../shared/remote/protocol'
 import { SIDE_CHANNELS } from './chat/side-service'
 import { listDirs } from './remote/list-dirs'
+import { trimTranscript } from './remote/trim-transcript'
 import type { RemoteStatus } from './remote/remote-server'
 
 export const IPC_CHANNELS = {
@@ -341,12 +342,18 @@ export async function invokeRemote(channel: string, arg: unknown): Promise<unkno
   }
   const result = await (handler as unknown as (event: null, input: unknown) => unknown)(null, arg)
   if (
-    input?.['lite'] === true &&
     result !== null &&
     typeof result === 'object' &&
     Array.isArray((result as { messages?: unknown }).messages)
   ) {
-    return { ...result, messages: [] }
+    // The transcript the phone pages through: long tool output is cut.
+    if (channel === IPC_CHANNELS.chatTranscript) {
+      const transcript = result as { messages: AgentMessage[] }
+      return { ...transcript, messages: trimTranscript(transcript.messages) }
+    }
+    if (input?.['lite'] === true) {
+      return { ...result, messages: [] }
+    }
   }
   return result
 }

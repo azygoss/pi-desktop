@@ -11,6 +11,7 @@ import {
   type SessionSummary
 } from '../desktop'
 import { TextSheet } from '../chat/sheets'
+import { disableNotifications, enableNotifications, notificationsSupported } from '../lib/background'
 import { pickFolder } from '../lib/folder-pick'
 import { baseName } from '../lib/format'
 import { openSession, startChat } from '../lib/open'
@@ -19,8 +20,9 @@ import { api, errorText } from '../remote/api'
 import { useChats } from '../state/chats'
 import { useConnection } from '../state/connection'
 import { liveStateFor, useData } from '../state/data'
+import { usePrefs } from '../state/prefs'
 import { radius, space, TOUCH, useTheme } from '../theme'
-import { confirm, Empty, Field, Mono, Pixel, ScratchSigil, SectionLabel, Sheet, SheetAction, Sigil, Tap, toast, Txt, type PixelTone } from '../ui'
+import { Button, confirm, Empty, Field, Mono, Pixel, ScratchSigil, SectionLabel, Sheet, SheetAction, Sigil, Tap, toast, Txt, type PixelTone } from '../ui'
 import { SessionRow } from '../ui/SessionRow'
 
 type Entry =
@@ -82,6 +84,10 @@ export function ChatsTab() {
     }
     return paths.sort().join('\n')
   })
+
+  // Asked once, when there is something to be notified about.
+  const askNotifications =
+    usePrefs((s) => s.notifications === null) && notificationsSupported() && loaded && sessions.length > 0
 
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SessionSearchHit[]>([])
@@ -236,6 +242,35 @@ export function ChatsTab() {
           </View>
         </View>
       </View>
+      {askNotifications ? (
+        <View
+          style={{
+            marginHorizontal: space.lg,
+            marginBottom: space.sm,
+            padding: space.md,
+            gap: space.sm,
+            borderRadius: radius.md,
+            backgroundColor: theme.surface,
+            borderWidth: 1,
+            borderColor: theme.border
+          }}
+        >
+          <Txt weight="semibold">Know when pi is done</Txt>
+          <Txt size="small" tone="text2">
+            Get a notification when a chat finishes or pi needs you, also with the app in the
+            background.
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            <Button title="Not now" style={{ flex: 1 }} onPress={() => disableNotifications()} />
+            <Button
+              title="Turn on"
+              kind="primary"
+              style={{ flex: 1 }}
+              onPress={() => void enableNotifications()}
+            />
+          </View>
+        </View>
+      ) : null}
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.key}

@@ -35,6 +35,20 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null
 let connecting = false
 let subscribedChats: string[] = []
 
+let backgroundLink = false
+
+/**
+ * Whether the link is kept up with the app in the background (the keep-alive
+ * service is running: timers work and redialing makes sense).
+ */
+export function setBackgroundLink(on: boolean): void {
+  backgroundLink = on
+}
+
+function mayDial(): boolean {
+  return AppState.currentState === 'active' || backgroundLink
+}
+
 type Listener = (payload: unknown) => void
 const listeners = new Map<string, Set<Listener>>()
 const onlineListeners = new Set<() => void>()
@@ -101,8 +115,8 @@ function clearRetry(): void {
 
 function scheduleRetry(): void {
   clearRetry()
-  // No point dialing while the app is in the background; resuming reconnects.
-  if (AppState.currentState !== 'active') {
+  // No point dialing while the app sleeps in the background; resuming reconnects.
+  if (!mayDial()) {
     return
   }
   const wait = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]!
@@ -163,7 +177,7 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
         // only call it offline if that fails.
         useConnection.setState({ phase: 'connecting', error: null })
         attempt = 0
-        if (AppState.currentState === 'active') {
+        if (mayDial()) {
           void connect().catch(() => {})
         }
       }
@@ -298,7 +312,9 @@ export const useConnection = create<ConnectionState>((set, get) => ({
 // Android suspends sockets of a backgrounded app: come back, check, redial.
 AppState.addEventListener('change', (state) => {
   if (state !== 'active') {
-    clearRetry()
+    if (!backgroundLink) {
+      clearRetry()
+    }
     return
   }
   const { phase, pairing } = useConnection.getState()

@@ -142,6 +142,7 @@ const CheckRow = memo(function CheckRow({
 })
 
 const checkKey = (check: PrCheck, index: number): string => `${index}:${check.name}`
+const expandKey = (check: PrCheck): string => `${check.name}|${check.url ?? ''}`
 
 function PrHead({
   pr,
@@ -333,7 +334,10 @@ export function PrScreen({ navigation, route }: ScreenProps<'Pr'>) {
       if (!runId) {
         return
       }
-      setExpanded((prev) => ({ ...prev, [runId]: !prev[runId] }))
+      // Jobs of one workflow run share its id (and its log): what is open
+      // is tracked per check, so one tap opens one row.
+      const key = expandKey(check)
+      setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
       const known = logsRef.current[runId]
       if (!known || known.phase === 'error') {
         fetchLog(runId)
@@ -369,7 +373,7 @@ export function PrScreen({ navigation, route }: ScreenProps<'Pr'>) {
     ({ item }: { item: PrCheck }) => (
       <CheckRow
         check={item}
-        expanded={!!item.runId && !!expanded[item.runId]}
+        expanded={!!item.runId && !!expanded[expandKey(item)]}
         log={item.runId ? logs[item.runId] : undefined}
         onToggle={toggle}
       />
@@ -400,13 +404,14 @@ export function PrScreen({ navigation, route }: ScreenProps<'Pr'>) {
         <Empty
           icon={GitPullRequest}
           title="GitHub CLI not available"
-          detail="gh must be installed and signed in on the computer."
+          detail={error ?? 'gh must be installed and signed in on the computer.'}
           action={retry}
         />
       ) : !pr ? (
         <Empty
           icon={GitPullRequest}
           title="No pull request for this branch"
+          detail={error ?? undefined}
           action={<Button title="Refresh" onPress={() => void load()} />}
         />
       ) : (

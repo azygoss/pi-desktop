@@ -24,6 +24,7 @@ import {
 } from '../ui'
 import { TextSheet } from '../chat/sheets'
 import { errorText } from '../remote/api'
+import { disableNotifications, enableNotifications, notificationsSupported } from '../lib/background'
 
 const APP_VERSION = '0.1.0'
 
@@ -94,6 +95,7 @@ export function SettingsTab() {
   const error = useConnection((s) => s.error)
   const themePref = usePrefs((s) => s.theme)
   const haptics = usePrefs((s) => s.haptics)
+  const notifications = usePrefs((s) => s.notifications)
   const [runtime, setRuntime] = useState<PiRuntimeInfo | null>(null)
   const [cua, setCua] = useState<CuaPermissions | null>(null)
   const [addressOpen, setAddressOpen] = useState(false)
@@ -226,6 +228,36 @@ export function SettingsTab() {
           />
         </View>
       </Card>
+
+      {notificationsSupported() ? (
+        <Card label="Notifications">
+          <View style={styles.toggleRow}>
+            <View style={styles.flex}>
+              <Txt>When pi finishes or needs you</Txt>
+              <Txt size="caption" tone="muted">
+                While pi works, the app stays connected in the background (an ongoing notification
+                shows it) and tells you when a chat is done.
+              </Txt>
+            </View>
+            <Switch
+              value={notifications === true}
+              onValueChange={(value) => {
+                if (!value) {
+                  disableNotifications()
+                  return
+                }
+                void enableNotifications().then((granted) => {
+                  if (!granted) {
+                    toast('Notifications are off for Pi Remote in the system settings')
+                  }
+                })
+              }}
+              accessibilityLabel="Notify when pi finishes or needs you"
+              {...switchColors}
+            />
+          </View>
+        </Card>
+      ) : null}
 
       <Card label="Usage">
         <Row

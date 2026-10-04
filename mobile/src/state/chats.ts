@@ -33,7 +33,7 @@ import { useData } from './data'
 import type { RemoteLiveChat } from '../desktop'
 
 /** Messages read from the session file when a chat opens / per "Load earlier". */
-const TRANSCRIPT_PAGE = 150
+const TRANSCRIPT_PAGE = 80
 /** Chats whose token stream stays subscribed (most recently opened first). */
 const MAX_SUBSCRIBED = 12
 /** Chats kept in memory; older idle ones are dropped and reopen from the list. */

@@ -42,7 +42,6 @@ import { space, TOUCH, useTheme } from '../theme'
 import { Button, confirm, Empty, IconButton, Mono, Pixel, Screen, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
 
 type User = Extract<DisplayMessage, { kind: 'user' }>
-type Assistant = Extract<DisplayMessage, { kind: 'assistant' }>
 
 /** "Working 0:42" — ticks on the shared clock while pi runs. */
 function RunClock({ since }: { since: number }) {
@@ -203,11 +202,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const actions = useMemo<RowActions>(
     () => ({
       onUserMenu: (message, userIndex) => setUserMenu({ message, userIndex }),
-      onAssistantMenu: (message: Assistant) => {
-        const text = message.blocks
-          .map((b) => (b.type === 'text' ? b.text : ''))
-          .filter(Boolean)
-          .join('\n\n')
+      onCopy: (text: string) => {
         void Clipboard.setStringAsync(text)
         toast('Reply copied')
       },
@@ -246,7 +241,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
         case 'notice':
           return <NoticeRow message={item.message} />
         case 'meta':
-          return <MetaRow text={item.text} />
+          return <MetaRow text={item.text} reply={item.reply} onCopy={actions.onCopy} />
       }
     },
     [actions, runs, cwd]
@@ -452,7 +447,9 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             initialNumToRender={12}
             maxToRenderPerBatch={8}
             windowSize={9}
-            contentContainerStyle={{ paddingVertical: space.sm }}
+            // Inverted: "flex-end" is the top of the screen, where a short
+            // conversation should start.
+            contentContainerStyle={{ paddingVertical: space.sm, flexGrow: 1, justifyContent: 'flex-end' }}
             onScroll={(e) => {
               const away = e.nativeEvent.contentOffset.y > 400
               if (away !== awayFromEnd) {

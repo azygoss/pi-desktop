@@ -1,3 +1,4 @@
+import { Copy } from 'lucide-react-native'
 import { memo, useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 
@@ -13,7 +14,7 @@ import {
 } from '../desktop'
 import { baseName } from '../lib/format'
 import { fonts, makeStyles, radius, space, type Theme } from '../theme'
-import { Mono, Pixel, Tap, Txt } from '../ui'
+import { IconButton, Mono, Pixel, Tap, Txt } from '../ui'
 import { Markdown } from './Markdown'
 import { DiffStat, ThinkingStep, ToolGroup, ToolStep, WorkRow, type ToolCall } from './ToolStep'
 
@@ -23,8 +24,8 @@ type User = Extract<DisplayMessage, { kind: 'user' }>
 export interface RowActions {
   /** Long-press on a prompt: copy, edit and resend, retry, restore files. */
   onUserMenu(message: User, userIndex: number): void
-  /** Long-press on a reply: copy. */
-  onAssistantMenu(message: Assistant): void
+  /** Copy a turn's reply (the button under it). */
+  onCopy(text: string): void
   onImage(uri: string): void
   onOpenFile(path: string): void
 }
@@ -112,7 +113,7 @@ export const UserRow = memo(function UserRow({
             </Mono>
           ) : null}
           {rest.trim() ? (
-            <Text style={styles.userText} selectable>
+            <Text style={styles.userText}>
               {segments.map((segment, index) =>
                 segment.type === 'text' ? (
                   segment.text
@@ -191,16 +192,9 @@ function AssistantBody({
       {groupToolCalls(message.blocks).map((item, index) => {
         switch (item.type) {
           case 'text':
+            // Selectable once it has settled: long-press selects words.
             return item.text.trim() ? (
-              <Tap
-                key={index}
-                accessibilityRole="text"
-                onLongPress={() => actions.onAssistantMenu(message)}
-                delayLongPress={350}
-                android_ripple={null}
-              >
-                <Markdown text={item.text} selectable={!streaming} />
-              </Tap>
+              <Markdown key={index} text={item.text} selectable={!streaming} />
             ) : null
           case 'thinking':
             return (
@@ -485,13 +479,31 @@ export const NoticeRow = memo(function NoticeRow({
 })
 
 /** "model · 14:02 · 1.8k tokens out · $0.04" under a finished turn. */
-export const MetaRow = memo(function MetaRow({ text }: { text: string }) {
+export const MetaRow = memo(function MetaRow({
+  text,
+  reply,
+  onCopy
+}: {
+  text: string
+  reply: string
+  onCopy(text: string): void
+}) {
   const styles = useStyles()
   return (
-    <View style={[styles.row, { paddingTop: 0 }]}>
-      <Mono size={12} tone="muted">
+    <View style={[styles.row, { paddingTop: 0, flexDirection: 'row', alignItems: 'center' }]}>
+      <Mono size={12} tone="muted" style={{ flex: 1 }}>
         {text}
       </Mono>
+      {reply ? (
+        <IconButton
+          icon={Copy}
+          label="Copy reply"
+          size={15}
+          tone="muted"
+          style={{ height: 40, marginRight: -space.md }}
+          onPress={() => onCopy(reply)}
+        />
+      ) : null}
     </View>
   )
 })
