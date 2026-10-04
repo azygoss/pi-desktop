@@ -165,7 +165,7 @@ async function printPairing(payload: string, expiresAt: number): Promise<void> {
   })
   const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60_000))
   log('')
-  log('Scan this with Pi Remote on your phone (Pair a computer → Scan):')
+  log('Scan this in Pi Remote on your phone (Scan pairing code):')
   log('')
   log(qr.trimEnd())
   log('')

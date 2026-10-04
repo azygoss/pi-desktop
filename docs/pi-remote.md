@@ -46,8 +46,9 @@ pi-remote start --host <address the phone uses>
 domain pointing at it, or its Tailscale name. Without it the code lists the
 machine's own addresses, which is right on a home network.
 
-In a terminal, the first start shows a QR code. In Pi Remote, choose
-**Pair a computer** and scan it. The code works once, for five minutes.
+In a terminal, the first start shows a QR code. In Pi Remote, tap
+**Scan pairing code** and scan it (or paste the link printed under it). The
+code works once, for five minutes.
 
 To pair another phone while the host runs (for example as a service), run
 this in a terminal on the server:
