@@ -28,14 +28,15 @@ async function callBridge(tool, params) {
     })
   } catch (error) {
     throw new Error(
-      `Pi Desktop browser bridge unreachable: ${error instanceof Error ? error.message : error}`,
+      `Pi Desktop bridge unreachable: ${error instanceof Error ? error.message : error}`,
       { cause: error }
     )
   }
   const body = await res.json().catch(() => null)
   if (!res.ok || !body || body.ok !== true) {
     const message = body && typeof body.error === 'string' ? body.error : `HTTP ${res.status}`
-    throw new Error(`Pi Desktop browser tool failed: ${message}`)
+    const kind = tool.startsWith('computer_') ? 'computer' : 'browser'
+    throw new Error(`Pi Desktop ${kind} tool failed: ${message}`)
   }
   return body.result
 }

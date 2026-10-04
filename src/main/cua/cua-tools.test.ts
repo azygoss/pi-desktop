@@ -40,7 +40,8 @@ function makeBridge({
         return impl[cmd] ?? { ok: true }
       }
     ),
-    emitActivity: vi.fn()
+    emitActivity: vi.fn(),
+    recycle: vi.fn()
   }
   const bridge = new ComputerToolBridge(service as unknown as CuaService, {
     isEnabled: async () => enabled
@@ -186,7 +187,7 @@ describe('ComputerToolBridge', () => {
   })
 
   it('never caches a negative result — re-checks every call', async () => {
-    const { bridge, calls } = makeBridge({
+    const { bridge, calls, service } = makeBridge({
       permissions: { accessibility: false, screenRecording: true }
     })
     await expect(
@@ -196,6 +197,8 @@ describe('ComputerToolBridge', () => {
       bridge.call('chat', 'computer_state', { app: 'Finder' })
     ).rejects.toThrow(/Accessibility permission/)
     expect(calls.filter((c) => c[0] === 'permissions')).toHaveLength(2)
+    // Each denial recycles the helper so a fresh one sees a new grant.
+    expect(service.recycle).toHaveBeenCalledTimes(2)
   })
 
   it('re-checks and retries once when a command reports a permission error', async () => {
@@ -222,7 +225,8 @@ describe('ComputerToolBridge', () => {
         }
         return {}
       }),
-      emitActivity: vi.fn()
+      emitActivity: vi.fn(),
+      recycle: vi.fn()
     }
     const fresh = new ComputerToolBridge(svc as unknown as CuaService, {
       isEnabled: async () => true
@@ -243,7 +247,8 @@ describe('ComputerToolBridge', () => {
         }
         throw new Error('accessibility permission not granted')
       }),
-      emitActivity: vi.fn()
+      emitActivity: vi.fn(),
+      recycle: vi.fn()
     }
     const fresh = new ComputerToolBridge(svc as unknown as CuaService, {
       isEnabled: async () => true

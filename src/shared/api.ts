@@ -273,6 +273,10 @@ export interface CuaPermissions {
   available: boolean
   accessibility: boolean
   screenRecording: boolean
+  /** Whether macOS trusts Pi Desktop itself (the helper inherits it). */
+  appAccessibility?: boolean
+  /** Reset permissions is offered (packaged macOS build). */
+  canReset?: boolean
 }
 
 /** Progress event for an agent-driven native-app action. */
@@ -811,6 +815,11 @@ export interface PiDesktopApi {
     requestPermissions(): Promise<CuaPermissions>
     /** Open System Settings on the relevant privacy pane. */
     openSettings(pane: 'accessibility' | 'screenRecording'): Promise<void>
+    /**
+     * Drop Pi Desktop's Accessibility and Screen Recording entries (one left
+     * by an older build no longer matches), then ask again.
+     */
+    resetPermissions(): Promise<CuaPermissions>
     pause(): Promise<void>
     resume(): Promise<void>
     /** Abort in-flight and queued computer actions. */

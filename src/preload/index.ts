@@ -183,6 +183,7 @@ const api: PiDesktopApi = {
       ipcRenderer.invoke('pi-desktop:cua:request-permissions'),
     openSettings: (pane) =>
       ipcRenderer.invoke('pi-desktop:cua:open-settings', { pane }),
+    resetPermissions: () => ipcRenderer.invoke('pi-desktop:cua:reset-permissions'),
     pause: () => ipcRenderer.invoke('pi-desktop:cua:pause'),
     resume: () => ipcRenderer.invoke('pi-desktop:cua:resume'),
     stop: () => ipcRenderer.invoke('pi-desktop:cua:stop'),
