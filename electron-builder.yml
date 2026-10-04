@@ -10,6 +10,9 @@ files:
   - out/**
   - package.json
   - "!**/*.map"
+  # pi-remote (the headless host) is built into out/ too but ships separately.
+  - "!out/host/**"
+  - "!out/host-package/**"
 
 # The bundled pi CLI spawns child processes and lazily requires native/wasm
 # assets, so all production node_modules must live outside the asar.
