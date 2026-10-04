@@ -38,6 +38,8 @@ const MAX_CONNECTIONS = 8
 const MAX_FAILURES = 8
 const FAILURE_WINDOW_MS = 10 * 60_000
 const PORT_ATTEMPTS = 20
+/** A phone that dropped off usually comes back (sleep, a network change). */
+const DEVICE_GONE_MS = 5 * 60_000
 
 /** Chat event types every paired phone hears, subscribed to the chat or not. */
 const STATUS_EVENTS = new Set(['agent_start', 'agent_settled'])
@@ -45,10 +47,17 @@ const STATUS_EVENTS = new Set(['agent_start', 'agent_settled'])
 export interface RemoteServerDeps {
   store: RemoteStore
   /** Run a remotely allowed IPC handler. */
-  invoke(channel: string, arg: unknown): Promise<unknown>
+  invoke(channel: string, arg: unknown, deviceId: string): Promise<unknown>
   info(): RemoteServerInfo
   /** Broadcast channels phones receive; `chatEvents` is filtered per chat. */
   forward: { channels: ReadonlySet<string>; chatEvents: string }
+  /**
+   * A phone has been gone for a while (or was removed): whatever it left
+   * running on the computer — a side chat's pi — can be cleaned up.
+   */
+  onDeviceGone?(deviceId: string): void
+  /** How long a disconnected phone is given to come back (tests). */
+  deviceGoneMs?: number
   /** Devices, connections or pairing changed. */
   onChanged?(): void
   /** Addresses for the pairing code (tests). */
@@ -152,6 +161,8 @@ export class RemoteServer {
   private pairing: { token: Uint8Array; expiresAt: number } | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private lastError: string | undefined
+  /** Phones with no connection left, and when they count as gone. */
+  private readonly goneTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Serializes start/stop so a quick off-on cannot leave two servers. */
   private transition: Promise<void> = Promise.resolve()
 
@@ -235,6 +246,11 @@ export class RemoteServer {
     for (const connection of this.connections) {
       this.drop(connection)
     }
+    // No phone can come back to a host that is off.
+    for (const deviceId of [...this.goneTimers.keys()]) {
+      this.clearGone(deviceId)
+      this.deps.onDeviceGone?.(deviceId)
+    }
     if (server) {
       await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()))
     }
@@ -312,6 +328,9 @@ export class RemoteServer {
         this.drop(connection)
       }
     }
+    // Removed for good: nothing of its is waited for.
+    this.clearGone(deviceId)
+    this.deps.onDeviceGone?.(deviceId)
     this.deps.onChanged?.()
   }
 
@@ -426,8 +445,36 @@ export class RemoteServer {
     this.connections.delete(connection)
     connection.socket.terminate()
     if (wasReady) {
+      if (connection.deviceId) {
+        this.watchGone(connection.deviceId)
+      }
       this.deps.onChanged?.()
     }
+  }
+
+  /** Start the clock on a phone with no connection left. */
+  private watchGone(deviceId: string): void {
+    for (const other of this.connections) {
+      if (other.deviceId === deviceId && other.state === 'ready') {
+        return
+      }
+    }
+    this.clearGone(deviceId)
+    const timer = setTimeout(() => {
+      this.goneTimers.delete(deviceId)
+      this.deps.onDeviceGone?.(deviceId)
+    }, this.deps.deviceGoneMs ?? DEVICE_GONE_MS)
+    timer.unref?.()
+    this.goneTimers.set(deviceId, timer)
+  }
+
+  private clearGone(deviceId: string): boolean {
+    const timer = this.goneTimers.get(deviceId)
+    if (timer) {
+      clearTimeout(timer)
+      this.goneTimers.delete(deviceId)
+    }
+    return timer !== undefined
   }
 
   private beat(): void {
@@ -565,6 +612,7 @@ export class RemoteServer {
       connection.timer = null
     }
     connection.deviceId = device.id
+    this.clearGone(device.id)
     connection.state = 'ready'
     this.failures.delete(connection.ip)
     this.send(connection, { t: 'ready', deviceId: device.id, server: { ...this.deps.info(), hosts: this.hosts() } })
@@ -579,7 +627,7 @@ export class RemoteServer {
       return
     }
     try {
-      const data = await this.deps.invoke(frame.ch, frame.a)
+      const data = await this.deps.invoke(frame.ch, frame.a, connection.deviceId ?? '')
       this.send(connection, { t: 'res', id: frame.id, ok: true, d: data ?? null })
     } catch (error) {
       this.send(connection, { t: 'res', id: frame.id, ok: false, e: errorText(error) })

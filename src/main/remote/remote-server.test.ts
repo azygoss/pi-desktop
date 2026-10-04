@@ -16,12 +16,14 @@ describe('RemoteServer', () => {
   let store: RemoteStore
   let server: RemoteServer
   let changes: number
+  let gone: string[]
   const phones: TestPhone[] = []
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'pi-desktop-remote-'))
     store = new RemoteStore(join(dir, 'remote.json'))
     changes = 0
+    gone = []
     server = new RemoteServer({
       store,
       invoke: async (channel, arg) => {
@@ -44,6 +46,8 @@ describe('RemoteServer', () => {
       onChanged: () => {
         changes++
       },
+      onDeviceGone: (deviceId) => gone.push(deviceId),
+      deviceGoneMs: 60,
       hosts: () => ['127.0.0.1']
     })
     await server.start()
@@ -155,6 +159,22 @@ describe('RemoteServer', () => {
     const back = await TestPhone.connect(pairing, identity)
     phones.push(back)
     expect(await back.ready()).toBeNull()
+  })
+
+  it('reports a phone as gone only when it stays away', async () => {
+    const { phone, pairing, identity, ready } = await pairPhone()
+    const deviceId = ready!.deviceId
+    // Back within the grace period (the phone slept): nothing is cleaned up.
+    phone.close()
+    await new Promise((r) => setTimeout(r, 20))
+    const again = await TestPhone.connect(pairing, identity)
+    phones.push(again)
+    await again.ready()
+    await new Promise((r) => setTimeout(r, 120))
+    expect(gone).toEqual([])
+    // Gone for good.
+    again.close()
+    await expect.poll(() => gone, { timeout: 2000 }).toEqual([deviceId])
   })
 
   it('keeps its identity and phones across restarts', async () => {

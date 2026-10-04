@@ -6,6 +6,7 @@ import {
   IPC_CHANNELS,
   REMOTE_FORWARD,
   broadcastAll,
+  closeRemoteSides,
   invokeRemote,
   registerIpcHandlers,
   runtimeOptionsFromSettings,
@@ -70,6 +71,7 @@ const remote = new RemoteServer({
     decrypt: (data) => safeStorage.decryptString(data)
   }),
   invoke: invokeRemote,
+  onDeviceGone: closeRemoteSides,
   forward: REMOTE_FORWARD,
   info: () => ({
     name: hostname().replace(/\.local$/, '') || 'Computer',

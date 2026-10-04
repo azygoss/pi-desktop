@@ -366,14 +366,42 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       if (large.length > 0) {
         setCollapsed((prev) => new Set([...prev, ...large.map((entry) => entry.file.path)]))
       }
-      // Comments whose line is no longer in the diff have nothing to hang on.
+      // The diff moved under the comments: each follows its line (found by
+      // its text, nearest to where it was); one whose line is gone is dropped.
       setComments((prev) => {
-        const kept = prev.filter((comment) => {
+        let changed = false
+        const kept: PinnedComment[] = []
+        for (const comment of prev) {
           const file = built.find((entry) => entry.file.path === comment.path)?.file
           const [hunk, line] = comment.key.split(':').map(Number)
-          return file?.hunks[hunk ?? -1]?.lines[line ?? -1] !== undefined
-        })
-        return kept.length === prev.length ? prev : kept
+          const here = file?.hunks[hunk ?? -1]?.lines[line ?? -1]
+          if (here && (!comment.lineText || here.text === comment.lineText)) {
+            kept.push(comment)
+            continue
+          }
+          changed = true
+          if (!file || !comment.lineText) {
+            continue
+          }
+          let best: { key: string; no: number | undefined; distance: number } | null = null
+          file.hunks.forEach((h, i) =>
+            h.lines.forEach((l, j) => {
+              if (l.text !== comment.lineText) {
+                return
+              }
+              const no = l.newNo ?? l.oldNo
+              const distance = Math.abs((no ?? 0) - (comment.line ?? 0))
+              if (!best || distance < best.distance) {
+                best = { key: `${i}:${j}`, no, distance }
+              }
+            })
+          )
+          const found = best as { key: string; no: number | undefined } | null
+          if (found) {
+            kept.push({ ...comment, key: found.key, ...(found.no !== undefined ? { line: found.no } : {}) })
+          }
+        }
+        return changed ? kept : prev
       })
       setEntries(built)
       setResult(next)

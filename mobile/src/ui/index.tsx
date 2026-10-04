@@ -658,6 +658,8 @@ export function Sheet({
             </Pressable>
           </Animated.View>
         </Pressable>
+        {/* A modal covers the app's own toast host: show toasts here too. */}
+        <ToastHost inSheet />
       </KeyboardAvoidingView>
     </Modal>
   )
@@ -717,7 +719,7 @@ export function toast(text: string, options?: { action?: { label: string; run():
   toastTimer = setTimeout(() => useToast.setState({ current: null }), options?.action ? 6000 : 3500)
 }
 
-export function ToastHost() {
+export function ToastHost({ inSheet = false }: { inSheet?: boolean }) {
   const styles = useLayoutStyles()
   const insets = useSafeAreaInsets()
   const current = useToast((s) => s.current)
@@ -736,7 +738,13 @@ export function ToastHost() {
   return (
     <View
       // Above the tab bar, or above the keyboard when it is up.
-      style={[styles.toast, { bottom: keyboard > 0 ? keyboard + space.md : insets.bottom + 84 }]}
+      style={[
+        styles.toast,
+        inSheet
+          ? // Over the sheet, at the top of the screen: its rows stay reachable.
+            { top: insets.top + space.md }
+          : { bottom: keyboard > 0 ? keyboard + space.md : insets.bottom + 84 }
+      ]}
       accessibilityLiveRegion="polite"
       accessibilityRole="alert"
     >

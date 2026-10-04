@@ -317,6 +317,22 @@ export const REMOTE_FORWARD = {
   ]) as ReadonlySet<string>
 }
 
+/** Side chats opened by paired phones: side id → device id. */
+const remoteSides = new Map<string, string>()
+
+/** Close the side chats a phone left open (it is gone, or was removed). */
+export function closeRemoteSides(deviceId: string): void {
+  const close = handlers.get(IPC_CHANNELS.sideClose) as
+    | ((event: null, input: unknown) => unknown)
+    | undefined
+  for (const [sideId, owner] of remoteSides) {
+    if (owner === deviceId) {
+      remoteSides.delete(sideId)
+      void Promise.resolve(close?.(null, { sideId })).catch(() => {})
+    }
+  }
+}
+
 let remoteSink: ((channel: string, payload: unknown) => void) | null = null
 let remoteTouch: ((chatId: string) => void) | null = null
 
@@ -331,7 +347,11 @@ export function setRemoteSink(sink: ((channel: string, payload: unknown) => void
  * `lite: true` in the input drops the message list from catalog results:
  * the phone renders long transcripts from the session file in pages.
  */
-export async function invokeRemote(channel: string, arg: unknown): Promise<unknown> {
+export async function invokeRemote(
+  channel: string,
+  arg: unknown,
+  deviceId = ''
+): Promise<unknown> {
   const handler = REMOTE_ALLOWED.has(channel) ? handlers.get(channel) : undefined
   if (!handler) {
     throw new Error('Not available from a paired device')
@@ -341,6 +361,15 @@ export async function invokeRemote(channel: string, arg: unknown): Promise<unkno
     remoteTouch?.(input['chatId'])
   }
   const result = await (handler as unknown as (event: null, input: unknown) => unknown)(null, arg)
+  // Side chats are short-lived pi processes: remember whose they are, so
+  // they can be closed if that phone never comes back.
+  if (typeof input?.['sideId'] === 'string') {
+    if (channel === IPC_CHANNELS.sideOpen) {
+      remoteSides.set(input['sideId'], deviceId)
+    } else if (channel === IPC_CHANNELS.sideClose) {
+      remoteSides.delete(input['sideId'])
+    }
+  }
   if (
     result !== null &&
     typeof result === 'object' &&
