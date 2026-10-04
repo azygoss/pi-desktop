@@ -81,14 +81,26 @@ function isSessionActive(session: SessionSummary): boolean {
 /** Open (or reveal) the chat for a session file — shared with the palette. */
 export function openSession(session: SessionSummary): void {
   const existing = useChatStore.getState().openSessionChat(session.path)
-  const chatId = existing ?? crypto.randomUUID()
-  if (!existing) {
-    void useChatStore
-      .getState()
-      .ensureChat(chatId, { sessionPath: session.path })
-      .catch(() => {})
+  if (existing) {
+    useAppStore.getState().navigate({ kind: 'chat', chatId: existing })
+    return
   }
-  useAppStore.getState().navigate({ kind: 'chat', chatId })
+  void (async () => {
+    // A paired phone may already have this session open in main: join that
+    // chat instead of starting a second pi on the same session file.
+    const live = await window.piDesktop.chat
+      .chatIdForSession({ sessionPath: session.path })
+      .catch(() => undefined)
+    const chatId =
+      useChatStore.getState().openSessionChat(session.path) ?? live ?? crypto.randomUUID()
+    if (!useChatStore.getState().chats[chatId]) {
+      void useChatStore
+        .getState()
+        .ensureChat(chatId, { sessionPath: session.path })
+        .catch(() => {})
+    }
+    useAppStore.getState().navigate({ kind: 'chat', chatId })
+  })()
 }
 
 /** Start a draft chat inside a project — shared with the palette. */

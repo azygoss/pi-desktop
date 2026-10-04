@@ -3,6 +3,7 @@ import { copyFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { homedir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
+import QRCode from 'qrcode'
 import type {
   AppSettings,
   BrowserRect,
@@ -63,6 +64,10 @@ import { mergeProjects } from './sessions/projects'
 import { PtyManager } from './terminal/pty-manager'
 import { listProjectFiles } from './files/file-list'
 import { readAttachments } from './files/attachments'
+import { REMOTE_CHANNELS } from '../shared/remote/protocol'
+import { SIDE_CHANNELS } from './chat/side-service'
+import { listDirs } from './remote/list-dirs'
+import type { RemoteStatus } from './remote/remote-server'
 
 export const IPC_CHANNELS = {
   runtimeInfo: 'pi-desktop:runtime:info',
@@ -200,8 +205,151 @@ export const IPC_CHANNELS = {
   dictationOpenSettings: 'pi-desktop:dictation:open-settings',
   dictationEvent: 'pi-desktop:dictation:event',
   /** e2e-only: inject a fake dictation event (PI_DESKTOP_E2E=1). */
-  dictationTestEvent: 'pi-desktop:dictation:test-event'
+  dictationTestEvent: 'pi-desktop:dictation:test-event',
+  remoteStatus: 'pi-desktop:remote:status',
+  remoteBeginPairing: 'pi-desktop:remote:begin-pairing',
+  remoteCancelPairing: 'pi-desktop:remote:cancel-pairing',
+  remoteRevoke: 'pi-desktop:remote:revoke',
+  /** Broadcast to windows when devices, connections or pairing change. */
+  remoteChanged: 'pi-desktop:remote:changed'
 } as const
+
+type IpcHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown
+
+/** Every registered handler by channel, so a paired phone can run them too. */
+const handlers = new Map<string, IpcHandler>()
+
+function handle(channel: string, handler: IpcHandler): void {
+  handlers.set(channel, handler)
+  ipcMain.handle(channel, handler as Parameters<typeof ipcMain.handle>[1])
+}
+
+/**
+ * Channels a paired phone may invoke. Left out on purpose: anything that
+ * opens a native dialog or menu on the computer, the terminal and browser
+ * panels, dictation, app settings, quitting, and remote-control management
+ * itself (a phone cannot pair another phone).
+ */
+const REMOTE_ALLOWED: ReadonlySet<string> = new Set([
+  IPC_CHANNELS.runtimeInfo,
+  IPC_CHANNELS.sessionsList,
+  IPC_CHANNELS.sessionsSearch,
+  IPC_CHANNELS.sessionsUsage,
+  IPC_CHANNELS.sessionsRename,
+  IPC_CHANNELS.sessionsDelete,
+  IPC_CHANNELS.sessionMetaGet,
+  IPC_CHANNELS.sessionMetaSet,
+  IPC_CHANNELS.projectsList,
+  IPC_CHANNELS.projectsAdd,
+  IPC_CHANNELS.projectsCreateWorktree,
+  IPC_CHANNELS.projectsRemoveWorktree,
+  IPC_CHANNELS.settingsGet,
+  IPC_CHANNELS.appSettingsGet,
+  IPC_CHANNELS.appUserFirstName,
+  IPC_CHANNELS.appInfo,
+  IPC_CHANNELS.catalogGet,
+  IPC_CHANNELS.filesList,
+  IPC_CHANNELS.filesRead,
+  IPC_CHANNELS.chatOpen,
+  IPC_CHANNELS.chatSend,
+  IPC_CHANNELS.chatAbort,
+  IPC_CHANNELS.chatBash,
+  IPC_CHANNELS.chatAbortBash,
+  IPC_CHANNELS.chatClearQueue,
+  IPC_CHANNELS.chatSetModel,
+  IPC_CHANNELS.chatSetThinkingLevel,
+  IPC_CHANNELS.chatGetStats,
+  IPC_CHANNELS.chatSetCwd,
+  IPC_CHANNELS.chatCompact,
+  IPC_CHANNELS.chatSetSessionName,
+  IPC_CHANNELS.chatRefresh,
+  IPC_CHANNELS.chatGetForkMessages,
+  IPC_CHANNELS.chatFork,
+  IPC_CHANNELS.chatClone,
+  IPC_CHANNELS.chatIdForSession,
+  IPC_CHANNELS.chatRespondUi,
+  IPC_CHANNELS.chatTranscript,
+  IPC_CHANNELS.chatReload,
+  IPC_CHANNELS.chatGetTree,
+  IPC_CHANNELS.chatLastAssistantText,
+  IPC_CHANNELS.checkpointsCreate,
+  IPC_CHANNELS.checkpointsRestore,
+  IPC_CHANNELS.sideOpen,
+  IPC_CHANNELS.sideSend,
+  IPC_CHANNELS.sideAbort,
+  IPC_CHANNELS.sideClose,
+  IPC_CHANNELS.diffStatus,
+  IPC_CHANNELS.diffSummary,
+  IPC_CHANNELS.diffDiscard,
+  IPC_CHANNELS.diffCommit,
+  IPC_CHANNELS.diffPush,
+  IPC_CHANNELS.diffReview,
+  IPC_CHANNELS.prStatus,
+  IPC_CHANNELS.prFailedLog,
+  IPC_CHANNELS.automationsList,
+  IPC_CHANNELS.automationsSave,
+  IPC_CHANNELS.automationsDelete,
+  IPC_CHANNELS.automationsRunNow,
+  IPC_CHANNELS.cuaPermissions,
+  IPC_CHANNELS.cuaPause,
+  IPC_CHANNELS.cuaResume,
+  IPC_CHANNELS.cuaStop,
+  REMOTE_CHANNELS.liveChats,
+  REMOTE_CHANNELS.listDirs
+])
+
+/** Broadcasts a paired phone receives (chat events are filtered per chat). */
+export const REMOTE_FORWARD = {
+  chatEvents: CHAT_CHANNELS.event,
+  channels: new Set<string>([
+    CHAT_CHANNELS.uiRequest,
+    CHAT_CHANNELS.uiResolved,
+    CHAT_CHANNELS.exit,
+    CHAT_CHANNELS.ready,
+    CHAT_CHANNELS.hint,
+    SIDE_CHANNELS.event,
+    SIDE_CHANNELS.exit,
+    IPC_CHANNELS.sessionsChanged,
+    IPC_CHANNELS.sessionMetaChanged,
+    IPC_CHANNELS.automationsChanged,
+    IPC_CHANNELS.cuaActivity
+  ]) as ReadonlySet<string>
+}
+
+let remoteSink: ((channel: string, payload: unknown) => void) | null = null
+let remoteTouch: ((chatId: string) => void) | null = null
+
+/** Route every broadcast to the remote-control host as well. */
+export function setRemoteSink(sink: ((channel: string, payload: unknown) => void) | null): void {
+  remoteSink = sink
+}
+
+/**
+ * Run an IPC handler for a paired phone. Only allowlisted channels exist
+ * here, and none of them reads the sender, so the handler runs without one.
+ * `lite: true` in the input drops the message list from catalog results:
+ * the phone renders long transcripts from the session file in pages.
+ */
+export async function invokeRemote(channel: string, arg: unknown): Promise<unknown> {
+  const handler = REMOTE_ALLOWED.has(channel) ? handlers.get(channel) : undefined
+  if (!handler) {
+    throw new Error('Not available from a paired device')
+  }
+  const input = arg !== null && typeof arg === 'object' ? (arg as Record<string, unknown>) : null
+  if (typeof input?.['chatId'] === 'string') {
+    remoteTouch?.(input['chatId'])
+  }
+  const result = await (handler as unknown as (event: null, input: unknown) => unknown)(null, arg)
+  if (
+    input?.['lite'] === true &&
+    result !== null &&
+    typeof result === 'object' &&
+    Array.isArray((result as { messages?: unknown }).messages)
+  ) {
+    return { ...result, messages: [] }
+  }
+  return result
+}
 
 export interface IpcDeps {
   pool: PiProcessPool
@@ -236,6 +384,15 @@ export interface IpcDeps {
     refresh(): void
     /** Ask a window to start the run; false when there is none. */
     trigger(automation: Automation): boolean
+  }
+  /** Remote-control host for paired phones; absent in unit-test setups. */
+  remote?: {
+    /** Start or stop the host to match the setting. */
+    apply(enabled: boolean): Promise<void>
+    status(): RemoteStatus
+    beginPairing(): { payload: string; expiresAt: number }
+    cancelPairing(): void
+    revoke(deviceId: string): Promise<void>
   }
   /** Dictation helper service; absent on non-macOS/test setups. */
   dictation?: {
@@ -296,24 +453,62 @@ function resolveUserFirstName(): Promise<string> {
 
 /** Register all IPC handlers for the typed `window.piDesktop` preload API. */
 export function registerIpcHandlers(deps: IpcDeps): void {
-  ipcMain.handle(IPC_CHANNELS.runtimeInfo, async (): Promise<PiRuntimeInfo> => {
+  remoteTouch = (chatId) => deps.chat.touch(chatId)
+
+  // --- Remote control -----------------------------------------------------
+
+  const remoteOff: RemoteStatus = {
+    running: false,
+    port: null,
+    addresses: [],
+    devices: [],
+    pairingExpiresAt: null
+  }
+  handle(IPC_CHANNELS.remoteStatus, () => deps.remote?.status() ?? remoteOff)
+  handle(IPC_CHANNELS.remoteBeginPairing, async () => {
+    if (!deps.remote) {
+      throw new Error('Remote control is not available')
+    }
+    // Asking for a code is asking for remote control: turn it on first.
+    if (!(await loadAppSettings()).remote.enabled) {
+      await updateAppSettings({ remote: { enabled: true } })
+    }
+    await deps.remote.apply(true)
+    const code = deps.remote.beginPairing()
+    const qr = QRCode.create(code.payload, { errorCorrectionLevel: 'M' })
+    return { ...code, size: qr.modules.size, modules: Array.from(qr.modules.data) }
+  })
+  handle(IPC_CHANNELS.remoteCancelPairing, () => deps.remote?.cancelPairing())
+  handle(IPC_CHANNELS.remoteRevoke, async (_e, input: { deviceId?: unknown }) => {
+    if (typeof input?.deviceId !== 'string' || input.deviceId.length > 64) {
+      throw new Error('Invalid device')
+    }
+    await deps.remote?.revoke(input.deviceId)
+  })
+  handle(REMOTE_CHANNELS.liveChats, () => deps.chat.listLive())
+  handle(REMOTE_CHANNELS.listDirs, (_e, input: { path?: unknown }) =>
+    // The pi agent dir holds credentials; the app never reads inside it.
+    listDirs(input?.path, [getAgentDir()])
+  )
+
+  handle(IPC_CHANNELS.runtimeInfo, async (): Promise<PiRuntimeInfo> => {
     const runtime = await deps.pool.getRuntime()
     return { kind: runtime.kind, version: runtime.version, command: basename(runtime.command) }
   })
 
-  ipcMain.handle(IPC_CHANNELS.runtimeRefresh, async (): Promise<PiRuntimeInfo> => {
+  handle(IPC_CHANNELS.runtimeRefresh, async (): Promise<PiRuntimeInfo> => {
     await applyRuntimeSettings(deps.pool)
     const runtime = await deps.pool.refreshRuntime()
     return { kind: runtime.kind, version: runtime.version, command: basename(runtime.command) }
   })
 
-  ipcMain.handle(IPC_CHANNELS.sessionsList, async () => {
+  handle(IPC_CHANNELS.sessionsList, async () => {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
     const hidden = new Set(settings.hiddenProjects)
     return sessions.filter((s) => !hidden.has(s.cwd))
   })
 
-  ipcMain.handle(IPC_CHANNELS.sessionsSearch, async (_e, input: { query?: unknown }) => {
+  handle(IPC_CHANNELS.sessionsSearch, async (_e, input: { query?: unknown }) => {
     const query = typeof input?.query === 'string' ? input.query.slice(0, 200) : ''
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
     const hidden = new Set(settings.hiddenProjects)
@@ -323,7 +518,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     )
   })
 
-  ipcMain.handle(IPC_CHANNELS.projectsList, async () => {
+  handle(IPC_CHANNELS.projectsList, async () => {
     const [sessions, settings] = await Promise.all([listSessions(), loadAppSettings()])
     const base = worktreesDir()
     // Worktrees the app created read as "repo · slug", not a bare slug.
@@ -335,7 +530,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     )
   })
 
-  ipcMain.handle(IPC_CHANNELS.projectsCreateWorktree, async (_e, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.projectsCreateWorktree, async (_e, input: { cwd: string }) => {
     const cwd = await validateCwd(input?.cwd)
     const worktree = await createWorktree(cwd, worktreesDir())
     // Listed right away, before its first chat has a session file.
@@ -348,7 +543,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return worktree
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.projectsRemoveWorktree,
     async (_e, input: { cwd: string; force?: unknown }) => {
       const cwd = await validateCwd(input?.cwd)
@@ -364,12 +559,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.sessionsUsage, async () => {
+  handle(IPC_CHANNELS.sessionsUsage, async () => {
     const sessions = await listSessions()
     return usageReport(sessions.map((s) => s.path))
   })
 
-  ipcMain.handle(IPC_CHANNELS.filesRead, async (_e, input: { cwd: string; path: unknown }) => {
+  handle(IPC_CHANNELS.filesRead, async (_e, input: { cwd: string; path: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
     // The pi agent dir holds credentials; the app never reads them.
     return readProjectFile(cwd, input?.path, [getAgentDir()])
@@ -377,10 +572,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // --- Checkpoints, side chats, review ----------------------------------------
 
-  ipcMain.handle(IPC_CHANNELS.checkpointsCreate, async (_e, input: { cwd: string }) =>
+  handle(IPC_CHANNELS.checkpointsCreate, async (_e, input: { cwd: string }) =>
     createCheckpoint(await validateCwd(input?.cwd))
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.checkpointsRestore,
     async (_e, input: { cwd: string; checkpoint?: unknown }) =>
       restoreCheckpoint(await validateCwd(input?.cwd), input?.checkpoint, (absolute) =>
@@ -393,7 +588,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     return deps.side
   }
-  ipcMain.handle(IPC_CHANNELS.sideOpen, (_e, input: Record<string, unknown>) =>
+  handle(IPC_CHANNELS.sideOpen, (_e, input: Record<string, unknown>) =>
     requireSide().open({
       sideId: input?.['sideId'],
       cwd: input?.['cwd'],
@@ -401,16 +596,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       model: input?.['model']
     })
   )
-  ipcMain.handle(IPC_CHANNELS.sideSend, (_e, input: Record<string, unknown>) =>
+  handle(IPC_CHANNELS.sideSend, (_e, input: Record<string, unknown>) =>
     requireSide().send({ sideId: input?.['sideId'], message: input?.['message'] })
   )
-  ipcMain.handle(IPC_CHANNELS.sideAbort, (_e, input: Record<string, unknown>) =>
+  handle(IPC_CHANNELS.sideAbort, (_e, input: Record<string, unknown>) =>
     requireSide().abort({ sideId: input?.['sideId'] })
   )
-  ipcMain.handle(IPC_CHANNELS.sideClose, (_e, input: Record<string, unknown>) =>
+  handle(IPC_CHANNELS.sideClose, (_e, input: Record<string, unknown>) =>
     requireSide().close({ sideId: input?.['sideId'] })
   )
-  ipcMain.handle(IPC_CHANNELS.diffReview, async (_e, input: Record<string, unknown>) => {
+  handle(IPC_CHANNELS.diffReview, async (_e, input: Record<string, unknown>) => {
     const reply = await requireSide().ask({
       cwd: input?.['cwd'],
       prompt: REVIEW_PROMPT,
@@ -425,8 +620,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.automations?.refresh()
     broadcastAll(IPC_CHANNELS.automationsChanged, null)
   }
-  ipcMain.handle(IPC_CHANNELS.automationsList, () => listAutomations())
-  ipcMain.handle(IPC_CHANNELS.automationsSave, async (_e, input: unknown) => {
+  handle(IPC_CHANNELS.automationsList, () => listAutomations())
+  handle(IPC_CHANNELS.automationsSave, async (_e, input: unknown) => {
     const cwd = (input as { cwd?: unknown } | null)?.cwd
     if (typeof cwd === 'string' && cwd !== '') {
       await validateCwd(cwd) // the project folder must exist
@@ -435,11 +630,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     automationsChanged()
     return saved
   })
-  ipcMain.handle(IPC_CHANNELS.automationsDelete, async (_e, input: { id?: unknown }) => {
+  handle(IPC_CHANNELS.automationsDelete, async (_e, input: { id?: unknown }) => {
     await deleteAutomation(input?.id)
     automationsChanged()
   })
-  ipcMain.handle(IPC_CHANNELS.automationsRunNow, async (_e, input: { id?: unknown }) => {
+  handle(IPC_CHANNELS.automationsRunNow, async (_e, input: { id?: unknown }) => {
     const automation = (await listAutomations()).find((a) => a.id === input?.id)
     if (!automation) {
       throw new Error('Unknown automation')
@@ -449,7 +644,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       automationsChanged()
     }
   })
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.automationsSetSession,
     async (_e, input: { id?: unknown; sessionPath?: unknown }) => {
       if (typeof input?.id !== 'string') {
@@ -462,29 +657,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // --- Pull request status (GitHub CLI) ---------------------------------------
 
-  ipcMain.handle(IPC_CHANNELS.prStatus, async (_e, input: { cwd: string }) =>
+  handle(IPC_CHANNELS.prStatus, async (_e, input: { cwd: string }) =>
     getPrStatus(await validateCwd(input?.cwd))
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.prFailedLog,
     async (_e, input: { cwd: string; runId?: unknown }) =>
       getFailedLog(await validateCwd(input?.cwd), input?.runId)
   )
 
-  ipcMain.handle(IPC_CHANNELS.diffDiscard, async (_e, input: { cwd: string; path: unknown }) => {
+  handle(IPC_CHANNELS.diffDiscard, async (_e, input: { cwd: string; path: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
     return discardFile(cwd, input?.path, (absolute) => shell.trashItem(absolute))
   })
-  ipcMain.handle(IPC_CHANNELS.diffCommit, async (_e, input: { cwd: string; message: unknown }) => {
+  handle(IPC_CHANNELS.diffCommit, async (_e, input: { cwd: string; message: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
     return commitAll(cwd, input?.message)
   })
-  ipcMain.handle(IPC_CHANNELS.diffPush, async (_e, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.diffPush, async (_e, input: { cwd: string }) => {
     const cwd = await validateCwd(input?.cwd)
     return pushBranch(cwd)
   })
 
-  ipcMain.handle(IPC_CHANNELS.projectsAdd, async (_e, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.projectsAdd, async (_e, input: { cwd: string }) => {
     if (typeof input?.cwd !== 'string' || !isAbsolute(input.cwd)) {
       throw new Error('Invalid project cwd')
     }
@@ -504,11 +699,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     })
   })
 
-  ipcMain.handle(IPC_CHANNELS.settingsGet, () => readSettings())
+  handle(IPC_CHANNELS.settingsGet, () => readSettings())
 
-  ipcMain.handle(IPC_CHANNELS.appSettingsGet, () => loadAppSettings())
+  handle(IPC_CHANNELS.appSettingsGet, () => loadAppSettings())
 
-  ipcMain.handle(IPC_CHANNELS.appSettingsUpdate, async (_e, patch: unknown) => {
+  handle(IPC_CHANNELS.appSettingsUpdate, async (_e, patch: unknown) => {
     const next = await updateAppSettings(patch)
     nativeTheme.themeSource = next.theme
     if (
@@ -527,12 +722,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     ) {
       void deps.chat.resetSpares().catch(() => {})
     }
+    if (
+      patch !== null &&
+      typeof patch === 'object' &&
+      'remote' in (patch as Record<string, unknown>)
+    ) {
+      await deps.remote?.apply(next.remote.enabled).catch(() => {})
+    }
     return next
   })
 
-  ipcMain.handle(IPC_CHANNELS.appUserFirstName, () => resolveUserFirstName())
+  handle(IPC_CHANNELS.appUserFirstName, () => resolveUserFirstName())
 
-  ipcMain.handle(IPC_CHANNELS.appPickFolder, async (event) => {
+  handle(IPC_CHANNELS.appPickFolder, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win ?? BrowserWindow.getAllWindows()[0]!, {
       properties: ['openDirectory', 'createDirectory']
@@ -540,7 +742,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.appPickFile,
     async (event, input: { filters?: { name: string; extensions: string[] }[] }) => {
       const win = BrowserWindow.fromWebContents(event.sender)
@@ -562,7 +764,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.appSaveFile,
     async (event, input: { defaultPath?: string; extension: string }) => {
       if (typeof input?.extension !== 'string' || !/^[a-z0-9]{1,10}$/i.test(input.extension)) {
@@ -581,14 +783,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.appRevealPath, (_e, path: string) => {
+  handle(IPC_CHANNELS.appRevealPath, (_e, path: string) => {
     if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096) {
       throw new Error('Invalid path')
     }
     shell.showItemInFolder(path)
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.appConfirmDialog,
     async (
       event,
@@ -621,7 +823,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.appInfo, () => {
+  handle(IPC_CHANNELS.appInfo, () => {
     const agentDir = getAgentDir()
     const home = homedir()
     return {
@@ -637,9 +839,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.appOpenAgentDir, () => shell.openPath(getAgentDir()))
+  handle(IPC_CHANNELS.appOpenAgentDir, () => shell.openPath(getAgentDir()))
 
-  ipcMain.handle(IPC_CHANNELS.appLocalServers, async (): Promise<LocalServer[]> => {
+  handle(IPC_CHANNELS.appLocalServers, async (): Promise<LocalServer[]> => {
     // The browser-tools bridge listens on loopback — never surface it as a
     // "local server" the user can open.
     const bridgePort = Number(new URL(deps.bridge?.url ?? 'http://x:0').port)
@@ -665,14 +867,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   }
 
-  ipcMain.handle(IPC_CHANNELS.cuaPermissions, () => cuaPermissions(false))
-  ipcMain.handle(IPC_CHANNELS.cuaRequestPermissions, () => {
+  handle(IPC_CHANNELS.cuaPermissions, () => cuaPermissions(false))
+  handle(IPC_CHANNELS.cuaRequestPermissions, () => {
     // Registers the app in the Accessibility list; the helper inherits the
     // grant as our child (TCC attributes it to the responsible process).
     systemPreferences.isTrustedAccessibilityClient(true)
     return cuaPermissions(true)
   })
-  ipcMain.handle(IPC_CHANNELS.cuaOpenSettings, (_e, input: { pane?: unknown }) => {
+  handle(IPC_CHANNELS.cuaOpenSettings, (_e, input: { pane?: unknown }) => {
     const pane = input?.pane
     if (pane !== 'accessibility' && pane !== 'screenRecording') {
       return Promise.resolve()
@@ -683,14 +885,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       `x-apple.systempreferences:com.apple.preference.security?${anchor}`
     )
   })
-  ipcMain.handle(IPC_CHANNELS.cuaPause, () => deps.cua?.pause())
-  ipcMain.handle(IPC_CHANNELS.cuaResume, () => deps.cua?.resume())
-  ipcMain.handle(IPC_CHANNELS.cuaStop, () =>
+  handle(IPC_CHANNELS.cuaPause, () => deps.cua?.pause())
+  handle(IPC_CHANNELS.cuaResume, () => deps.cua?.resume())
+  handle(IPC_CHANNELS.cuaStop, () =>
     deps.cua?.abortAll('Computer use stopped by the user')
   )
   // E2E hook: lets tests drive the activity strip without a real helper.
   // Inert unless PI_DESKTOP_E2E=1 was set at launch.
-  ipcMain.handle(IPC_CHANNELS.cuaTestActivity, (_e, input: unknown) => {
+  handle(IPC_CHANNELS.cuaTestActivity, (_e, input: unknown) => {
     if (process.env['PI_DESKTOP_E2E'] !== '1') {
       return
     }
@@ -716,74 +918,74 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     })
   })
 
-  ipcMain.handle(IPC_CHANNELS.chatOpen, (_e, input: ChatOpenInput) => deps.chat.open(input))
-  ipcMain.handle(IPC_CHANNELS.chatSend, (_e, input: ChatSendInput) => deps.chat.send(input))
-  ipcMain.handle(IPC_CHANNELS.chatAbort, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatOpen, (_e, input: ChatOpenInput) => deps.chat.open(input))
+  handle(IPC_CHANNELS.chatSend, (_e, input: ChatSendInput) => deps.chat.send(input))
+  handle(IPC_CHANNELS.chatAbort, (_e, input: { chatId: string }) =>
     deps.chat.abort(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatBash, (_e, input: { chatId: string; command: string }) =>
+  handle(IPC_CHANNELS.chatBash, (_e, input: { chatId: string; command: string }) =>
     deps.chat.bash(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatAbortBash, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatAbortBash, (_e, input: { chatId: string }) =>
     deps.chat.abortBash(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatClearQueue, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatClearQueue, (_e, input: { chatId: string }) =>
     deps.chat.clearQueue(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatSetModel,
     (_e, input: { chatId: string; provider: string; modelId: string }) =>
       deps.chat.setModel(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatSetThinkingLevel,
     (_e, input: { chatId: string; level: ThinkingLevel }) => deps.chat.setThinkingLevel(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatGetStats, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatGetStats, (_e, input: { chatId: string }) =>
     deps.chat.getStats(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatSetCwd, (_e, input: { chatId: string; cwd: string }) =>
+  handle(IPC_CHANNELS.chatSetCwd, (_e, input: { chatId: string; cwd: string }) =>
     deps.chat.setCwd(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatCompact,
     (_e, input: { chatId: string; customInstructions?: string }) => deps.chat.compact(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatSetSessionName,
     (_e, input: { chatId: string; name: string }) => deps.chat.setSessionName(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatExportHtml,
     (_e, input: { chatId: string; outputPath: string }) => deps.chat.exportHtml(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatRespondUi,
     (_e, input: { chatId: string } & Record<string, unknown>) => deps.chat.respondUi(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatRefresh,
     (_e, input: { chatId: string }) => deps.chat.refresh(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatGetForkMessages, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatGetForkMessages, (_e, input: { chatId: string }) =>
     deps.chat.getForkMessages(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatFork,
     (_e, input: { chatId: string; entryId: string }) => deps.chat.fork(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatClone, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatClone, (_e, input: { chatId: string }) =>
     deps.chat.clone(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatIdForSession, (_e, input: { sessionPath: string }) =>
+  handle(IPC_CHANNELS.chatIdForSession, (_e, input: { sessionPath: string }) =>
     deps.chat.chatIdForSession(validateSessionPath(input.sessionPath))
   )
-  ipcMain.handle(IPC_CHANNELS.chatClose, (_e, input: { chatId: string }) => deps.chat.close(input))
-  ipcMain.handle(IPC_CHANNELS.chatWarm, (_e, input: { cwd: string }) =>
+  handle(IPC_CHANNELS.chatClose, (_e, input: { chatId: string }) => deps.chat.close(input))
+  handle(IPC_CHANNELS.chatWarm, (_e, input: { cwd: string }) =>
     deps.chat.warmCwd(input)
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatTranscript,
     (_e, input: { sessionPath: string; limit?: number }) => {
       const sessionPath = validateSessionPath(input.sessionPath)
@@ -795,11 +997,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.chatFocus, (_e, input: { chatId: string }) => {
+  handle(IPC_CHANNELS.chatFocus, (_e, input: { chatId: string }) => {
     deps.chat.markFocused(validateChatId(input.chatId))
   })
 
-  ipcMain.handle(IPC_CHANNELS.catalogGet, async () => {
+  handle(IPC_CHANNELS.catalogGet, async () => {
     return (
       (await getCatalogCache()) ?? {
         models: [],
@@ -811,16 +1013,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     )
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.sessionsRename,
     (_e, input: { sessionPath: string; name: string }) => deps.chat.renameSession(input)
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.sessionsExportHtml,
     (_e, input: { sessionPath: string; outputPath: string }) =>
       deps.chat.exportSession(input)
   )
-  ipcMain.handle(IPC_CHANNELS.sessionsDelete, async (_e, input: { sessionPath: string }) => {
+  handle(IPC_CHANNELS.sessionsDelete, async (_e, input: { sessionPath: string }) => {
     const sessionPath = validateSessionPath(input.sessionPath)
     await deps.chat.closeChatForSession(sessionPath)
     await shell.trashItem(sessionPath)
@@ -828,9 +1030,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     broadcastAll(IPC_CHANNELS.sessionMetaChanged, await getSessionMeta())
   })
 
-  ipcMain.handle(IPC_CHANNELS.sessionMetaGet, () => getSessionMeta())
+  handle(IPC_CHANNELS.sessionMetaGet, () => getSessionMeta())
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.sessionMetaSet,
     async (_e, input: { sessionPath: string; patch: unknown }) => {
       const sessionPath = validateSessionPath(input.sessionPath)
@@ -854,12 +1056,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.filesList, async (_e, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.filesList, async (_e, input: { cwd: string }) => {
     const cwd = await validateCwd(input?.cwd)
     return { files: await listProjectFiles(cwd) }
   })
 
-  ipcMain.handle(IPC_CHANNELS.filesReadAttachments, (_e, input: { paths: unknown }) => {
+  handle(IPC_CHANNELS.filesReadAttachments, (_e, input: { paths: unknown }) => {
     const paths = Array.isArray(input?.paths)
       ? input.paths.filter(
           (p): p is string => typeof p === 'string' && isAbsolute(p) && p.length < 4096
@@ -868,7 +1070,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return readAttachments(paths.slice(0, 16))
   })
 
-  ipcMain.handle(IPC_CHANNELS.dialogPickFiles, async (event) => {
+  handle(IPC_CHANNELS.dialogPickFiles, async (event) => {
     // E2E hook: deterministic paths instead of the native dialog.
     const stub = process.env['PI_DESKTOP_PICK_FILES']
     if (process.env['PI_DESKTOP_E2E'] === '1' && stub) {
@@ -881,7 +1083,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return { paths: result.canceled ? [] : result.filePaths }
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.sessionsMenu,
     (
       event,
@@ -906,7 +1108,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.projectsMenu,
     (event, input: { cwd: string }): Promise<ProjectMenuAction | null> => {
       if (typeof input.cwd !== 'string' || !isAbsolute(input.cwd)) {
@@ -926,7 +1128,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.chatMenu,
     (
       event,
@@ -951,24 +1153,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.chatReload, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatReload, (_e, input: { chatId: string }) =>
     deps.chat.reload(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatGetTree, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatGetTree, (_e, input: { chatId: string }) =>
     deps.chat.getTree(input)
   )
-  ipcMain.handle(IPC_CHANNELS.chatLastAssistantText, (_e, input: { chatId: string }) =>
+  handle(IPC_CHANNELS.chatLastAssistantText, (_e, input: { chatId: string }) =>
     deps.chat.getLastAssistantText(input)
   )
 
-  ipcMain.handle(IPC_CHANNELS.sessionsImport, async (_e, input: { path: string }) => {
+  handle(IPC_CHANNELS.sessionsImport, async (_e, input: { path: string }) => {
     if (typeof input?.path !== 'string' || !isAbsolute(input.path)) {
       throw new Error('Invalid import path')
     }
     return importSessionFile(input.path)
   })
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.sessionsExportFile,
     async (_e, input: { sessionPath: string; outputPath: string }) => {
       const sessionPath = validateSessionPath(input.sessionPath)
@@ -983,12 +1185,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.runtimeCommand, async () => {
+  handle(IPC_CHANNELS.runtimeCommand, async () => {
     const runtime = await deps.pool.getRuntime()
     return { command: runtime.command, args: runtime.args }
   })
 
-  ipcMain.handle(IPC_CHANNELS.terminalSpawn, async (_e, input: TerminalSpawnInput) => {
+  handle(IPC_CHANNELS.terminalSpawn, async (_e, input: TerminalSpawnInput) => {
     if (typeof input?.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(input.id)) {
       throw new Error('Invalid terminal id')
     }
@@ -1025,13 +1227,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       rows: input.rows
     })
   })
-  ipcMain.handle(IPC_CHANNELS.terminalWrite, (_e, input: { id: string; data: string }) => {
+  handle(IPC_CHANNELS.terminalWrite, (_e, input: { id: string; data: string }) => {
     if (typeof input?.id !== 'string' || typeof input.data !== 'string') {
       throw new Error('Invalid terminal write')
     }
     deps.pty.write(input.id, input.data)
   })
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.terminalResize,
     (_e, input: { id: string; cols: number; rows: number }) => {
       if (typeof input?.id !== 'string') {
@@ -1040,7 +1242,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       deps.pty.resize(input.id, input.cols, input.rows)
     }
   )
-  ipcMain.handle(IPC_CHANNELS.terminalKill, (_e, input: { id: string }) => {
+  handle(IPC_CHANNELS.terminalKill, (_e, input: { id: string }) => {
     if (typeof input?.id !== 'string') {
       throw new Error('Invalid terminal id')
     }
@@ -1055,28 +1257,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     return value
   }
 
-  ipcMain.handle(IPC_CHANNELS.browserCreate, (_e, input: { id: string; url?: string }) =>
+  handle(IPC_CHANNELS.browserCreate, (_e, input: { id: string; url?: string }) =>
     deps.browser.create(browserId(input?.id), typeof input?.url === 'string' ? input.url : undefined)
   )
-  ipcMain.handle(IPC_CHANNELS.browserNavigate, (_e, input: { id: string; url: string }) => {
+  handle(IPC_CHANNELS.browserNavigate, (_e, input: { id: string; url: string }) => {
     if (typeof input?.url !== 'string' || input.url.length > 4096) {
       throw new Error('Invalid URL')
     }
     deps.browser.navigate(browserId(input.id), input.url)
   })
-  ipcMain.handle(IPC_CHANNELS.browserBack, (_e, input: { id: string }) =>
+  handle(IPC_CHANNELS.browserBack, (_e, input: { id: string }) =>
     deps.browser.goBack(browserId(input?.id))
   )
-  ipcMain.handle(IPC_CHANNELS.browserForward, (_e, input: { id: string }) =>
+  handle(IPC_CHANNELS.browserForward, (_e, input: { id: string }) =>
     deps.browser.goForward(browserId(input?.id))
   )
-  ipcMain.handle(IPC_CHANNELS.browserReloadOrStop, (_e, input: { id: string }) =>
+  handle(IPC_CHANNELS.browserReloadOrStop, (_e, input: { id: string }) =>
     deps.browser.reloadOrStop(browserId(input?.id))
   )
-  ipcMain.handle(IPC_CHANNELS.browserClose, (_e, input: { id: string }) =>
+  handle(IPC_CHANNELS.browserClose, (_e, input: { id: string }) =>
     deps.browser.close(browserId(input?.id))
   )
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.browserSetVisible,
     (_e, input: { id: string | null; rect?: BrowserRect }) => {
       deps.browser.setVisible(
@@ -1085,21 +1287,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       )
     }
   )
-  ipcMain.handle(IPC_CHANNELS.browserSetOverlay, (_e, input: { open: boolean }) =>
+  handle(IPC_CHANNELS.browserSetOverlay, (_e, input: { open: boolean }) =>
     deps.browser.setOverlayOpen(input?.open === true)
   )
 
-  ipcMain.handle(IPC_CHANNELS.diffStatus, (_e, input: { cwd: string }) =>
+  handle(IPC_CHANNELS.diffStatus, (_e, input: { cwd: string }) =>
     validateCwd(input?.cwd).then((cwd) => getRepoDiff(cwd))
   )
 
-  ipcMain.handle(IPC_CHANNELS.diffSummary, (_e, input: { cwd: string }) =>
+  handle(IPC_CHANNELS.diffSummary, (_e, input: { cwd: string }) =>
     validateCwd(input?.cwd).then((cwd) => getRepoSummary(cwd))
   )
 
   // "Open in": the menu is built and acted on here, so the renderer never
   // names an application to launch.
-  ipcMain.handle(IPC_CHANNELS.appOpenInMenu, async (event, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.appOpenInMenu, async (event, input: { cwd: string }) => {
     const cwd = await validateCwd(input?.cwd)
     const targets = await listOpenTargets()
     const fileManager = process.platform === 'darwin' ? 'Finder' : 'File Manager'
@@ -1124,14 +1326,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // --- Release updates ------------------------------------------------------
 
-  ipcMain.handle(IPC_CHANNELS.updatesGet, () => deps.updates?.current ?? null)
-  ipcMain.handle(IPC_CHANNELS.updatesCheckNow, async () => {
+  handle(IPC_CHANNELS.updatesGet, () => deps.updates?.current ?? null)
+  handle(IPC_CHANNELS.updatesCheckNow, async () => {
     if (!deps.updates) {
       return { status: 'unavailable' }
     }
     return deps.updates.checkNow()
   })
-  ipcMain.handle(IPC_CHANNELS.updatesOpen, () => {
+  handle(IPC_CHANNELS.updatesOpen, () => {
     const url = deps.updates?.current?.url
     // The URL came from the GitHub API and was prefix-validated on fetch;
     // re-check before opening in case the cached value was tampered with.
@@ -1146,7 +1348,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // --- Dictation ------------------------------------------------------------
 
-  ipcMain.handle(IPC_CHANNELS.dictationPermissions, async () => {
+  handle(IPC_CHANNELS.dictationPermissions, async () => {
     if (!deps.dictation?.available()) {
       return {
         available: false,
@@ -1168,7 +1370,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       speech: stat(result.speech)
     }
   })
-  ipcMain.handle(IPC_CHANNELS.dictationLocales, async () => {
+  handle(IPC_CHANNELS.dictationLocales, async () => {
     if (!deps.dictation?.available()) {
       return { locales: [] as string[] }
     }
@@ -1179,7 +1381,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         : []
     }
   })
-  ipcMain.handle(IPC_CHANNELS.dictationStart, async (_e, input: unknown) => {
+  handle(IPC_CHANNELS.dictationStart, async (_e, input: unknown) => {
     if (!deps.dictation?.available()) {
       throw new Error('dictation is not available')
     }
@@ -1188,9 +1390,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const autoStop = i?.autoStop === true
     await deps.dictation.start({ ...(locale ? { locale } : {}), autoStop })
   })
-  ipcMain.handle(IPC_CHANNELS.dictationStop, () => deps.dictation?.stop())
-  ipcMain.handle(IPC_CHANNELS.dictationCancel, () => deps.dictation?.cancel())
-  ipcMain.handle(IPC_CHANNELS.dictationOpenSettings, (_e, input: { pane?: unknown }) => {
+  handle(IPC_CHANNELS.dictationStop, () => deps.dictation?.stop())
+  handle(IPC_CHANNELS.dictationCancel, () => deps.dictation?.cancel())
+  handle(IPC_CHANNELS.dictationOpenSettings, (_e, input: { pane?: unknown }) => {
     const anchor =
       input?.pane === 'microphone'
         ? 'Privacy_Microphone'
@@ -1205,7 +1407,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     )
   })
   // E2E hook: inject a synthetic dictation event (inert unless PI_DESKTOP_E2E=1).
-  ipcMain.handle(IPC_CHANNELS.dictationTestEvent, (_e, input: unknown) => {
+  handle(IPC_CHANNELS.dictationTestEvent, (_e, input: unknown) => {
     if (process.env['PI_DESKTOP_E2E'] !== '1') {
       return
     }
@@ -1221,14 +1423,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     })
   })
 
-  ipcMain.handle(IPC_CHANNELS.appQuit, () => {
+  handle(IPC_CHANNELS.appQuit, () => {
     app.quit()
   })
 
   // Shown notifications are kept referenced so the click handler isn't
   // garbage-collected before macOS delivers it.
   const shownNotifications = new Set<Notification>()
-  ipcMain.handle(IPC_CHANNELS.appNotify, (_e, input: unknown) => {
+  handle(IPC_CHANNELS.appNotify, (_e, input: unknown) => {
     if (!Notification.isSupported()) {
       return
     }
@@ -1260,7 +1462,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     notification.show()
   })
 
-  ipcMain.handle(IPC_CHANNELS.appSetBadge, (_e, input: unknown) => {
+  handle(IPC_CHANNELS.appSetBadge, (_e, input: unknown) => {
     const count = Math.floor(Number((input as { count?: unknown } | null)?.count))
     if (!Number.isInteger(count) || count < 0 || count > 999) {
       return
@@ -1268,7 +1470,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     app.setBadgeCount(count)
   })
 
-  ipcMain.handle(IPC_CHANNELS.appOpenExternal, (_e, url: string) => {
+  handle(IPC_CHANNELS.appOpenExternal, (_e, url: string) => {
     if (
       typeof url !== 'string' ||
       url.length > 2048 ||
@@ -1319,11 +1521,7 @@ function popupMenu<A extends string>(
  * function; callers should invoke it on app shutdown.
  */
 export function startSessionWatcher(): () => void {
-  return watchSessions(() => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC_CHANNELS.sessionsChanged)
-    }
-  })
+  return watchSessions(() => broadcastAll(IPC_CHANNELS.sessionsChanged, undefined))
 }
 
 export function wireAppLifecycle(deps: IpcDeps): void {
@@ -1343,6 +1541,7 @@ export function broadcastAll(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, payload)
   }
+  remoteSink?.(channel, payload)
 }
 
 export { CHAT_CHANNELS }

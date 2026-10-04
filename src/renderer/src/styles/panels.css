@@ -1554,3 +1554,34 @@
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* Settings → Remote control */
+.remote-pairing {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 12px;
+}
+.remote-qr {
+  width: 196px;
+  height: 196px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+}
+.remote-pairing-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.remote-devices-label {
+  margin-top: 20px;
+  margin-bottom: 4px;
+}
+.remote-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-2);
+}

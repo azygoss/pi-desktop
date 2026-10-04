@@ -12,12 +12,14 @@ import type { PiRuntimeInfo } from '../../../shared/session-types'
 import { useAppStore, type SettingsSection } from '../state/app-store'
 import { PiLogo } from './PiLogo'
 import { UsagePage } from './UsagePage'
+import { RemotePage } from './RemotePage'
 
 type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'computer', label: 'Computer use' },
+  { id: 'remote', label: 'Remote control' },
   { id: 'runtime', label: 'Pi runtime' },
   { id: 'usage', label: 'Usage' },
   { id: 'data', label: 'Data' },
@@ -493,6 +495,8 @@ export function SettingsModal() {
               )}
             </div>
           )}
+
+          {section === 'remote' && <RemotePage />}
 
           {section === 'runtime' && (
             <div className="settings-section">

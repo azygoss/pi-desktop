@@ -42,6 +42,8 @@ export interface AppSettings {
   updates: { check: boolean; dismissedVersion?: string }
   /** Dictation: speech locale (BCP-47) and silence auto-stop. */
   dictation: { locale?: string; autoStop: boolean }
+  /** Remote control: whether paired phones may connect. */
+  remote: { enabled: boolean }
   /** Last window geometry; restored on launch when present. */
   windowBounds?: {
     width: number
@@ -68,7 +70,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   notifications: { enabled: true },
   onboarding: {},
   updates: { check: true },
-  dictation: { autoStop: false }
+  dictation: { autoStop: false },
+  remote: { enabled: false }
 }
 
 export function settingsFilePath(): string {
@@ -148,7 +151,8 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     notifications: { ...DEFAULT_APP_SETTINGS.notifications },
     onboarding: { ...DEFAULT_APP_SETTINGS.onboarding },
     updates: { ...DEFAULT_APP_SETTINGS.updates },
-    dictation: { ...DEFAULT_APP_SETTINGS.dictation }
+    dictation: { ...DEFAULT_APP_SETTINGS.dictation },
+    remote: { ...DEFAULT_APP_SETTINGS.remote }
   }
   if (raw === null || typeof raw !== 'object') {
     return settings
@@ -253,6 +257,13 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     }
     if (typeof d['autoStop'] === 'boolean') {
       settings.dictation.autoStop = d['autoStop']
+    }
+  }
+  const remote = input['remote']
+  if (remote !== null && typeof remote === 'object') {
+    const r = remote as Record<string, unknown>
+    if (typeof r['enabled'] === 'boolean') {
+      settings.remote.enabled = r['enabled']
     }
   }
   return settings
@@ -367,6 +378,12 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
       }
       if (typeof d['autoStop'] === 'boolean') {
         merged.dictation.autoStop = d['autoStop']
+      }
+    }
+    if (input['remote'] !== null && typeof input['remote'] === 'object') {
+      const r = input['remote'] as Record<string, unknown>
+      if (typeof r['enabled'] === 'boolean') {
+        merged.remote = { ...merged.remote, enabled: r['enabled'] }
       }
     }
     const bounds = normalizeWindowBounds(input['windowBounds'])

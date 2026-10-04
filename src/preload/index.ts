@@ -138,6 +138,7 @@ const api: PiDesktopApi = {
     onEvent: subscribe('pi-desktop:chat:event'),
     onReady: subscribe('pi-desktop:chat:ready'),
     onUiRequest: subscribe('pi-desktop:chat:ui-request'),
+    onUiResolved: subscribe('pi-desktop:chat:ui-resolved'),
     onExit: subscribe('pi-desktop:chat:exit'),
     onStartupHint: subscribe('pi-desktop:chat:hint')
   },
@@ -165,6 +166,13 @@ const api: PiDesktopApi = {
   pr: {
     status: (input) => ipcRenderer.invoke('pi-desktop:pr:status', input),
     failedLog: (input) => ipcRenderer.invoke('pi-desktop:pr:failed-log', input)
+  },
+  remote: {
+    status: () => ipcRenderer.invoke('pi-desktop:remote:status'),
+    beginPairing: () => ipcRenderer.invoke('pi-desktop:remote:begin-pairing'),
+    cancelPairing: () => ipcRenderer.invoke('pi-desktop:remote:cancel-pairing'),
+    revoke: (input) => ipcRenderer.invoke('pi-desktop:remote:revoke', input),
+    onChanged: subscribe('pi-desktop:remote:changed')
   },
   catalog: {
     get: () => ipcRenderer.invoke('pi-desktop:catalog:get')

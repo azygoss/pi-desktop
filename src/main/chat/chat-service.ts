@@ -22,6 +22,7 @@ import type {
 } from '../../shared/pi-types'
 import type { PiRpcClient } from '../pi/rpc-client'
 import { PiProcessPool, type OpenChatOptions } from '../pi/pool'
+import { REMOTE_CHANNELS, type RemoteLiveChat } from '../../shared/remote/protocol'
 import { EventCoalescer } from './event-coalescer'
 import { ensureWorkspaceDir, workspaceDir } from '../config/app-paths'
 import { updateCatalogCache } from '../config/catalog-cache'
@@ -62,7 +63,9 @@ export const CHAT_CHANNELS = {
   exit: 'pi-desktop:chat:exit',
   ready: 'pi-desktop:chat:ready',
   /** A startup blocker detected on pi's stderr (e.g. a retrying MCP server). */
-  hint: 'pi-desktop:chat:hint'
+  hint: 'pi-desktop:chat:hint',
+  /** An extension dialog was answered — by this window or a paired phone. */
+  uiResolved: REMOTE_CHANNELS.uiResolved
 } as const
 
 interface Gate<T> {
@@ -105,6 +108,8 @@ interface ChatRecord {
   focused: boolean
   /** A pending extension UI request keeps the process alive. */
   pendingUi: boolean
+  /** The pending request itself, for a phone that connects mid-dialog. */
+  uiRequest?: unknown
   /** A `!command` is running — the process must not be evicted under it. */
   bashRunning: boolean
   /** attachClient listener refs, removed when the process is parked as a spare. */
@@ -494,6 +499,12 @@ export class ChatService {
       input.sessionPath !== undefined ? validateSessionPath(input.sessionPath) : undefined
 
     const existing = this.chats.get(chatId)
+    // Already open and answering (a second device joining the chat): hand
+    // back the catalog without touching the process or its startup timing.
+    if (existing?.ready && existing.client.isRunning && !this.pendingOpens.has(chatId)) {
+      return this.fetchCatalog(existing.client, chatId, existing.cwd, existing.sessionPath)
+    }
+    this.evicted.delete(chatId)
     // Concurrent open() for the same chat (e.g. an ensureChat retry while
     // the first open is in flight) piggybacks on it instead of spawning a
     // second pi process.
@@ -922,9 +933,44 @@ export class ChatService {
     return true
   }
 
-  /** The chatId currently viewing a session path, if open. */
+  /**
+   * The chatId that owns a session path: an open chat, or one whose idle
+   * process was stopped and will be revived under the same id. Whoever opens
+   * the session next (the window or a paired phone) joins that chat instead
+   * of starting a second pi on the same file.
+   */
   chatIdForSession(sessionPath: string): string | undefined {
-    return this.recordForSession(sessionPath)?.chatId
+    const open = this.recordForSession(sessionPath)?.chatId
+    if (open) {
+      return open
+    }
+    for (const [chatId, entry] of this.evicted) {
+      if (entry.sessionPath === sessionPath) {
+        return chatId
+      }
+    }
+    return undefined
+  }
+
+  /** Chats with a live pi process, for a paired phone's chat list. */
+  listLive(): RemoteLiveChat[] {
+    return [...this.chats.values()]
+      .filter((record) => record.ready)
+      .map((record) => ({
+        chatId: record.chatId,
+        cwd: record.cwd,
+        ...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
+        streaming: record.streaming,
+        ...(record.pendingUi && record.uiRequest ? { uiRequest: record.uiRequest } : {})
+      }))
+  }
+
+  /** A paired phone used this chat: counts as viewed for idle eviction. */
+  touch(chatId: string): void {
+    const record = this.chats.get(chatId)
+    if (record) {
+      record.lastViewedAt = Date.now()
+    }
   }
 
   private recordForSession(sessionPath: string): ChatRecord | undefined {
@@ -955,6 +1001,8 @@ export class ChatService {
     const record = await this.requireReady(validateChatId(input.chatId))
     const id = requireString(input.id, 'ui request id', 128)
     record.pendingUi = false
+    record.uiRequest = undefined
+    this.broadcast(CHAT_CHANNELS.uiResolved, { chatId: record.chatId, id })
     record.client.respondUi({
       id,
       ...(typeof input.value === 'string' ? { value: input.value } : {}),
@@ -1123,6 +1171,7 @@ export class ChatService {
     }
     const onUiRequest = (request: unknown) => {
       record.pendingUi = true
+      record.uiRequest = request
       this.broadcast(CHAT_CHANNELS.uiRequest, { chatId, request })
     }
     const onExit = ({ code, signal }: { code: number | null; signal: string | null }) => {

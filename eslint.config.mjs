@@ -5,7 +5,8 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['out', 'dist', 'release', 'coverage', 'node_modules']
+    // mobile/ is the Pi Remote app: its own package with its own tooling.
+    ignores: ['out', 'dist', 'release', 'coverage', 'node_modules', 'mobile']
   },
   eslint.configs.recommended,
   {
