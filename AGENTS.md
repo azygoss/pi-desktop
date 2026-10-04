@@ -43,6 +43,10 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
   (`REMOTE_ALLOWED`); the handshake and frame encryption live in `src/shared/remote/`
   (see `docs/remote.md`). A channel that opens native UI or reads the sender must stay
   off the allowlist
+- `src/host/` - `pi-remote`, the headless remote-control host for servers: the main-process
+  services and IPC handlers without a window. `host.vite.config.ts` aliases `electron` to
+  `src/host/electron-shim.ts`; keep window-only code off the remote allowlist so it never
+  runs there (see `docs/pi-remote.md`)
 - `mobile/` - Pi Remote, the Android app (Expo / React Native) with its own `package.json`
   and npm lockfile; it imports the pure modules in `src/shared/` and
   `src/renderer/src/lib/`, so keep those free of DOM and Node APIs
@@ -61,6 +65,8 @@ pnpm test         # Vitest
 pnpm test:e2e     # builds, then runs the Electron e2e suite against the fake pi
 pnpm build        # production build
 pnpm build:cua    # compile the Swift helpers (needs the Xcode Command Line Tools)
+pnpm build:host   # build pi-remote (out/host/pi-remote.mjs)
+pnpm pack:host    # pack pi-remote as an npm tarball in release/
 pnpm dist:dir     # unpacked .app
 node scripts/energy.mjs   # CPU + wakeups per phase (run `pnpm build` first)
 ```

@@ -58,6 +58,8 @@ export interface RemoteServerInfo {
   hosts?: string[]
   /** The computer's `Date#getTimezoneOffset()`: schedules run in its time. */
   tzOffset?: number
+  /** What hosts the link: the desktop app, or `pi-remote` on a server. */
+  kind?: 'desktop' | 'server'
 }
 
 /** Plaintext handshake, phone → desktop. */

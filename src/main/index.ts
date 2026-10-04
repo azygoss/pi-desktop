@@ -79,7 +79,8 @@ const remote = new RemoteServer({
     platform: process.platform,
     homeDir: homedir(),
     workspaceDir: workspaceDir(),
-    tzOffset: new Date().getTimezoneOffset()
+    tzOffset: new Date().getTimezoneOffset(),
+    kind: 'desktop'
   }),
   onChanged: () => {
     for (const win of BrowserWindow.getAllWindows()) {

@@ -172,7 +172,7 @@ export function SettingsTab() {
         <Divider />
         <Readout label="Address" value={host && pairing ? `${host}:${pairing.port}` : '—'} />
         <Divider />
-        <Readout label="Pi Desktop" value={server?.version ?? '—'} />
+        <Readout label={server?.kind === 'server' ? 'pi-remote' : 'Pi Desktop'} value={server?.version ?? '—'} />
         <Divider />
         <Readout
           label="pi runtime"

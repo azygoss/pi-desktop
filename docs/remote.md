@@ -72,3 +72,17 @@ Everything the window can do with a chat — including running shell commands
 in your projects through pi. Treat pairing a phone like handing someone your
 keyboard: pair only your own devices, and remove a lost phone under
 Settings → Remote control.
+
+## Without the desktop app
+
+`pi-remote` (`src/host/`) is the same host for a server: a Node CLI that
+builds the main-process services without a window and registers the very
+same IPC handlers, so the allowlist, the broadcasts and the protocol are
+shared. Its build aliases `electron` to `src/host/electron-shim.ts`, which
+has no window behind it (anything that would open native UI fails), and
+moves files to the freedesktop.org trash instead of Electron's
+`shell.trashItem`. Without a keychain, its identity key is stored as is in
+`remote.json` (mode 0600). Automations run in the host itself instead of a
+window. A Unix control socket in its data directory lets `pi-remote pair`,
+`status` and `revoke` reach the running service. Setup and use:
+[pi-remote.md](pi-remote.md).

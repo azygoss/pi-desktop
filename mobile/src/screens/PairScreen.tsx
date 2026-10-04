@@ -150,7 +150,7 @@ export function PairScreen() {
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space.xxl, alignItems: 'center', paddingHorizontal: space.xl }}>
           <View style={{ backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.md }}>
             <Txt size="small" style={{ color: '#ececee', textAlign: 'center' }}>
-              Point the camera at the pairing code in Pi Desktop
+              Point the camera at the pairing code
             </Txt>
           </View>
         </View>
@@ -172,7 +172,8 @@ export function PairScreen() {
           </Txt>
           <Txt tone="text2">
             Pi Remote controls Pi Desktop from your phone: start and follow chats, answer pi&apos;s questions, review and
-            commit changes. The two talk directly over your network, end-to-end encrypted.
+            commit changes. The two talk directly over your network, end-to-end encrypted. On a server without the
+            desktop app, run pi-remote there and scan the code from &quot;pi-remote pair&quot;.
           </Txt>
         </View>
         <View style={{ gap: space.md }}>

@@ -227,7 +227,7 @@ async function connect(token?: string, candidate?: StoredPairing): Promise<void>
       throw error
     }
     const unreachable =
-      'Cannot reach the computer. Check that Pi Desktop is open, remote control is on, and both are on the same network.'
+      'Cannot reach the computer. Check that Pi Desktop is open with remote control on (or pi-remote is running on the server), and that this phone can reach it.'
     if (candidate) {
       useConnection.setState({ error: unreachable })
       throw new Error(unreachable)

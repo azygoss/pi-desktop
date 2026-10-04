@@ -59,8 +59,14 @@ export interface RemoteServerDeps {
   deviceGoneMs?: number
   /** Devices, connections or pairing changed. */
   onChanged?(): void
-  /** Addresses for the pairing code (tests). */
+  /** Addresses for the pairing code (tests, or the headless host's --host). */
   hosts?(): string[]
+  /** Port to try first instead of the stored one. */
+  port?: number
+  /** Ports tried, counting up from the first (default PORT_ATTEMPTS). */
+  portAttempts?: number
+  /** Interface to listen on (default: all IPv4 interfaces). */
+  bind?: string
 }
 
 export interface RemoteStatus {
@@ -191,9 +197,9 @@ export class RemoteServer {
       this.deps.onChanged?.()
       throw error
     }
-    const first = this.deps.store.port
+    const first = this.deps.port ?? this.deps.store.port
     let lastError: unknown
-    for (let i = 0; i < PORT_ATTEMPTS; i++) {
+    for (let i = 0; i < (this.deps.portAttempts ?? PORT_ATTEMPTS); i++) {
       const port = first + i > 65535 ? 1024 + i : first + i
       try {
         this.server = await this.listen(port)
@@ -218,7 +224,7 @@ export class RemoteServer {
   private listen(port: number): Promise<WebSocketServer> {
     return new Promise((resolvePromise, reject) => {
       const server = new WebSocketServer({
-        host: '0.0.0.0',
+        host: this.deps.bind ?? '0.0.0.0',
         port,
         maxPayload: MAX_FRAME_BYTES,
         perMessageDeflate: false
