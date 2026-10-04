@@ -1,6 +1,8 @@
-import { X } from 'lucide-react-native'
+import { File, Paths } from 'expo-file-system'
+import * as Sharing from 'expo-sharing'
+import { Share2, X } from 'lucide-react-native'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { FlatList, Image, Modal, ScrollView, SectionList, View } from 'react-native'
+import { FlatList, Image, Modal, PixelRatio, ScrollView, SectionList, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
@@ -455,21 +457,75 @@ export function ForkSheet({
 // Image viewer
 // ---------------------------------------------------------------------------
 
+/** Write a data: URI to the cache and open the share sheet (save to Photos, send…). */
+async function shareImage(uri: string): Promise<void> {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(uri)
+  if (!match) {
+    return
+  }
+  const mimeType = match[1]!
+  const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'
+  const file = new File(Paths.cache, `pi-image-${Date.now()}.${ext}`)
+  file.write(match[2]!, { encoding: 'base64' })
+  await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: 'Share image' })
+}
+
+/**
+ * Full-screen image. Tap switches between fitting the screen and actual
+ * pixels (scroll around a screenshot to read it); Share saves or sends it.
+ */
 export function Lightbox({ uri, onClose }: { uri: string | null; onClose(): void }) {
   const insets = useSafeAreaInsets()
+  const [actual, setActual] = useState(false)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    setActual(false)
+    setSize(null)
+    if (uri) {
+      Image.getSize(uri, (width, height) => setSize({ width, height }), () => {})
+    }
+  }, [uri])
+  const close = (): void => {
+    setActual(false)
+    onClose()
+  }
   return (
-    <Modal visible={uri !== null} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+    <Modal visible={uri !== null} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.94)' }}>
-        {uri ? (
-          <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" accessibilityLabel="Image, full screen" />
+        {uri && actual && size ? (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ minHeight: '100%', justifyContent: 'center' }}>
+            <ScrollView horizontal contentContainerStyle={{ minWidth: '100%', justifyContent: 'center' }}>
+              <Tap label="Fit to screen" onPress={() => setActual(false)}>
+                <Image source={{ uri }} style={{ width: size.width / PixelRatio.get(), height: size.height / PixelRatio.get() }} />
+              </Tap>
+            </ScrollView>
+          </ScrollView>
+        ) : uri ? (
+          <Tap label="Show actual size" onPress={() => setActual(true)} style={{ flex: 1 }}>
+            <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" accessibilityLabel="Image, full screen" />
+          </Tap>
         ) : null}
-        <IconButton
-          icon={X}
-          label="Close image"
-          tone="onAccent"
-          onPress={onClose}
-          style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm }}
-        />
+        <View style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm, flexDirection: 'row', gap: space.xs }}>
+          <IconButton
+            icon={Share2}
+            label="Share or save image"
+            tone="onAccent"
+            onPress={() => {
+              if (uri) {
+                void shareImage(uri).catch((e) => toast(`Could not share: ${errorText(e)}`))
+              }
+            }}
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          />
+          <IconButton icon={X} label="Close image" tone="onAccent" onPress={close} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+        </View>
+        {size ? (
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space.lg, alignItems: 'center' }} pointerEvents="none">
+            <Mono size={12} style={{ color: '#a0a0a8' }}>
+              {`${size.width}×${size.height} · tap for ${actual ? 'fit' : 'actual size'}`}
+            </Mono>
+          </View>
+        ) : null}
       </View>
     </Modal>
   )

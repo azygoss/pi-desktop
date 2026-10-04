@@ -6,7 +6,7 @@
 // are ordinary npm dependencies, installed next to it.
 
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +29,8 @@ mkdirSync(stage, { recursive: true })
 copyFileSync(join(root, 'out/host/pi-remote.mjs'), join(stage, 'pi-remote.mjs'))
 chmodSync(join(stage, 'pi-remote.mjs'), 0o755)
 copyFileSync(join(root, 'LICENSE'), join(stage, 'LICENSE'))
+// The pi extension (show_image) loads into every chat the host runs.
+cpSync(join(root, 'resources/pi-extension'), join(stage, 'pi-extension'), { recursive: true })
 copyFileSync(join(root, 'docs/pi-remote.md'), join(stage, 'README.md'))
 
 const pick = (name) => {
@@ -46,7 +48,7 @@ const manifest = {
   license: app.license,
   type: 'module',
   bin: { 'pi-remote': 'pi-remote.mjs' },
-  files: ['pi-remote.mjs', 'README.md', 'LICENSE'],
+  files: ['pi-remote.mjs', 'pi-extension', 'README.md', 'LICENSE'],
   engines: { node: '>=22.19' }, // pi needs it
   os: ['linux', 'darwin'],
   dependencies: {

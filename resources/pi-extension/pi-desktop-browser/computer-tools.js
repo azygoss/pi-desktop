@@ -169,7 +169,7 @@ Returns the app's frontmost window accessibility tree (diff by default) and opti
     name: 'computer_screenshot',
     label: 'Computer Screenshot',
     description:
-      'Capture a screenshot of the app\'s frontmost window (default) or the whole screen (screen=true). Coordinates in the image are window coordinates usable by computer_click. Use only when the accessibility tree is not enough.',
+      'Capture a screenshot of the app\'s frontmost window (default) or the whole screen (screen=true). Coordinates in the image are window coordinates usable by computer_click. Use only when the accessibility tree is not enough, or when the user asks to see the screen: the user sees the screenshot in the chat too (on the desktop and on their phone).',
     schema: {
       type: 'object',
       properties: {

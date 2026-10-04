@@ -15,7 +15,7 @@ import {
   type LucideIcon
 } from 'lucide-react-native'
 import { memo, useMemo, useState, type ReactNode } from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 
 import {
   MIN_SHOWN_DURATION_MS,
@@ -97,12 +97,6 @@ const useStyles = makeStyles((t: Theme) => ({
   added: { backgroundColor: t.successSoft, color: t.text },
   removed: { backgroundColor: t.dangerSoft, color: t.text },
   gap: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 17, color: t.muted, paddingHorizontal: space.sm },
-  shot: {
-    width: '100%',
-    height: 200,
-    borderRadius: radius.sm,
-    backgroundColor: t.codeBg
-  },
   thought: { color: t.text2, fontSize: 14, lineHeight: 21 },
   nested: { marginLeft: space.md, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.border, paddingLeft: space.xs }
 }))
@@ -260,17 +254,14 @@ function ToolDetail({
   call,
   run,
   category,
-  onImage
 }: {
   call: ToolCall
   run: ToolRun | undefined
   category: ToolCategory
-  onImage?(uri: string): void
 }) {
   const styles = useStyles()
   const args = run && Object.keys(run.args).length > 0 ? run.args : call.arguments
   const text = resultText(run)
-  const images = run?.result?.content.filter((b) => b.type === 'image') ?? []
 
   if (category === 'run') {
     const { output, status } = splitShellStatus(text)
@@ -352,22 +343,6 @@ function ToolDetail({
           </Text>
         </View>
       ) : null}
-      {images.map((image, index) =>
-        image.type === 'image' ? (
-          <Tap
-            key={index}
-            label="Open screenshot"
-            onPress={() => onImage?.(`data:${image.mimeType};base64,${image.data}`)}
-          >
-            <Image
-              source={{ uri: `data:${image.mimeType};base64,${image.data}` }}
-              style={styles.shot}
-              resizeMode="contain"
-              accessibilityLabel="Screenshot from the tool"
-            />
-          </Tap>
-        ) : null
-      )}
       {text.trim() ? (
         <View style={styles.term}>
           <Folded text={text.replace(/\n+$/, '')} />
@@ -409,14 +384,12 @@ export const ToolStep = memo(function ToolStep({
   run,
   cwd,
   live,
-  onImage,
   onOpenFile
 }: {
   call: ToolCall
   run: ToolRun | undefined
   cwd: string
   live: boolean
-  onImage?(uri: string): void
   onOpenFile?(path: string): void
 }) {
   const styles = useStyles()
@@ -457,7 +430,7 @@ export const ToolStep = memo(function ToolStep({
       />
       {open ? (
         <View style={styles.body}>
-          <ToolDetail call={call} run={run} category={category} onImage={onImage} />
+          <ToolDetail call={call} run={run} category={category} />
           {path && onOpenFile && (category === 'read' || category === 'edit' || category === 'create') ? (
             <Tap onPress={() => onOpenFile(path)} style={{ minHeight: 40, justifyContent: 'center' }}>
               <Txt size="small" tone="accent">
@@ -517,14 +490,12 @@ export const ToolGroup = memo(function ToolGroup({
   toolRuns,
   cwd,
   live,
-  onImage,
   onOpenFile
 }: {
   calls: ToolCall[]
   toolRuns: Record<string, ToolRun>
   cwd: string
   live: boolean
-  onImage?(uri: string): void
   onOpenFile?(path: string): void
 }) {
   const styles = useStyles()
@@ -568,7 +539,7 @@ export const ToolGroup = memo(function ToolGroup({
               run={toolRuns[call.id]}
               cwd={cwd}
               live={live}
-              onImage={onImage}
+             
               onOpenFile={onOpenFile}
             />
           ))}

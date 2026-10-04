@@ -1175,6 +1175,46 @@
   max-height: none;
 }
 
+/* Images under a folded card or group: show_image results at full width,
+ * screenshots as thumbnails. */
+.tool-shots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0 4px 26px;
+}
+.tool-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool-shown {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(100%, 720px);
+}
+.tool-shown-image {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--code-bg);
+  cursor: zoom-in;
+  padding: 0;
+  overflow: hidden;
+  align-self: flex-start;
+}
+.tool-shown-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+.tool-shown figcaption {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
 /* pi-exited inline card. */
 .exit-card {
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));

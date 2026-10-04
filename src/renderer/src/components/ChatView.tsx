@@ -59,7 +59,8 @@ import { Composer } from './Composer'
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { zoomImage } from './Lightbox'
 import { ThinkingBlock } from './ThinkingBlock'
-import { DiffStat, StepIcon, ToolCard } from './ToolCard'
+import { DiffStat, StepIcon, ToolCard, ToolShots } from './ToolCard'
+import { collectToolShots, toolShots } from '../lib/tool-images'
 
 // react-markdown + micromark are ~600KB — split out of the main chunk; the
 // fallback renders the raw text pre-wrap so content is readable instantly.
@@ -299,6 +300,9 @@ function ToolGroup({
           ))}
         </div>
       )}
+      {!open && (
+        <ToolShots shots={runs.flatMap((run) => toolShots(run))} />
+      )}
     </div>
   )
 }
@@ -402,7 +406,11 @@ function WorkGroup({
           <ChevronRight size={12} />
         </span>
       </button>
-      {open && <div className="work-body">{children}</div>}
+      {open ? (
+        <div className="work-body">{children}</div>
+      ) : (
+        <ToolShots shots={collectToolShots(messages, toolRuns)} />
+      )}
     </div>
   )
 }

@@ -2,14 +2,16 @@
 //
 // Registers browser_* tools that drive the in-app browser (right panel) via
 // the local bridge HTTP server started by the app's main process. The bridge
-// URL and a per-chat bearer token are injected by Pi Desktop through env vars;
-// outside Pi Desktop this extension registers nothing.
+// URL and a per-chat bearer token are injected by Pi Desktop through env vars.
+// show_image needs no bridge and is registered wherever the extension loads
+// (Pi Desktop, pi-remote); nothing else registers without the bridge.
 //
 // Deliberately dependency-free: `parameters` are plain JSON Schema objects and
 // only fetch() is used, so the same file loads under both the installed and
 // the bundled pi runtime without needing pi's own node_modules.
 
 import { COMPUTER_TOOLS } from './computer-tools.js'
+import { SHOW_IMAGE_TOOL, showImage } from './show-image.js'
 
 const BRIDGE_URL = process.env.PI_DESKTOP_BRIDGE_URL
 const BRIDGE_TOKEN = process.env.PI_DESKTOP_BRIDGE_TOKEN
@@ -68,6 +70,17 @@ const SHARED_DESCRIPTION =
   "Pi Desktop's built-in browser, visible to the user in the app's right panel."
 
 export default function piDesktopBrowser(pi) {
+  // show_image reads files itself: offered wherever Pi Desktop or pi-remote
+  // loads this extension, bridge or not.
+  pi.registerTool({
+    name: SHOW_IMAGE_TOOL.name,
+    label: SHOW_IMAGE_TOOL.label,
+    description: SHOW_IMAGE_TOOL.description,
+    parameters: SHOW_IMAGE_TOOL.schema,
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+      showImage(params, typeof ctx?.cwd === 'string' ? ctx.cwd : process.cwd())
+  })
+
   if (!BRIDGE_URL || !BRIDGE_TOKEN) {
     return
   }
@@ -210,7 +223,7 @@ export default function piDesktopBrowser(pi) {
   register(pi, {
     name: 'browser_screenshot',
     label: 'Browser Screenshot',
-    description: `${SHARED_DESCRIPTION} Capture the current page as a JPEG image (fullPage captures the whole document). Returns the image plus a caption.`,
+    description: `${SHARED_DESCRIPTION} Capture the current page as a JPEG image (fullPage captures the whole document). Returns the image plus a caption. The user sees the screenshot in the chat too (on the desktop and on their phone), so there is no need to save it to a file to show it.`,
     schema: {
       type: 'object',
       properties: {
