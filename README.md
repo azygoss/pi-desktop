@@ -85,6 +85,12 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   can operate native macOS apps through `computer_*` tools (accessibility
   tree, screenshots, clicks, typing). A strip above the composer shows what
   it is doing; pause or stop it anytime (⌃⌥⌘P).
+- **Remote control** — pair your phone with a QR code (Settings → Remote
+  control) and drive the app from Pi Remote, the Android companion in
+  [`mobile/`](mobile/README.md): follow and steer chats, answer pi's
+  questions, review and commit. The phone connects straight to your computer
+  over your network, end-to-end encrypted, with no account or relay
+  ([how it works](docs/remote.md)).
 - **Notifications** — a native notification and dock badge when a run
   finishes or pi needs your input while you are elsewhere.
 - **Runtime flexibility** — uses your installed `pi`, the bundled pinned
@@ -206,7 +212,8 @@ in two small Swift helpers (`resources/cua-helper`,
 - Session `.jsonl` files are read locally, only to index and display your
   chats.
 - Apart from pages you open in the browser panel, Pi Desktop itself makes
-  one network request: a daily check of this repository's latest GitHub
+  one network request (and, only while remote control is on, it accepts
+  connections from the phones you paired): a daily check of this repository's latest GitHub
   release (turn it off in Settings → General). In a git project it also
   runs your own `gh` (when installed) to read the branch's pull request. Everything else that leaves
   your machine is what the pi agent sends to its configured model
