@@ -51,8 +51,9 @@ The transport is a plain WebSocket, so everything is sealed above it
 (`src/shared/remote/crypto.ts`, [TweetNaCl](https://tweetnacl.js.org)):
 
 1. The phone sends its static and an ephemeral public key; the desktop
-   answers with an ephemeral public key. Unknown phones are only answered
-   while a pairing code is showing.
+   answers with an ephemeral public key. A phone the desktop does not know
+   (and that brings no valid pairing token) is told so inside the encrypted
+   channel, so only the real computer can make a phone drop its pairing.
 2. Both derive two keys (one per direction) from SHA-512 over a context
    string, all four public keys and three Diffie-Hellman results:
    ephemeral–ephemeral (forward secrecy), phone-ephemeral–desktop-static
