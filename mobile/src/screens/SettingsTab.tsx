@@ -1,18 +1,21 @@
 import { useNavigation } from '@react-navigation/native'
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight, Monitor, Plus, Server } from 'lucide-react-native'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, Switch, View } from 'react-native'
 
 import type { CuaPermissions, PiRuntimeInfo } from '../desktop'
 import type { Nav } from '../nav'
+import type { StoredPairing } from '../remote/storage'
 import { api } from '../remote/api'
 import { onOnline, useConnection } from '../state/connection'
+import { MAX_COMPUTERS } from '../remote/storage'
 import { usePrefs, type ThemePref } from '../state/prefs'
 import { makeStyles, radius, space, TOUCH, useTheme } from '../theme'
 import {
   Button,
   confirm,
   Divider,
+  haptic,
   Mono,
   Pixel,
   Row,
@@ -84,13 +87,103 @@ function Readout({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** The paired computer, this phone's preferences, and what runs where. */
+/**
+ * Every paired computer: tap one to use it, long-press to forget it, and
+ * pair another from here.
+ */
+function ComputersCard({
+  computers,
+  active,
+  status
+}: {
+  computers: StoredPairing[]
+  active: string | null
+  status: { tone: PixelTone; text: string }
+}) {
+  const styles = useStyles()
+  const theme = useTheme()
+  const navigation = useNavigation<Nav>()
+
+  const forget = async (computer: StoredPairing): Promise<void> => {
+    const sure = await confirm({
+      title: `Forget ${computer.name}?`,
+      message:
+        'This phone stops connecting to it. To use it again, pair with a new QR code. Also remove this phone on that computer (Settings → Remote control, or "pi-remote revoke" on a server).',
+      action: 'Forget',
+      danger: true
+    })
+    if (sure) {
+      await useConnection.getState().unpair(computer.key)
+      toast(`${computer.name} forgotten`)
+    }
+  }
+
+  return (
+    <Card label="Computers">
+      {computers.map((computer, index) => {
+        const inUse = computer.key === active
+        const Icon = computer.kind === 'server' ? Server : Monitor
+        const address = computer.lastHost ?? computer.hosts[0] ?? ''
+        return (
+          <View key={computer.key}>
+            {index > 0 ? <Divider /> : null}
+            <Row
+              title={computer.name}
+              detail={`${computer.kind === 'server' ? 'pi-remote' : 'Pi Desktop'} · ${address}:${computer.port}`}
+              left={<Icon size={18} color={inUse ? theme.accent : theme.muted} strokeWidth={1.75} />}
+              right={
+                inUse ? (
+                  <View style={styles.status}>
+                    <Pixel tone={status.tone} />
+                    <Txt size="caption" tone="text2">
+                      {status.text}
+                    </Txt>
+                  </View>
+                ) : null
+              }
+              onPress={
+                inUse
+                  ? undefined
+                  : () => {
+                      haptic('tap')
+                      void useConnection
+                        .getState()
+                        .switchTo(computer.key)
+                        .then(() => toast(`Using ${computer.name}`))
+                    }
+              }
+              onLongPress={() => void forget(computer)}
+              testID={`computer-${index}`}
+            />
+          </View>
+        )
+      })}
+      <Divider />
+      <View style={styles.block}>
+        {computers.length > 1 ? (
+          <Txt size="caption" tone="muted">
+            Tap a computer to use it. Long-press to forget it.
+          </Txt>
+        ) : null}
+        <Button
+          title="Pair another computer"
+          icon={Plus}
+          disabled={computers.length >= MAX_COMPUTERS}
+          onPress={() => navigation.navigate('AddComputer', {})}
+        />
+      </View>
+    </Card>
+  )
+}
+
+/** The paired computers, this phone's preferences, and what runs where. */
 export function SettingsTab() {
   const styles = useStyles()
   const theme = useTheme()
   const navigation = useNavigation<Nav>()
   const phase = useConnection((s) => s.phase)
   const pairing = useConnection((s) => s.pairing)
+  const computers = useConnection((s) => s.computers)
   const server = useConnection((s) => s.server)
   const error = useConnection((s) => s.error)
   const themePref = usePrefs((s) => s.theme)
@@ -120,11 +213,12 @@ export function SettingsTab() {
   }, [load])
 
   const unpair = useCallback(async () => {
+    const name = useConnection.getState().pairing?.name ?? 'this computer'
     const sure = await confirm({
-      title: 'Unpair this phone?',
+      title: `Forget ${name}?`,
       message:
-        'To use it again it must be paired with a new QR code. Also remove this phone under Settings → Remote control on the computer.',
-      action: 'Unpair',
+        'This phone stops connecting to it; to use it again it must be paired with a new QR code. Also remove this phone on that computer (Settings → Remote control, or "pi-remote revoke" on a server).',
+      action: 'Forget',
       danger: true
     })
     if (sure) {
@@ -147,7 +241,8 @@ export function SettingsTab() {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Card label="Computer">
+      <ComputersCard computers={computers} active={pairing?.key ?? null} status={status} />
+      <Card label="In use">
         <View style={styles.block}>
           <Txt weight="semibold" numberOfLines={1}>
             {server?.name ?? pairing?.name ?? 'Computer'}
@@ -184,7 +279,7 @@ export function SettingsTab() {
             End-to-end encrypted between this phone and the computer.
           </Txt>
           <Button title="Use another address" onPress={() => setAddressOpen(true)} />
-          <Button title="Unpair this phone" kind="danger" onPress={() => void unpair()} />
+          <Button title="Forget this computer" kind="danger" onPress={() => void unpair()} />
         </View>
       </Card>
       <TextSheet
