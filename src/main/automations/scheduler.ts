@@ -7,8 +7,11 @@ const MAX_SLEEP_MS = 5 * 60_000
 export interface SchedulerDeps {
   list(): Promise<Automation[]>
   markRun(id: string, at: number): Promise<void>
-  /** Start the run; false when nothing can host it (no window) — retried. */
-  trigger(automation: Automation): boolean
+  /**
+   * Start the run; false when it could not start (no window, pi failed) —
+   * retried shortly.
+   */
+  trigger(automation: Automation): boolean | Promise<boolean>
   now?(): number
 }
 
@@ -62,11 +65,11 @@ export class AutomationScheduler {
       }
       let due = nextRunAt(automation)
       if (due <= now) {
-        if (this.deps.trigger(automation)) {
+        if (await this.deps.trigger(automation)) {
           await this.deps.markRun(automation.id, now)
           due = nextRunAt({ ...automation, lastRunAt: now })
         } else {
-          due = now + 30_000 // no window yet — try again shortly
+          due = now + 30_000 // could not start yet — try again shortly
         }
       }
       soonest = Math.min(soonest, due)

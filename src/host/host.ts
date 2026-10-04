@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { access } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 
@@ -36,6 +37,16 @@ import { RemoteStore } from '../main/remote/remote-store'
  * (and the same allowlist) as the desktop app; only the window-bound parts
  * — the in-app browser, computer use, dictation, terminal tabs — are absent.
  */
+
+/** How long an automation run may take to write its session file. */
+const SESSION_WAIT_MS = 10 * 60_000
+const SESSION_POLL_MS = 2000
+
+const fileExists = (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false
+  )
 
 export interface HostOptions {
   /** Port to listen on; the next free one is used unless `strictPort`. */
@@ -125,32 +136,45 @@ export async function startHost(options: HostOptions): Promise<Host> {
   })
   setRemoteSink((channel, payload) => remote.broadcast(channel, payload))
 
-  /** Run an automation as a background chat (the desktop does it in its window). */
-  const runAutomation = async (automation: Automation): Promise<void> => {
+  /**
+   * Run an automation as a background chat (the desktop does it in its
+   * window). Resolves once pi accepted the prompt: false if it could not
+   * start, so the scheduler tries again instead of counting the run.
+   */
+  const runAutomation = async (automation: Automation): Promise<boolean> => {
     const chatId = randomUUID()
     const cwd = automation.cwd || workspaceDir()
     try {
-      const opened = await chat.open({ chatId, cwd })
+      await chat.open({ chatId, cwd })
       await chat.send({ chatId, message: automation.prompt, mode: 'prompt' })
-      await chat.setSessionName({ chatId, name: automation.name }).catch(() => {})
-      const sessionPath = opened.sessionPath ?? (await chat.refresh({ chatId })).sessionPath
-      if (sessionPath) {
-        await setAutomationSession(automation.id, sessionPath)
-        broadcastAll(IPC_CHANNELS.automationsChanged, null)
-      }
-      log(`automation "${automation.name}" started`)
     } catch (error) {
       log(
         `automation "${automation.name}" could not start: ${
           error instanceof Error ? error.message : String(error)
         }`
       )
+      await chat.close({ chatId }).catch(() => {})
+      return false
     }
-  }
-  const trigger = (automation: Automation): boolean => {
-    void runAutomation(automation)
+    log(`automation "${automation.name}" started`)
+    void nameAutomationRun(chatId, automation)
     return true
   }
+  /** Once pi has written the run's session file: name it and remember it. */
+  const nameAutomationRun = async (chatId: string, automation: Automation): Promise<void> => {
+    const until = Date.now() + SESSION_WAIT_MS
+    while (Date.now() < until && chat.hasProcess(chatId)) {
+      const sessionPath = await chat.sessionFile({ chatId }).catch(() => undefined)
+      if (sessionPath && (await fileExists(sessionPath))) {
+        await chat.setSessionName({ chatId, name: automation.name }).catch(() => {})
+        await setAutomationSession(automation.id, sessionPath).catch(() => {})
+        broadcastAll(IPC_CHANNELS.automationsChanged, null)
+        return
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, SESSION_POLL_MS))
+    }
+  }
+  const trigger = (automation: Automation): Promise<boolean> => runAutomation(automation)
   const automations = new AutomationScheduler({
     list: listAutomations,
     markRun: async (id, at) => {

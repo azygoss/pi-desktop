@@ -47,7 +47,7 @@ const manifest = {
   type: 'module',
   bin: { 'pi-remote': 'pi-remote.mjs' },
   files: ['pi-remote.mjs', 'README.md', 'LICENSE'],
-  engines: { node: '>=20.11' },
+  engines: { node: '>=22.19' }, // pi needs it
   os: ['linux', 'darwin'],
   dependencies: {
     '@earendil-works/pi-coding-agent': pick('@earendil-works/pi-coding-agent'),

@@ -936,6 +936,19 @@ export class ChatService {
     }
   }
 
+  /**
+   * The chat's session file as pi reports it now (one light get_state).
+   * Never revives an evicted chat: undefined when no pi is running for it.
+   */
+  async sessionFile(input: { chatId: string }): Promise<string | undefined> {
+    const record = this.chats.get(validateChatId(input.chatId))
+    if (!record?.ready || !record.client.isRunning) {
+      return undefined
+    }
+    await this.followSession(record)
+    return record.sessionPath
+  }
+
   async clone(input: { chatId: string }): Promise<{ cancelled?: boolean }> {
     const record = await this.requireReady(validateChatId(input.chatId))
     const result = (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}

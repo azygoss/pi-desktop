@@ -57,6 +57,16 @@ describe('CuaService', () => {
     })
   })
 
+  it('a recycled helper exiting late leaves its replacement alone', async () => {
+    service = makeService()
+    await service.call('ping', { value: 'first' })
+    service.recycle()
+    // The replacement takes a request before the old process has exited.
+    const pending = service.call('hang', {}, { timeoutMs: 1500 })
+    await expect(pending).rejects.toThrow('timeout') // not "cua helper exited"
+    expect(await service.call('ping', { value: 'after' })).toEqual({ value: 'after' })
+  })
+
   it('kills the helper after the idle timeout', async () => {
     vi.useFakeTimers()
     service = makeService()

@@ -112,4 +112,27 @@ describe('AutomationScheduler', () => {
     scheduler.stop()
     expect(marked).toEqual([])
   })
+
+  it('waits for a run to start and counts only one that did', async () => {
+    const marked: string[] = []
+    let starts = 0
+    const scheduler = new AutomationScheduler({
+      list: () => Promise.resolve([automation({}), automation({ id: 'b' })]),
+      markRun: (id) => {
+        marked.push(id)
+        return Promise.resolve()
+      },
+      // a's pi fails to start; b's prompt is accepted a moment later.
+      trigger: async (a) => {
+        starts++
+        await new Promise((r) => setTimeout(r, 5))
+        return a.id === 'b'
+      },
+      now: () => 600_000
+    })
+    await scheduler.tick()
+    scheduler.stop()
+    expect(starts).toBe(2)
+    expect(marked).toEqual(['b'])
+  })
 })

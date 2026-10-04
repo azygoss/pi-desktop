@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 
@@ -31,8 +31,8 @@ Options for start and service:
   --host <address>   Address the phone connects to: a public IP, a domain or a
                      Tailscale name. Repeat for several. Default: this machine's
                      own addresses.
-  --port <n>         Port to listen on (default ${DEFAULT_PORT}; with --host, only
-                     this port is used, so it matches your firewall rule)
+  --port <n>         Port to listen on (default ${DEFAULT_PORT}). Only this port is
+                     used: paired phones and your firewall rule expect it
   --bind <address>   Interface to listen on (default 0.0.0.0)
   --name <name>      Name the phone shows for this machine (default: hostname)
   --pi <path>        pi executable to use (default: pi on PATH, else the bundled one)
@@ -200,12 +200,14 @@ function describeStatus(status: RemoteStatus): string {
 async function pairAndWait(
   begin: () => Promise<{ payload: string; expiresAt: number }>,
   status: () => Promise<RemoteStatus>,
-  cancel: () => Promise<void>
+  cancel: () => Promise<void>,
+  /** Ctrl+C cancels only the code (false: the caller handles it). */
+  interruptCancels = true
 ): Promise<boolean> {
   const before = new Set((await status()).devices.map((d) => d.id))
   const code = await begin()
   await printPairing(code.payload, code.expiresAt)
-  log('Waiting for the phone… (Ctrl+C to cancel)')
+  log(`Waiting for the phone… (Ctrl+C to ${interruptCancels ? 'cancel' : 'stop'})`)
   return new Promise((resolvePromise) => {
     let done = false
     const finish = (paired: boolean) => {
@@ -214,7 +216,9 @@ async function pairAndWait(
       }
       done = true
       clearInterval(timer)
-      process.off('SIGINT', onInterrupt)
+      if (interruptCancels) {
+        process.off('SIGINT', onInterrupt)
+      }
       resolvePromise(paired)
     }
     const onInterrupt = () => {
@@ -223,7 +227,9 @@ async function pairAndWait(
         finish(false)
       })
     }
-    process.on('SIGINT', onInterrupt)
+    if (interruptCancels) {
+      process.on('SIGINT', onInterrupt)
+    }
     const timer = setInterval(() => {
       void status()
         .then((current) => {
@@ -242,9 +248,10 @@ async function pairAndWait(
 }
 
 async function commandStart(args: Args): Promise<void> {
-  const [major] = process.versions.node.split('.').map(Number)
-  if ((major ?? 0) < 20) {
-    throw new Error(`pi-remote needs Node.js 20 or newer (this is ${process.versions.node})`)
+  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number)
+  if (major < 22 || (major === 22 && minor < 19)) {
+    // pi itself (the bundled fallback included) needs 22.19.
+    throw new Error(`pi-remote needs Node.js 22.19 or newer (this is ${process.versions.node})`)
   }
   await mkdir(args.dataDir, { recursive: true, mode: 0o700 })
   await chmod(args.dataDir, 0o700)
@@ -264,8 +271,9 @@ async function commandStart(args: Args): Promise<void> {
   const host = await startHost({
     version: VERSION,
     ...(args.port ? { port: args.port } : {}),
-    // A firewall rule is per port: with explicit addresses, never wander.
-    strictPort: args.hosts.length > 0 || args.port !== undefined,
+    // Paired phones dial the port they paired with, and a firewall rule is
+    // per port: never wander to the next free one.
+    strictPort: true,
     ...(args.bind ? { bind: args.bind } : {}),
     ...(args.hosts.length > 0 ? { publicHosts: args.hosts } : {}),
     ...(args.name ? { name: args.name } : {}),
@@ -300,7 +308,10 @@ async function commandStart(args: Args): Promise<void> {
 
   try {
     const runtime = await host.runtime()
-    log(`pi ${runtime.version ?? '(unknown version)'} (${runtime.kind}: ${runtime.command})`)
+    // The basename only: the full path can name the user, and this goes to the journal.
+    log(
+      `pi ${runtime.version ?? '(unknown version)'} (${runtime.kind}: ${basename(runtime.command)})`
+    )
   } catch (error) {
     log(
       `Warning: pi could not be started (${error instanceof Error ? error.message : String(error)}). ` +
@@ -310,18 +321,20 @@ async function commandStart(args: Args): Promise<void> {
   log(`pi-remote ${VERSION}`)
   log(describeStatus(host.status()))
 
+  // Installed before a first-start pairing wait, so Ctrl+C there stops the host.
+  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
   const interactive = process.stdout.isTTY === true
   if (args.pair || (interactive && host.status().devices.length === 0)) {
     await pairAndWait(
       async () => host.beginPairing(),
       async () => host.status(),
-      async () => host.cancelPairing()
+      async () => host.cancelPairing(),
+      false
     )
   } else if (!interactive && host.status().devices.length === 0) {
     log('Run `pi-remote pair` in a terminal on this machine to pair a phone.')
   }
-  process.on('SIGINT', () => void shutdown('SIGINT'))
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
   log('Ready.')
 }
 
@@ -364,18 +377,29 @@ async function commandRevoke(args: Args): Promise<void> {
   log(`Removed ${matches[0]!.name}. It can no longer connect.`)
 }
 
-function serviceUnit(args: Args, argv: string[]): string {
+function serviceUnit(args: Args): string {
   const script = fileURLToPath(import.meta.url)
-  // The flags given to `service` become the service's flags (minus --pair).
-  const passthrough = argv
-    .slice(argv.indexOf('service') + 1)
-    .filter((arg) => arg !== 'install' && arg !== '--pair')
+  // The options given to `service` become the service's, rebuilt from the
+  // parsed (absolute) values: systemd starts it from another directory.
   const quote = (value: string) =>
     /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : JSON.stringify(value)
-  const command = [process.execPath, script, 'start', ...passthrough]
-  if (!passthrough.some((arg) => arg.startsWith('--data-dir'))) {
-    command.push('--data-dir', args.dataDir)
+  const command = [process.execPath, script, 'start']
+  for (const host of args.hosts) {
+    command.push('--host', host)
   }
+  if (args.port !== undefined) {
+    command.push('--port', String(args.port))
+  }
+  if (args.bind) {
+    command.push('--bind', args.bind)
+  }
+  if (args.name) {
+    command.push('--name', args.name)
+  }
+  if (args.pi) {
+    command.push('--pi', args.pi)
+  }
+  command.push('--data-dir', args.dataDir)
   return [
     '[Unit]',
     'Description=Pi Remote host (remote control for pi)',
@@ -395,8 +419,8 @@ function serviceUnit(args: Args, argv: string[]): string {
   ].join('\n')
 }
 
-async function commandService(args: Args, argv: string[]): Promise<void> {
-  const unit = serviceUnit(args, argv)
+async function commandService(args: Args): Promise<void> {
+  const unit = serviceUnit(args)
   if (args.positional[0] !== 'install') {
     log(unit.trimEnd())
     return
@@ -453,7 +477,7 @@ export async function main(argv: string[]): Promise<void> {
         await commandRevoke(args)
         return
       case 'service':
-        await commandService(args, argv)
+        await commandService(args)
         return
       default:
         throw new UsageError(`Unknown command ${args.command}`)

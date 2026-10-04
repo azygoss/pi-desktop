@@ -203,17 +203,19 @@ export class CuaService {
         index = this.buffer.indexOf('\n')
       }
     })
+    // Only the current helper's death fails what is pending: a recycled
+    // one exits after its replacement may already hold new requests.
     proc.on('exit', () => {
       if (this.process === proc) {
         this.process = null
+        this.rejectAll(new Error('cua helper exited'))
       }
-      this.rejectAll(new Error('cua helper exited'))
     })
     proc.on('error', () => {
       if (this.process === proc) {
         this.process = null
+        this.rejectAll(new Error('cua helper failed to start'))
       }
-      this.rejectAll(new Error('cua helper failed to start'))
     })
     this.process = proc
     return proc

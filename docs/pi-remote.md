@@ -15,7 +15,7 @@ terminal tabs.
 
 ## Requirements
 
-- Node.js 20.11 or newer.
+- Node.js 22.19 or newer (what pi needs).
 - pi. The package brings a pinned pi as a fallback, but a pi you install and
   log in to yourself is used first:
 
@@ -93,9 +93,9 @@ The phone connects straight to the server; there is no relay.
   `pi-remote start --host <server's Tailscale name or 100.x address> --bind <same address>`.
 - **A public port** works too. Open TCP 47821 (or your `--port`) in the
   firewall, e.g. `sudo ufw allow 47821/tcp`, and start with
-  `--host <public IP or domain>`. With `--host` or `--port` the host uses
-  exactly that port and stops if it is taken, so it never drifts away from
-  your firewall rule.
+  `--host <public IP or domain>`. The host always uses exactly that port
+  and stops if it is taken, so it never drifts away from your firewall rule
+  or from the port your phones paired with.
 
 Everything after the first message is encrypted end to end
 (X25519 + XSalsa20-Poly1305); the phone pins the server's key from the QR

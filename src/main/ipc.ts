@@ -437,8 +437,8 @@ export interface IpcDeps {
   automations?: {
     /** The list changed — re-aim the timer. */
     refresh(): void
-    /** Ask a window to start the run; false when there is none. */
-    trigger(automation: Automation): boolean
+    /** Start the run; false when it could not start (no window). */
+    trigger(automation: Automation): boolean | Promise<boolean>
   }
   /** Remote-control host for paired phones; absent in unit-test setups. */
   remote?: {
@@ -702,7 +702,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       throw new Error('Unknown automation')
     }
     // Runs are hosted by a window (the chat starts in its renderer).
-    if (!deps.automations?.trigger(automation)) {
+    if (!(await deps.automations?.trigger(automation))) {
       throw new Error('Open a Pi Desktop window on the computer to run automations')
     }
     await markAutomationRun(automation.id, Date.now())

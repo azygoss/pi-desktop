@@ -103,8 +103,16 @@ async function moveNoClobber(source: string, target: string): Promise<void> {
     if ((error as NodeJS.ErrnoException).code !== 'EXDEV') {
       throw error
     }
-    // Another filesystem: copy across, then drop the original.
-    await cp(source, target, { recursive: true, errorOnExist: true, force: false })
+    // Another filesystem: copy across (the placeholder is gone, so the copy
+    // claims the name itself), then drop the original only once it is whole.
+    try {
+      await cp(source, target, { recursive: true, errorOnExist: true, force: false })
+    } catch (copyError) {
+      if ((copyError as NodeJS.ErrnoException).code !== 'ERR_FS_CP_EEXIST') {
+        await rm(target, { recursive: true, force: true }).catch(() => {})
+      }
+      throw copyError
+    }
     await rm(source, { recursive: true, force: true })
   }
 }
