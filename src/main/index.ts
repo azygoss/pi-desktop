@@ -1,16 +1,23 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { BrowserWindow, app, globalShortcut, nativeTheme, shell } from 'electron'
+import { homedir, hostname } from 'node:os'
+import { BrowserWindow, app, globalShortcut, nativeTheme, safeStorage, shell } from 'electron'
 import {
   IPC_CHANNELS,
+  REMOTE_FORWARD,
   broadcastAll,
+  closeRemoteSides,
+  invokeRemote,
   registerIpcHandlers,
   runtimeOptionsFromSettings,
+  setRemoteSink,
   startSessionWatcher,
   wireAppLifecycle
 } from './ipc'
 import { loadAppSettings, updateAppSettings, getCachedAppSettings, type AppSettings } from './config/app-settings'
-import { ensureWorkspaceDir } from './config/app-paths'
+import { appUserDataDir, ensureWorkspaceDir, workspaceDir } from './config/app-paths'
+import { RemoteServer } from './remote/remote-server'
+import { RemoteStore } from './remote/remote-store'
 import { BridgeServer } from './bridge/bridge-server'
 import { BrowserToolBridge } from './bridge/browser-tools'
 import { BrowserManager } from './browser/browser-manager'
@@ -53,6 +60,35 @@ const chat = new ChatService(pool, broadcastAll, {
     cua.available() && (getCachedAppSettings()?.computerUse.enabled ?? true)
 })
 const side = new SideChatService(pool, broadcastAll)
+
+// Remote control: paired phones connect here and drive the app through the
+// same IPC handlers the window uses. Off until enabled in Settings.
+const remote = new RemoteServer({
+  store: new RemoteStore(join(appUserDataDir(), 'remote.json'), {
+    // The e2e suite must never touch (or prompt for) the login keychain.
+    available: () => process.env['PI_DESKTOP_E2E'] !== '1' && safeStorage.isEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptString(text),
+    decrypt: (data) => safeStorage.decryptString(data)
+  }),
+  invoke: invokeRemote,
+  onDeviceGone: closeRemoteSides,
+  forward: REMOTE_FORWARD,
+  info: () => ({
+    name: hostname().replace(/\.local$/, '') || 'Computer',
+    version: app.getVersion(),
+    platform: process.platform,
+    homeDir: homedir(),
+    workspaceDir: workspaceDir(),
+    tzOffset: new Date().getTimezoneOffset()
+  }),
+  onChanged: () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(IPC_CHANNELS.remoteChanged, remote.status())
+    }
+  }
+})
+setRemoteSink((channel, payload) => remote.broadcast(channel, payload))
+app.on('will-quit', () => void remote.stop())
 const computerTools = new ComputerToolBridge(cua, {
   isEnabled: async () => (await loadAppSettings()).computerUse.enabled
 })
@@ -286,6 +322,14 @@ app.whenReady().then(async () => {
     dictation,
     updates,
     side,
+    remote: {
+      apply: (enabled) => (enabled ? remote.start() : remote.stop()),
+      loadDevices: () => remote.loadDevices(),
+      status: () => remote.status(),
+      beginPairing: () => remote.beginPairing(),
+      cancelPairing: () => remote.cancelPairing(),
+      revoke: (deviceId) => remote.revoke(deviceId)
+    },
     automations: { refresh: () => automations.refresh(), trigger: triggerAutomation }
   })
   wireAppLifecycle({ pool, chat, pty, browser, bridge, cua, dictation, side })
@@ -323,6 +367,9 @@ app.whenReady().then(async () => {
       // seconds later; pi's own startup (eager extensions, MCP servers) can
       // take seconds and the spare absorbs it for the first draft.
       setTimeout(() => void chat.warmSpare(), 2000).unref?.()
+      if (getCachedAppSettings()?.remote.enabled) {
+        void remote.start().catch(() => {})
+      }
       // Automations: runs missed while the app was closed fire once now.
       setTimeout(() => automations.start(), 4000).unref?.()
     })()

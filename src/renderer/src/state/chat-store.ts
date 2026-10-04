@@ -459,6 +459,15 @@ export function initChatBridge(): void {
     }
   })
 
+  // Answered on a paired phone (or in another window): close the dialog here.
+  window.piDesktop.chat.onUiResolved?.(({ chatId, id }) => {
+    const draft = drafts.get(chatId)
+    if (draft?.uiRequest?.id === id) {
+      draft.uiRequest = undefined
+      publish(chatId)
+    }
+  })
+
   window.piDesktop.chat.onExit(({ chatId, code, stderrTail }) => {
     const draft = drafts.get(chatId)
     if (!draft) {

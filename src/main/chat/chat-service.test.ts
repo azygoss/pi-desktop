@@ -310,6 +310,64 @@ describe('ChatService', () => {
     }
   })
 
+  it('lets a second device join an open chat instead of starting another pi', async () => {
+    const { service, broadcasts, pool } = makeService({ maxIdleProcesses: 0 })
+    try {
+      const first = await service.open({ chatId: 'j1', cwd: tmpdir() })
+      const ready = () => broadcasts.filter((b) => b.channel === 'pi-desktop:chat:ready').length
+      expect(ready()).toBe(1)
+      const client = pool.get('j1')
+      // The window (or a paired phone) opening the same chat again joins it.
+      const joined = await service.open({ chatId: 'j1', cwd: tmpdir() })
+      expect(joined.models).toEqual(first.models)
+      expect(pool.get('j1')).toBe(client)
+      expect(ready()).toBe(1)
+      expect(service.listLive()).toMatchObject([{ chatId: 'j1', streaming: false }])
+
+      const sessionPath = first.sessionPath
+      if (sessionPath) {
+        expect(service.chatIdForSession(sessionPath)).toBe('j1')
+        // Its idle process is stopped: the session still belongs to that chat.
+        await service.sweepEvictions()
+        expect(service.isEvicted('j1')).toBe(true)
+        expect(service.chatIdForSession(sessionPath)).toBe('j1')
+        expect(service.listLive()).toEqual([])
+      }
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('counts a chat a paired phone used as recently viewed', async () => {
+    const { service, pool } = makeService({ maxIdleProcesses: 1 })
+    try {
+      await service.open({ chatId: 't1', cwd: tmpdir() })
+      await new Promise((r) => setTimeout(r, 10))
+      await service.open({ chatId: 't2', cwd: tmpdir() })
+      await new Promise((r) => setTimeout(r, 10))
+      service.touch('t1')
+      await service.sweepEvictions()
+      expect(service.hasProcess('t1')).toBe(true)
+      expect(service.isEvicted('t2')).toBe(true)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('announces an answered extension dialog to every device', async () => {
+    const { service, broadcasts, pool } = makeService()
+    try {
+      await service.open({ chatId: 'u1', cwd: tmpdir() })
+      await service.respondUi({ chatId: 'u1', id: 'dialog-1', confirmed: true })
+      expect(broadcasts).toContainEqual({
+        channel: 'pi-desktop:chat:ui-resolved',
+        payload: { chatId: 'u1', id: 'dialog-1' }
+      })
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
   it('evicts chats not viewed within the idle window', async () => {
     const { service, pool } = makeService({ idleEvictMs: 0 })
     try {

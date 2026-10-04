@@ -38,6 +38,14 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
   (pi on a scratch copy of the session, removed on close) and one-shot asks (the review)
 - `src/main/automations/` - scheduled prompts: a JSON store in userData and one timer aimed
   at the next due run; the renderer starts each run as a background chat
+- `src/main/remote/` - remote control: a WebSocket host paired phones connect to. Requests
+  run the same IPC handlers as the window, through the allowlist in `ipc.ts`
+  (`REMOTE_ALLOWED`); the handshake and frame encryption live in `src/shared/remote/`
+  (see `docs/remote.md`). A channel that opens native UI or reads the sender must stay
+  off the allowlist
+- `mobile/` - Pi Remote, the Android app (Expo / React Native) with its own `package.json`
+  and npm lockfile; it imports the pure modules in `src/shared/` and
+  `src/renderer/src/lib/`, so keep those free of DOM and Node APIs
 - `scripts/` - helper build scripts and the `energy.mjs` / `perf.mjs` harnesses
 - `test/e2e/` - Playwright-driven Electron tests; `test/fixtures/fake-pi.mjs` is a scripted,
   synthetic stand-in for `pi --mode rpc`; `fake-gh.mjs` stands in for the GitHub CLI

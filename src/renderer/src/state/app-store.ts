@@ -29,10 +29,11 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   notifications: { enabled: true },
   onboarding: {},
   updates: { check: true },
-  dictation: { autoStop: false }
+  dictation: { autoStop: false },
+  remote: { enabled: false }
 }
 
-export type SettingsSection = 'general' | 'computer' | 'runtime' | 'usage' | 'data' | 'about'
+export type SettingsSection = 'general' | 'computer' | 'remote' | 'runtime' | 'usage' | 'data' | 'about'
 
 interface AppState {
   ready: boolean

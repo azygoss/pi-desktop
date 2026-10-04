@@ -197,6 +197,41 @@ export interface AppSettings {
   updates: { check: boolean; dismissedVersion?: string }
   /** Dictation: speech locale (BCP-47) and silence auto-stop. */
   dictation: { locale?: string; autoStop: boolean }
+  /** Remote control: whether paired phones may connect. */
+  remote: { enabled: boolean }
+}
+
+/** A phone paired for remote control. */
+export interface RemoteDeviceInfo {
+  id: string
+  name: string
+  platform: string
+  pairedAt: number
+  lastSeenAt?: number
+  connected: boolean
+}
+
+/** State of the remote-control host, for Settings → Remote control. */
+export interface RemoteStatusInfo {
+  running: boolean
+  port: number | null
+  /** Addresses a phone can reach this computer at. */
+  addresses: string[]
+  devices: RemoteDeviceInfo[]
+  /** When the pairing code on screen stops working, or null. */
+  pairingExpiresAt: number | null
+  error?: string
+}
+
+/** A one-time pairing code, as a QR module matrix. */
+export interface RemotePairingCode {
+  /** The link the QR code encodes (also accepted pasted into the phone). */
+  payload: string
+  expiresAt: number
+  /** Modules per side. */
+  size: number
+  /** Row-major modules, 1 = dark. */
+  modules: number[]
 }
 
 /** A newer release found by the update check. */
@@ -707,6 +742,8 @@ export interface PiDesktopApi {
     /** Live catalog/state once a chat's pi process answered. */
     onReady(callback: (payload: ChatReadyPayload) => void): () => void
     onUiRequest(callback: (payload: ChatUiRequestPayload) => void): () => void
+    /** A dialog was answered elsewhere (a paired phone, another window). */
+    onUiResolved(callback: (payload: { chatId: string; id: string }) => void): () => void
     onExit(callback: (payload: ChatExitPayload) => void): () => void
     onStartupHint(callback: (payload: ChatStartupHintPayload) => void): () => void
   }
@@ -752,6 +789,16 @@ export interface PiDesktopApi {
     status(input: { cwd: string }): Promise<PrStatus>
     /** Tail of the failed jobs' log for a GitHub Actions run. */
     failedLog(input: { cwd: string; runId: string }): Promise<string>
+  }
+  /** Remote control: the host paired phones connect to. */
+  remote: {
+    status(): Promise<RemoteStatusInfo>
+    /** Show a fresh one-time pairing code (turns remote control on first). */
+    beginPairing(): Promise<RemotePairingCode>
+    cancelPairing(): Promise<void>
+    /** Forget a phone and disconnect it. */
+    revoke(input: { deviceId: string }): Promise<void>
+    onChanged(callback: (status: RemoteStatusInfo) => void): () => void
   }
   /** Last-known pi catalog for instant composer/palette rendering. */
   catalog: {
