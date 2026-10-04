@@ -104,7 +104,7 @@ is why a VPN is the better default.
 
 ## Where things live
 
-- `~/.config/pi-remote/` (or `--data-dir`): the host's key and paired phones
+- `~/.config/pi-remote-host/` (or `--data-dir`): the host's key and paired phones
   (`remote.json`, readable only by you — on a server there is no OS keychain
   to encrypt it with), app settings, automations, the scratch folder for
   chats without a project (`workspace/`) and the control socket

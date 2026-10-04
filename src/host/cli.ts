@@ -39,7 +39,7 @@ Options for start and service:
   --pair             Show a pairing code at start even when phones are paired
 
 Global options:
-  --data-dir <dir>   Host key and paired phones (default ~/.config/pi-remote)
+  --data-dir <dir>   Host key and paired phones (default ~/.config/pi-remote-host)
   -h, --help         Show this help
   -v, --version      Show the version
 
@@ -66,7 +66,9 @@ function parseArgs(argv: string[]): Args {
     positional: [],
     hosts: [],
     pair: false,
-    dataDir: process.env['PI_REMOTE_DATA_DIR'] || join(homedir(), '.config', 'pi-remote')
+    dataDir:
+      process.env['PI_REMOTE_DATA_DIR'] ||
+      join(process.env['XDG_CONFIG_HOME'] || join(homedir(), '.config'), 'pi-remote-host')
   }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!

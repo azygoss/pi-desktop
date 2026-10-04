@@ -12,7 +12,7 @@ import { moveToTrash } from './trash'
  */
 
 function hostDataDir(): string {
-  return process.env['PI_DESKTOP_USER_DATA_DIR'] || join(homedir(), '.config', 'pi-remote')
+  return process.env['PI_DESKTOP_USER_DATA_DIR'] || join(homedir(), '.config', 'pi-remote-host')
 }
 
 function noWindow(): never {
