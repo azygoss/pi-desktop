@@ -78,7 +78,8 @@ const remote = new RemoteServer({
     version: app.getVersion(),
     platform: process.platform,
     homeDir: homedir(),
-    workspaceDir: workspaceDir()
+    workspaceDir: workspaceDir(),
+    tzOffset: new Date().getTimezoneOffset()
   }),
   onChanged: () => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -323,6 +324,7 @@ app.whenReady().then(async () => {
     side,
     remote: {
       apply: (enabled) => (enabled ? remote.start() : remote.stop()),
+      loadDevices: () => remote.loadDevices(),
       status: () => remote.status(),
       beginPairing: () => remote.beginPairing(),
       cancelPairing: () => remote.cancelPairing(),

@@ -11,6 +11,12 @@ interface PiRemoteBackgroundModule {
   notify(tag: string, title: string, body: string, link: string): void
   cancel(tag: string): void
   cancelAlerts(): void
+  /**
+   * The `pidesktop://` link the app was opened with, if it starts with
+   * `prefix`; returned once. Unlike `Linking`, it survives the app's process
+   * being restarted to deliver it.
+   */
+  takeLaunchLink(prefix: string): string | null
 }
 
 /** The headless task the keep-alive service runs (see KeepAliveService.kt). */

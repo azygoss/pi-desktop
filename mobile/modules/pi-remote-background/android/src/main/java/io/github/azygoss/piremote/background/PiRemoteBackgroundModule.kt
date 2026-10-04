@@ -36,5 +36,8 @@ class PiRemoteBackgroundModule : Module() {
     Function("cancel") { tag: String -> Notifications.cancel(context, tag) }
 
     Function("cancelAlerts") { Notifications.cancelAlerts(context) }
+
+    /** The link the app was opened with, if it starts with `prefix` (once). */
+    Function("takeLaunchLink") { prefix: String -> LaunchLink.take(prefix) }
   }
 }

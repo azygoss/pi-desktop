@@ -56,6 +56,8 @@ export interface RemoteServerInfo {
    * finds the computer after its address changed or on another network.
    */
   hosts?: string[]
+  /** The computer's `Date#getTimezoneOffset()`: schedules run in its time. */
+  tzOffset?: number
 }
 
 /** Plaintext handshake, phone → desktop. */

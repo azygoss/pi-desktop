@@ -102,6 +102,12 @@ export class RemoteStore {
       stored = null
     }
     const secret = this.readSecret(stored?.secretKey)
+    if (!secret && stored?.secretKey?.enc === 'safe') {
+      // The identity exists but the keychain will not give it up right now.
+      // Starting over would silently unpair every phone: refuse instead and
+      // leave the file as it is.
+      throw new Error('The remote-control identity could not be unlocked from the keychain')
+    }
     this.keys = secret ? keyPairFromSecret(secret) : generateKeyPair()
     const port = Number(stored?.port)
     this.portValue =
@@ -111,6 +117,20 @@ export class RemoteStore {
     this.loaded = true
     if (!secret) {
       await this.persist()
+    }
+  }
+
+  /** Load only when there is a file: looking at the list creates nothing. */
+  async loadIfPresent(): Promise<void> {
+    if (this.loaded) {
+      return
+    }
+    const present = await readFile(this.filePath, 'utf8').then(
+      () => true,
+      () => false
+    )
+    if (present) {
+      await this.load()
     }
   }
 

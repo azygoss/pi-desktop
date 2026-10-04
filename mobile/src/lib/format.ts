@@ -45,7 +45,8 @@ export function baseName(path: string, homeDir?: string): string {
   if (homeDir && path === homeDir) {
     return '~'
   }
-  const parts = path.split('/').filter(Boolean)
+  // The computer may be a Windows machine: both separators count.
+  const parts = path.split(/[\\/]/).filter(Boolean)
   return parts[parts.length - 1] ?? path
 }
 

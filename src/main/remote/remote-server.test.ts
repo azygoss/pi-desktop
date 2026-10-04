@@ -177,6 +177,47 @@ describe('RemoteServer', () => {
     await expect.poll(() => gone, { timeout: 2000 }).toEqual([deviceId])
   })
 
+  it('does not replace an identity it cannot unlock', async () => {
+    const file = join(dir, 'locked.json')
+    const locked = new RemoteStore(file, {
+      available: () => true,
+      encrypt: (text) => Buffer.from(text),
+      decrypt: (data) => data.toString()
+    })
+    await locked.load()
+    const before = await readFile(file, 'utf8')
+    // Same file, but the keychain is not available this time.
+    const unavailable = new RemoteStore(file, {
+      available: () => false,
+      encrypt: (text) => Buffer.from(text),
+      decrypt: () => {
+        throw new Error('locked')
+      }
+    })
+    await expect(unavailable.load()).rejects.toThrow('could not be unlocked')
+    expect(await readFile(file, 'utf8')).toBe(before)
+  })
+
+  it('lists stored phones without starting the host', async () => {
+    const { phone } = await pairPhone()
+    phone.close()
+    await server.stop()
+    const store = new RemoteStore(join(dir, 'remote.json'))
+    const idle = new RemoteServer({
+      store,
+      invoke: async () => null,
+      forward: { chatEvents: CHAT_EVENTS, channels: new Set() },
+      info: () => ({ name: 'Mac', version: '1', platform: 'darwin', homeDir: '/', workspaceDir: '/' })
+    })
+    expect(idle.status().devices).toHaveLength(0)
+    await idle.loadDevices()
+    expect(idle.status()).toMatchObject({ running: false, devices: [{ name: 'Test phone' }] })
+    // Nothing is created just by looking.
+    const empty = new RemoteStore(join(dir, 'none.json'))
+    await empty.loadIfPresent()
+    await expect(readFile(join(dir, 'none.json'), 'utf8')).rejects.toThrow()
+  })
+
   it('keeps its identity and phones across restarts', async () => {
     const { pairing, identity, phone } = await pairPhone()
     phone.close()

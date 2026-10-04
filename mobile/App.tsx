@@ -9,7 +9,7 @@ import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import * as SystemUI from 'expo-system-ui'
 import { useEffect, useMemo } from 'react'
-import { Linking } from 'react-native'
+import { AppState, Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import type { RootStackParamList } from './src/nav'
@@ -23,7 +23,7 @@ import { PairScreen } from './src/screens/PairScreen'
 import { PrScreen } from './src/screens/PrScreen'
 import { SideChatScreen } from './src/screens/SideChatScreen'
 import { UsageScreen } from './src/screens/UsageScreen'
-import { initBackground, openChatLink } from './src/lib/background'
+import { initBackground, openChatLink, takeLaunchLink } from './src/lib/background'
 import { initChatBridge, setOpenChatHandler, useChats } from './src/state/chats'
 import { useConnection } from './src/state/connection'
 import { initDataBridge } from './src/state/data'
@@ -42,8 +42,21 @@ initDataBridge()
 initChatBridge()
 initBackground()
 
+/** A chat asked for before the navigator was up (a cold start from a notification). */
+let pendingChat: string | null = null
+
 function showChat(chatId: string): void {
   if (navigationRef.isReady()) {
+    navigationRef.navigate('Chat', { chatId })
+  } else {
+    pendingChat = chatId
+  }
+}
+
+function showPendingChat(): void {
+  const chatId = pendingChat
+  pendingChat = null
+  if (chatId && useChats.getState().chats[chatId]) {
     navigationRef.navigate('Chat', { chatId })
   }
 }
@@ -71,11 +84,27 @@ export default function App() {
 
   // A tapped notification opens the app on its chat.
   useEffect(() => {
-    void Linking.getInitialURL()
-      .then((url) => openChatLink(url, showChat))
-      .catch(() => {})
-    const subscription = Linking.addEventListener('url', (event) => openChatLink(event.url, showChat))
-    return () => subscription.remove()
+    // The native side keeps the link when the process was restarted for it
+    // (JS was not listening yet); `Linking` covers the rest.
+    const fromLaunch = (): boolean => openChatLink(takeLaunchLink('pidesktop://chat'), showChat)
+    if (!fromLaunch()) {
+      void Linking.getInitialURL()
+        .then((url) => openChatLink(url, showChat))
+        .catch(() => {})
+    }
+    const subscription = Linking.addEventListener('url', (event) => {
+      takeLaunchLink('pidesktop://chat') // the same link, delivered live
+      openChatLink(event.url, showChat)
+    })
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        fromLaunch()
+      }
+    })
+    return () => {
+      subscription.remove()
+      appState.remove()
+    }
   }, [])
 
   const ready = (fontsLoaded || fontError !== null) && prefsLoaded && phase !== 'loading'
@@ -111,7 +140,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
-      <NavigationContainer ref={navigationRef} theme={navTheme}>
+      <NavigationContainer ref={navigationRef} theme={navTheme} onReady={showPendingChat}>
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
           {paired ? (
             <>

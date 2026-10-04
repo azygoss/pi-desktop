@@ -1,5 +1,5 @@
 import { hostname, networkInterfaces } from 'node:os'
-import { deflateRawSync, inflateRawSync } from 'node:zlib'
+import { deflateRawSync } from 'node:zlib'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 
 import {
@@ -29,7 +29,6 @@ import type { RemoteDevice, RemoteStore } from './remote-store'
 
 /** A request body carries at most a few images. */
 const MAX_FRAME_BYTES = 48 * 1024 * 1024
-const MAX_INFLATED_BYTES = 64 * 1024 * 1024
 const HANDSHAKE_TIMEOUT_MS = 10_000
 const HEARTBEAT_MS = 25_000
 /** A phone this far behind is cut off; it resyncs when it reconnects. */
@@ -129,14 +128,13 @@ function encodeFrame(frame: ServerFrame): Buffer {
 
 function decodeFrame(plain: Uint8Array): ClientFrame | null {
   try {
+    // Phones send plain JSON frames (compression is for the large replies
+    // going the other way), so nothing a phone sends is ever inflated here.
+    if (plain[0] !== FRAME_JSON) {
+      return null
+    }
     const body = Buffer.from(plain.buffer, plain.byteOffset + 1, plain.length - 1)
-    const json =
-      plain[0] === FRAME_DEFLATE
-        ? inflateRawSync(body, { maxOutputLength: MAX_INFLATED_BYTES })
-        : plain[0] === FRAME_JSON
-          ? body
-          : null
-    const frame = json ? (JSON.parse(json.toString('utf8')) as ClientFrame | null) : null
+    const frame = JSON.parse(body.toString('utf8')) as ClientFrame | null
     return frame !== null && typeof frame === 'object' && typeof frame.t === 'string' ? frame : null
   } catch {
     return null
@@ -186,7 +184,13 @@ export class RemoteServer {
     if (this.server) {
       return
     }
-    await this.deps.store.load()
+    try {
+      await this.deps.store.load()
+    } catch (error) {
+      this.lastError = errorText(error)
+      this.deps.onChanged?.()
+      throw error
+    }
     const first = this.deps.store.port
     let lastError: unknown
     for (let i = 0; i < PORT_ATTEMPTS; i++) {
@@ -255,6 +259,11 @@ export class RemoteServer {
       await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()))
     }
     this.deps.onChanged?.()
+  }
+
+  /** Read the stored pairings (if any) so they can be shown with the host off. */
+  loadDevices(): Promise<void> {
+    return this.deps.store.loadIfPresent()
   }
 
   status(): RemoteStatus {

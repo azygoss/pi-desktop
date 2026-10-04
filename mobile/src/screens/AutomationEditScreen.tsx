@@ -88,10 +88,17 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
   const [saving, setSaving] = useState(false)
   const [projectSheet, setProjectSheet] = useState(false)
 
-  const initial = useRef({ name: '', prompt: '' })
+  const initial = useRef<string | null>(null)
   // Back would throw away what was typed here: ask first.
   const leaving = useRef(false)
-  usePreventRemove(name !== initial.current.name || prompt !== initial.current.prompt, ({ data }) => {
+  const draftKey = JSON.stringify([name, prompt, cwd, kind, amount, unit, time, weekdaysOnly, enabled])
+  // The form as first shown (a new one, or the loaded automation once it is in).
+  useEffect(() => {
+    if (state === 'ready' && initial.current === null) {
+      initial.current = draftKey
+    }
+  }, [state, draftKey])
+  usePreventRemove(initial.current !== null && draftKey !== initial.current, ({ data }) => {
     if (leaving.current) {
       navigation.dispatch(data.action)
       return
@@ -123,7 +130,6 @@ export function AutomationEditScreen({ navigation, route }: ScreenProps<'Automat
           setState('error')
           return
         }
-        initial.current = { name: found.name, prompt: found.prompt }
         setName(found.name)
         setPrompt(found.prompt)
         setCwd(found.cwd)

@@ -2,7 +2,7 @@ import { AppRegistry, AppState, PermissionsAndroid, Platform } from 'react-nativ
 
 import { Background, KEEP_ALIVE_TASK } from '../../modules/pi-remote-background'
 import type { ChatEventPayload, ChatUiRequestPayload } from '../desktop'
-import { EVENTS } from '../remote/api'
+import { api, EVENTS } from '../remote/api'
 import { useChats } from '../state/chats'
 import { onOnline, onRemote, onUnpair, setBackgroundLink, useConnection } from '../state/connection'
 import { useData } from '../state/data'
@@ -163,20 +163,24 @@ function sync(): void {
   }
 }
 
+/** Markdown flattened to one short line for a notification body. */
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[#>*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180)
+}
+
 function lastReply(chatId: string): string {
   const messages = useChats.getState().chats[chatId]?.messages ?? []
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!
     if (message.kind === 'assistant') {
-      const text = message.blocks
-        .map((b) => (b.type === 'text' ? b.text : ''))
-        .join(' ')
-        .replace(/```[\s\S]*?```/g, ' ')
-        .replace(/[#>*_`~]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
+      const text = plainText(message.blocks.map((b) => (b.type === 'text' ? b.text : '')).join(' '))
       if (text) {
-        return text.slice(0, 180)
+        return text
       }
     }
   }
@@ -188,6 +192,26 @@ function alert(chatId: string, body: string): void {
     return // on screen, the app says it itself
   }
   Background?.notify(chatId, titleFor(chatId), body, linkFor(chatId))
+}
+
+/**
+ * Say that a chat finished. A chat this phone follows has its reply in the
+ * store; for the rest (started on the computer, or long unopened) the phone
+ * only heard that the run settled, so the reply is asked for.
+ */
+async function announceFinished(chatId: string): Promise<void> {
+  if (!enabled() || AppState.currentState === 'active') {
+    return
+  }
+  const draft = useChats.getState().chats[chatId]
+  let body = draft && !draft.stale ? lastReply(chatId) : ''
+  if (!body) {
+    body = await api.chat
+      .lastAssistantText(chatId)
+      .then((result) => plainText(result.text ?? ''))
+      .catch(() => '')
+  }
+  alert(chatId, body || 'pi finished')
 }
 
 let wired = false
@@ -231,7 +255,7 @@ export function initBackground(): void {
   onRemote<ChatEventPayload>(EVENTS.chatEvent, ({ chatId, events }) => {
     if (events.some((e) => e.type === 'agent_settled')) {
       // A beat later, so the chat store has taken in the final message.
-      setTimeout(() => alert(chatId, lastReply(chatId) || 'pi finished'), 600)
+      setTimeout(() => void announceFinished(chatId), 600)
     }
   })
   onRemote<ChatUiRequestPayload>(EVENTS.chatUiRequest, ({ chatId, request }) => {
@@ -247,6 +271,11 @@ export function initBackground(): void {
   onRemote<{ chatId: string }>(EVENTS.chatUiResolved, ({ chatId }) => {
     Background?.cancel(chatId)
   })
+}
+
+/** The link the app was opened with, kept natively until asked for (once). */
+export function takeLaunchLink(prefix: string): string | null {
+  return Background?.takeLaunchLink(prefix) ?? null
 }
 
 /** A notification's link: `pidesktop://chat?id=…&session=…`. */

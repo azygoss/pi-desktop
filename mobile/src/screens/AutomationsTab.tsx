@@ -8,7 +8,7 @@ import { baseName, relativeTime } from '../lib/format'
 import { openSession } from '../lib/open'
 import type { Nav } from '../nav'
 import { api, errorText, EVENTS } from '../remote/api'
-import { onOnline, onRemote } from '../state/connection'
+import { onOnline, onRemote, useConnection } from '../state/connection'
 import { useData } from '../state/data'
 import { makeStyles, space, TOUCH, useTheme } from '../theme'
 import { Button, confirm, Empty, Mono, Pixel, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
@@ -38,7 +38,16 @@ function runLine(automation: Automation): string {
     const age = relativeTime(automation.lastRunAt)
     last = age === 'now' || age === '' ? 'last run just now' : `last run ${age} ago`
   }
-  return automation.enabled ? `${last} · next ${nextLabel(nextRunAt(automation))}` : last
+  if (!automation.enabled) {
+    return last
+  }
+  // A daily time is the computer's: with the phone in another timezone the
+  // next run worked out here would be off, so only the schedule is shown.
+  const computerOffset = useConnection.getState().server?.tzOffset
+  const sameZone = computerOffset === undefined || computerOffset === new Date().getTimezoneOffset()
+  return automation.schedule.kind === 'interval' || sameZone
+    ? `${last} · next ${nextLabel(nextRunAt(automation))}`
+    : `${last} · computer time`
 }
 
 const useStyles = makeStyles(() => ({

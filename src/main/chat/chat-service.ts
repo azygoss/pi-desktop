@@ -860,19 +860,34 @@ export class ChatService {
   }): Promise<{ text?: string; cancelled?: boolean }> {
     const record = await this.requireReady(validateChatId(input.chatId))
     const entryId = requireString(input.entryId, 'entryId', 256)
-    return (
+    const result =
       (await record.client.request<{ text?: string; cancelled?: boolean }>({
         type: 'fork',
         entryId
       })) ?? {}
-    )
+    await this.followSession(record)
+    return result
+  }
+
+  /**
+   * A fork or clone moves pi onto a new session file. The record must say so:
+   * it is how the window and a paired phone find the chat that owns a session
+   * (and which chat to close before a session file is trashed).
+   */
+  private async followSession(record: ChatRecord): Promise<void> {
+    const state = await record.client
+      .request<{ sessionFile?: string | null }>({ type: 'get_state' }, { timeoutMs: 5000 })
+      .catch(() => undefined)
+    if (state?.sessionFile) {
+      record.sessionPath = state.sessionFile
+    }
   }
 
   async clone(input: { chatId: string }): Promise<{ cancelled?: boolean }> {
     const record = await this.requireReady(validateChatId(input.chatId))
-    return (
-      (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}
-    )
+    const result = (await record.client.request<{ cancelled?: boolean }>({ type: 'clone' })) ?? {}
+    await this.followSession(record)
+    return result
   }
 
   /**

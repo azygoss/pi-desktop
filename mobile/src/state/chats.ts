@@ -494,6 +494,22 @@ async function bringUp(
   if (!current.transcriptApplied && current.sessionPath && (input.live || input.sessionPath)) {
     void applyTranscript(chatId, current.sessionPath, TRANSCRIPT_PAGE).catch(() => {})
   }
+  // A live chat with no session file to read: take its messages from pi.
+  if (input.live && !current.sessionPath && current.messages.length === 0) {
+    void api.chat
+      .refresh(chatId, true)
+      .then((full) => {
+        const joined = drafts.get(chatId)
+        if (joined && joined.messages.length === 0 && full.messages.length > 0) {
+          const view = buildChatViewState(full.messages)
+          joined.messages = view.messages
+          joined.toolRuns = { ...view.toolRuns, ...joined.toolRuns }
+          joined.title = titleOf(view.messages) ?? joined.title
+          publish(chatId)
+        }
+      })
+      .catch(() => {})
+  }
   void refreshStats(chatId)
   // A question pi asked before this phone opened the chat.
   if (input.live) {

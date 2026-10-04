@@ -360,15 +360,30 @@ export async function invokeRemote(
   if (typeof input?.['chatId'] === 'string') {
     remoteTouch?.(input['chatId'])
   }
-  const result = await (handler as unknown as (event: null, input: unknown) => unknown)(null, arg)
   // Side chats are short-lived pi processes: remember whose they are, so
-  // they can be closed if that phone never comes back.
-  if (typeof input?.['sideId'] === 'string') {
-    if (channel === IPC_CHANNELS.sideOpen) {
-      remoteSides.set(input['sideId'], deviceId)
-    } else if (channel === IPC_CHANNELS.sideClose) {
-      remoteSides.delete(input['sideId'])
+  // they can be closed if that phone never comes back. Recorded before the
+  // open (pi can take a while to start), not after it.
+  const sideId = typeof input?.['sideId'] === 'string' ? input['sideId'] : undefined
+  const opensSide = sideId !== undefined && channel === IPC_CHANNELS.sideOpen
+  if (opensSide) {
+    remoteSides.set(sideId, deviceId)
+  }
+  const run = handler as unknown as (event: null, input: unknown) => unknown
+  let result: unknown
+  try {
+    result = await run(null, arg)
+  } catch (error) {
+    if (opensSide) {
+      remoteSides.delete(sideId)
     }
+    throw error
+  }
+  if (opensSide && !remoteSides.has(sideId)) {
+    // The phone was given up on while pi was starting: nobody owns this one.
+    const close = handlers.get(IPC_CHANNELS.sideClose) as typeof run | undefined
+    void Promise.resolve(close?.(null, { sideId })).catch(() => {})
+  } else if (sideId !== undefined && channel === IPC_CHANNELS.sideClose) {
+    remoteSides.delete(sideId)
   }
   if (
     result !== null &&
@@ -425,6 +440,8 @@ export interface IpcDeps {
   remote?: {
     /** Start or stop the host to match the setting. */
     apply(enabled: boolean): Promise<void>
+    /** Read the stored pairings, if there are any, without starting the host. */
+    loadDevices(): Promise<void>
     status(): RemoteStatus
     beginPairing(): { payload: string; expiresAt: number }
     cancelPairing(): void
@@ -500,7 +517,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     devices: [],
     pairingExpiresAt: null
   }
-  handle(IPC_CHANNELS.remoteStatus, () => deps.remote?.status() ?? remoteOff)
+  handle(IPC_CHANNELS.remoteStatus, async () => {
+    // Paired phones are listed (and can be removed) while the host is off.
+    await deps.remote?.loadDevices().catch(() => {})
+    return deps.remote?.status() ?? remoteOff
+  })
   handle(IPC_CHANNELS.remoteBeginPairing, async () => {
     if (!deps.remote) {
       throw new Error('Remote control is not available')
@@ -519,6 +540,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (typeof input?.deviceId !== 'string' || input.deviceId.length > 64) {
       throw new Error('Invalid device')
     }
+    await deps.remote?.loadDevices().catch(() => {})
     await deps.remote?.revoke(input.deviceId)
   })
   handle(REMOTE_CHANNELS.liveChats, () => deps.chat.listLive())
@@ -675,10 +697,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (!automation) {
       throw new Error('Unknown automation')
     }
-    if (deps.automations?.trigger(automation)) {
-      await markAutomationRun(automation.id, Date.now())
-      automationsChanged()
+    // Runs are hosted by a window (the chat starts in its renderer).
+    if (!deps.automations?.trigger(automation)) {
+      throw new Error('Open a Pi Desktop window on the computer to run automations')
     }
+    await markAutomationRun(automation.id, Date.now())
+    automationsChanged()
   })
   handle(
     IPC_CHANNELS.automationsSetSession,

@@ -6,6 +6,7 @@ import { BackHandler, Linking, ScrollView, StyleSheet, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { parsePairingPayload } from '../desktop'
+import { takeLaunchLink } from '../lib/background'
 import { errorText } from '../remote/api'
 import { useConnection } from '../state/connection'
 import { radius, space, useTheme } from '../theme'
@@ -86,7 +87,11 @@ export function PairScreen() {
       }
     }
     // The launch link is only news once: after an unpair it is long spent.
-    if (!initialUrlSeen) {
+    const kept = takeLaunchLink('pidesktop://pair')
+    if (kept) {
+      initialUrlSeen = true
+      open(kept)
+    } else if (!initialUrlSeen) {
       initialUrlSeen = true
       void Linking.getInitialURL().then(open).catch(() => {})
     }
