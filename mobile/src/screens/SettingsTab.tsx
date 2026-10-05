@@ -29,7 +29,7 @@ import { TextSheet } from '../chat/sheets'
 import { errorText } from '../remote/api'
 import { disableNotifications, enableNotifications, notificationsSupported } from '../lib/background'
 
-const APP_VERSION = '0.1.1'
+const APP_VERSION = '0.2.0'
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1 },

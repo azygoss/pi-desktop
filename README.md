@@ -92,6 +92,9 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   over your network, end-to-end encrypted, with no account or relay
   ([how it works](docs/remote.md)). On a server, `pi-remote` hosts the same
   link without the desktop app ([pi-remote](docs/pi-remote.md)).
+- **Images for you** — pi's `show_image` tool puts an image file (a
+  screenshot it saved, a chart it drew) in front of you in the chat, on the
+  desktop and on the phone; screenshots stay visible under folded steps.
 - **Notifications** — a native notification and dock badge when a run
   finishes or pi needs your input while you are elsewhere.
 - **Runtime flexibility** — uses your installed `pi`, the bundled pinned
