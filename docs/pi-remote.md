@@ -62,6 +62,9 @@ Other commands:
 ```bash
 pi-remote status            # addresses, port and paired phones
 pi-remote revoke <phone>    # remove a phone by name or id; it is cut off at once
+pi-remote doctor            # check Node, pi, the host, the service and the firewall
+pi-remote logs -f           # follow the service's log
+pi-remote update            # install the newest release and restart the service
 pi-remote --help
 ```
 
@@ -78,8 +81,8 @@ sudo loginctl enable-linger "$USER"   # keep it running after you log out
 pi-remote pair
 ```
 
-Logs: `journalctl --user -u pi-remote -f`. `pi-remote service` (without
-`install`) only prints the unit, for other setups.
+Logs: `pi-remote logs -f`. `pi-remote service` (without `install`) only
+prints the unit, for other setups; `pi-remote service uninstall` removes it.
 
 The service runs pi with the PATH you had when you installed it, so pi, git
 and gh are found the same way as in your shell.

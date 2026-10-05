@@ -57,7 +57,10 @@ const fileExists = (path: string): Promise<boolean> =>
  */
 function hostExtensionPath(): string {
   const here = dirname(fileURLToPath(import.meta.url))
-  for (const base of [join(here, 'pi-extension'), join(here, '..', '..', 'resources', 'pi-extension')]) {
+  for (const base of [
+    join(here, 'pi-extension'),
+    join(here, '..', '..', 'resources', 'pi-extension')
+  ]) {
     const file = join(base, 'pi-desktop-browser', 'index.js')
     if (existsSync(file)) {
       return file

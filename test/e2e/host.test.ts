@@ -200,6 +200,14 @@ describe('pi-remote host', () => {
     expect(automation?.lastRunAt).toBeGreaterThan(0)
   })
 
+  it('checks its own setup with doctor', async () => {
+    const result = await run(process.execPath, [CLI, 'doctor', '--data-dir', dataDir], { env })
+    expect(result.stdout).toContain(`✓ Host running on port ${port}`)
+    expect(result.stdout).toContain('✓ Phones connect to 127.0.0.1')
+    expect(result.stdout).toContain('1 paired phone (1 connected)')
+    expect(result.stdout).not.toContain('✗')
+  })
+
   it('removes the phone from the command line', async () => {
     const cli = await run(process.execPath, [CLI, 'revoke', 'Test phone', '--data-dir', dataDir], {
       env
