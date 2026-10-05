@@ -24,8 +24,10 @@ import {
   type GitActionResult,
   type PatchLine,
   type RepoDiffResult,
+  type Model,
   type ReviewComment
 } from '../desktop'
+import { ReviewSheet } from '../chat/sheets'
 import type { ScreenProps } from '../nav'
 import { api, errorText } from '../remote/api'
 import { useChats } from '../state/chats'
@@ -331,6 +333,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState<'commit' | 'push' | null>(null)
   const [reviewing, setReviewing] = useState(false)
+  const [reviewMenu, setReviewMenu] = useState(false)
 
   const mounted = useRef(true)
   const request = useRef(0)
@@ -600,12 +603,12 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     void gitAction('push', () => api.diff.push(cwd))
   }
 
-  const review = async (): Promise<void> => {
+  // With the chat's model or another one picked in the Review sheet.
+  const review = async (picked: Model | null): Promise<void> => {
     if (reviewing) {
       return
     }
-    const chat = chatId ? useChats.getState().chats[chatId] : undefined
-    const model = chat?.model ? { provider: chat.model.provider, modelId: chat.model.id } : undefined
+    const model = picked ? { provider: picked.provider, modelId: picked.id } : undefined
     setReviewing(true)
     try {
       const remarks = await api.diff.review(cwd, model)
@@ -660,6 +663,20 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       if (mounted.current) {
         setReviewing(false)
       }
+    }
+  }
+
+  // Choose the model first when the chat has others to offer.
+  const startReview = (): void => {
+    const chat = chatId ? useChats.getState().chats[chatId] : undefined
+    const current = chat?.model ?? null
+    const others = (chat?.models ?? []).filter(
+      (m) => !(current && m.provider === current.provider && m.id === current.id)
+    )
+    if (others.length > 0) {
+      setReviewMenu(true)
+    } else {
+      void review(current)
     }
   }
 
@@ -778,7 +795,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
                     </Txt>
                   </View>
                 ) : (
-                  <Button title="Review" kind="ghost" icon={ScanSearch} onPress={() => void review()} />
+                  <Button title="Review" kind="ghost" icon={ScanSearch} onPress={startReview} />
                 )}
               </View>
             ) : null}
@@ -858,6 +875,14 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
         ) : null}
       </Sheet>
 
+      {chatId ? (
+        <ReviewSheet
+          chatId={chatId}
+          visible={reviewMenu}
+          onClose={() => setReviewMenu(false)}
+          onPick={(model) => void review(model)}
+        />
+      ) : null}
       <Sheet visible={target !== null} onClose={() => setTarget(null)} title="Comment on this line">
         {target ? (
           <View style={styles.sheetBody}>

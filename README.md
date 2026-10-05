@@ -54,7 +54,9 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   toggles the panel, ⌃\` a terminal, ⌘L the address bar.
 - **Review and ship from the diff** — comment on any diff line and hand the
   comments to pi as one prompt; "Review" has pi read the changes in a
-  separate process and pin its remarks to the lines; discard a file's
+  separate process, with the chat's model or any other one you pick (a
+  second model checking the first one's work), and pin its remarks to the
+  lines; discard a file's
   changes (untracked files go to the Trash); commit everything and push
   without leaving the app.
 - **Checkpoints** — in a git project the files are snapshotted before every

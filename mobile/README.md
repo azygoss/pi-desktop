@@ -52,7 +52,8 @@ computer in the app's settings.
 - **Files** — open files of the project from replies or steps, with syntax
   highlighting; images show as images. `localhost` links open at the
   computer's address.
-- **Changes** — the working-tree diff with line comments, a review pass by pi,
+- **Changes** — the working-tree diff with line comments, a review pass by pi
+  with the chat's model or another one,
   discard, commit and push; the branch's pull request with its checks, also
   in the chat's header, which says when they finish.
 - **Computer use** — turn it on or off for the Mac from the composer's menu;

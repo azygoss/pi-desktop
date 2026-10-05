@@ -28,8 +28,10 @@ import {
 import { TextSheet } from '../chat/sheets'
 import { errorText } from '../remote/api'
 import { disableNotifications, enableNotifications, notificationsSupported } from '../lib/background'
+import packageJson from '../../package.json'
 
-const APP_VERSION = '0.2.0'
+// From package.json so the readout follows every release bump.
+const APP_VERSION = packageJson.version
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1 },

@@ -1382,16 +1382,28 @@ describe('Pi Desktop e2e', () => {
     await page.locator('.panel-tab', { hasText: 'Diff' }).click()
     const panel = page.locator('.panel-tab-content.is-active')
     await visible(page, '.panel-tab-content.is-active [data-testid="review-diff"]', 10_000)
+    // Review asks which model: the chat's own, or another one.
     await panel.locator('[data-testid="review-diff"]').click()
+    const menu = panel.locator('[data-testid="review-popover"]')
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+    expect(await menu.locator('[data-testid="review-current-model"]').textContent()).toContain(
+      'this chat'
+    )
+    const other = menu.locator('.model-list:not(.review-current) .model-row').first()
+    const otherName = ((await other.locator('.model-row-name').textContent()) ?? '').trim()
+    await other.click()
     await visible(page, '.panel-tab-content.is-active .diff-comment-pi', 30_000)
     const remark = panel.locator('.diff-comment-pi').first()
-    expect(await remark.textContent()).toContain('Synthetic review remark.')
+    // The fake pi signs its remark with the model it ran as.
+    expect(await remark.textContent()).toContain(
+      `Synthetic review remark by ${otherName.toLowerCase().replace(/ /g, '-')}.`
+    )
     // pi's remarks travel with yours when they are sent to the composer.
     await panel.locator('[data-testid="send-comments"]').click()
     const composer = page.locator('.composer-input')
     await expect
       .poll(() => composer.inputValue(), { timeout: 5000 })
-      .toContain('Synthetic review remark.')
+      .toContain('Synthetic review remark by')
     expect(await composer.inputValue()).toContain('`notes.txt:1`')
     await composer.fill('')
   })

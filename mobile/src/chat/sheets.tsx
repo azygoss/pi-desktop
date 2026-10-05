@@ -61,6 +61,101 @@ const ModelRow = memo(function ModelRow({
   )
 })
 
+/** Models grouped by provider for a SectionList, filtered by `query`. */
+function modelSections(models: Model[] | undefined, query: string, skip?: Model | null) {
+  const needle = query.trim().toLowerCase()
+  const byProvider = new Map<string, Model[]>()
+  for (const model of models ?? []) {
+    if (skip && model.provider === skip.provider && model.id === skip.id) {
+      continue
+    }
+    if (
+      needle &&
+      !model.name.toLowerCase().includes(needle) &&
+      !model.id.toLowerCase().includes(needle) &&
+      !model.provider.toLowerCase().includes(needle)
+    ) {
+      continue
+    }
+    const list = byProvider.get(model.provider)
+    if (list) {
+      list.push(model)
+    } else {
+      byProvider.set(model.provider, [model])
+    }
+  }
+  return [...byProvider.entries()].map(([provider, data]) => ({
+    title: providerLabel(provider),
+    data
+  }))
+}
+
+/**
+ * What to review the changes with: the chat's own model, or any other one pi
+ * offers (a second model looking over the first one's work).
+ */
+export function ReviewSheet({
+  chatId,
+  visible,
+  onClose,
+  onPick
+}: {
+  chatId: string
+  visible: boolean
+  onClose(): void
+  onPick(model: Model | null): void
+}) {
+  const theme = useTheme()
+  const models = useChats((s) => s.chats[chatId]?.models)
+  const current = useChats((s) => s.chats[chatId]?.model ?? null)
+  const [query, setQuery] = useState('')
+  const sections = useMemo(() => modelSections(models, query, current), [models, query, current])
+  const pick = (model: Model | null): void => {
+    onClose()
+    setQuery('')
+    onPick(model)
+  }
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Review with" scroll={false}>
+      {current ? (
+        <>
+          <SectionLabel style={{ paddingHorizontal: space.lg }}>This chat&apos;s model</SectionLabel>
+          <ModelRow model={current} selected onPick={() => pick(current)} />
+          <Divider />
+        </>
+      ) : null}
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm }}>
+        <SectionLabel>Another model</SectionLabel>
+        {(models?.length ?? 0) > 10 ? (
+          <Field
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search models"
+            accessibilityLabel="Search models"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+        ) : null}
+      </View>
+      <SectionList
+        style={{ maxHeight: 360 }}
+        sections={sections}
+        keyExtractor={(model) => `${model.provider}/${model.id}`}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={14}
+        renderSectionHeader={({ section }) => (
+          <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, backgroundColor: theme.raised }}>
+            <SectionLabel>{section.title}</SectionLabel>
+          </View>
+        )}
+        renderItem={({ item }) => <ModelRow model={item} selected={false} onPick={pick} />}
+        ListEmptyComponent={<Empty title={query.trim() ? 'No model matches' : 'No other models'} />}
+      />
+    </Sheet>
+  )
+}
+
 /** Pick the chat's model (grouped by provider) and its thinking effort. */
 export function ModelSheet({
   chatId,
@@ -78,30 +173,7 @@ export function ModelSheet({
   const levels = useChats((s) => s.chats[chatId]?.availableThinkingLevels)
   const [query, setQuery] = useState('')
 
-  const sections = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const byProvider = new Map<string, Model[]>()
-    for (const model of models ?? []) {
-      if (
-        needle &&
-        !model.name.toLowerCase().includes(needle) &&
-        !model.id.toLowerCase().includes(needle) &&
-        !model.provider.toLowerCase().includes(needle)
-      ) {
-        continue
-      }
-      const list = byProvider.get(model.provider)
-      if (list) {
-        list.push(model)
-      } else {
-        byProvider.set(model.provider, [model])
-      }
-    }
-    return [...byProvider.entries()].map(([provider, data]) => ({
-      title: providerLabel(provider),
-      data
-    }))
-  }, [models, query])
+  const sections = useMemo(() => modelSections(models, query), [models, query])
 
   const pick = (model: Model): void => {
     onClose()
