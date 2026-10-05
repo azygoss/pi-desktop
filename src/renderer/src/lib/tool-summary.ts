@@ -6,6 +6,7 @@ export type ToolCategory =
   | 'search'
   | 'browser'
   | 'computer'
+  | 'image'
   | 'other'
 
 export function toolCategory(name: string): ToolCategory {
@@ -16,7 +17,11 @@ export function toolCategory(name: string): ToolCategory {
   if (n.startsWith('computer_')) {
     return 'computer'
   }
-  if (/^(bash|sh|shell|exec|run|terminal)/.test(n)) {
+  if (n === 'show_image') {
+    return 'image'
+  }
+  // Whole words: "sh" must not catch show_image, "run" not runtime_info.
+  if (/^(bash|sh|shell|exec|execute|run|terminal)($|[_\W])/.test(n)) {
     return 'run'
   }
   if (/^(edit|patch|str_replace|insert|apply)/.test(n)) {
@@ -156,6 +161,8 @@ export function summarizeToolRuns(
         return `used the browser${n > 1 ? ` (${n} actions)` : ''}`
       case 'computer':
         return `used the computer${n > 1 ? ` (${n} actions)` : ''}`
+      case 'image':
+        return `showed ${n === 1 ? 'an image' : `${n} images`}`
       default:
         return `used ${n} other ${plural('tool')}`
     }

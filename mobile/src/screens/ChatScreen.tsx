@@ -548,11 +548,16 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
                 </>
               ) : null}
               {repo && repo.files > 0 ? (
-                <>
-                  {' · '}
-                  <Mono size={12} tone="success">{`+${repo.added}`}</Mono>{' '}
-                  <Mono size={12} tone="danger">{`−${repo.removed}`}</Mono>
-                </>
+                repo.added + repo.removed > 0 ? (
+                  <>
+                    {' · '}
+                    <Mono size={12} tone="success">{`+${repo.added}`}</Mono>{' '}
+                    <Mono size={12} tone="danger">{`−${repo.removed}`}</Mono>
+                  </>
+                ) : (
+                  // New or binary files only: no lines to count.
+                  ` · ${repo.files} ${repo.files === 1 ? 'file' : 'files'}`
+                )
               ) : null}
             </Mono>
           )}

@@ -5,6 +5,7 @@ import {
   FilePlus,
   FileText,
   Globe,
+  ImageIcon,
   Lightbulb,
   ListTree,
   MousePointer2,
@@ -54,6 +55,7 @@ const ICONS: Record<ToolCategory, LucideIcon> = {
   search: Search,
   browser: Globe,
   computer: MousePointer2,
+  image: ImageIcon,
   other: Wrench
 }
 

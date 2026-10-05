@@ -319,9 +319,7 @@ async function scriptedShowImage(promptMessage) {
   }
   writeLine({ type: 'message_start', message: { ...callMessage, content: [] } })
   writeLine({ type: 'message_end', message: callMessage })
-  const { showImage } = await import(
-    new URL('../../resources/pi-extension/pi-desktop-browser/show-image.js', import.meta.url).href
-  )
+  const { showImage } = await import('../../resources/pi-extension/pi-desktop-browser/show-image.js')
   writeLine({ type: 'tool_execution_start', toolCallId: toolCall.id, toolName: 'show_image', args: toolCall.arguments })
   let content
   let isError = false

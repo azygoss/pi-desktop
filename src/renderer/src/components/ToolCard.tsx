@@ -1,4 +1,5 @@
 import {
+  Image as ImageIcon,
   Check,
   ChevronRight,
   Copy,
@@ -63,6 +64,9 @@ function toolIcon(name: string): ReactNode {
   }
   if (n.startsWith('computer_')) {
     return <MousePointerClick size={12} />
+  }
+  if (n === 'show_image') {
+    return <ImageIcon size={12} />
   }
   switch (toolKind(name)) {
     case 'bash':
