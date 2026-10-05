@@ -760,8 +760,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
   // Branches of a project's repository. A switch or a new branch is
   // announced so every window and phone rereads its branch.
-  handle(IPC_CHANNELS.gitBranches, async (_e, input: { cwd: unknown }) =>
-    listBranches(await validateCwd(input?.cwd), worktreesDir())
+  handle(IPC_CHANNELS.gitBranches, async (_e, input: { cwd: unknown; query?: unknown }) =>
+    listBranches(await validateCwd(input?.cwd), worktreesDir(), input?.query)
   )
   // Every chat in a checkout shares its branch: none may be at work there.
   const assertIdleCheckout = async (cwd: string): Promise<void> => {

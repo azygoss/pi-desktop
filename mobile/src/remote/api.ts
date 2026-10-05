@@ -83,7 +83,8 @@ export const api = {
   },
   /** A project repository's branches and worktrees. */
   git: {
-    branches: (cwd: string) => request<RepoBranches>('pi-desktop:git:branches', { cwd }, 60_000),
+    branches: (cwd: string, query?: string) =>
+      request<RepoBranches>('pi-desktop:git:branches', { cwd, ...(query ? { query } : {}) }, 60_000),
     switchBranch: (cwd: string, branch: string) =>
       request<GitActionResult>('pi-desktop:git:switch', { cwd, branch }, 60_000),
     createBranch: (cwd: string, name: string) =>

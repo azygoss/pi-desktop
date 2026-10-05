@@ -56,6 +56,8 @@ export interface RepoBranches {
   /** Remote branches without a local branch of the same name. */
   remotes: RemoteBranch[]
   worktrees: WorktreeEntry[]
+  /** More branches matched than were sent: narrow the search to see the rest. */
+  truncated: boolean
 }
 
 /** What a new worktree checks out. */

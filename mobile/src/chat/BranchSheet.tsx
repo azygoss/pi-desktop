@@ -47,13 +47,21 @@ export function BranchSheet({
   const [query, setQuery] = useState('')
   const [working, setWorking] = useState(false)
 
+  // The typed name also searches on the computer (debounced): the list it
+  // sends is capped, the search covers every branch.
+  const [search, setSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(query.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
   useEffect(() => {
     if (!visible) {
       return
     }
     let live = true
     const load = () =>
-      api.git.branches(cwd).then(
+      api.git.branches(cwd, search || undefined).then(
         (next) => {
           if (live) {
             setData(next)
@@ -68,7 +76,7 @@ export function BranchSheet({
       live = false
       off()
     }
-  }, [visible, cwd])
+  }, [visible, cwd, search])
 
   const sections = useMemo(() => {
     if (!data) {
@@ -110,7 +118,8 @@ export function BranchSheet({
       }))
     const typed = query.trim()
     const exists =
-      data.branches.some((b) => b.name === typed) || data.remotes.some((r) => r.branch === typed)
+      data.branches.some((b) => b.name === typed) ||
+      data.remotes.some((r) => r.name === typed || r.branch === typed)
     const create: Row[] =
       typed && !exists
         ? [
@@ -234,6 +243,11 @@ export function BranchSheet({
           <Txt size="small" tone="muted">
             {data.changes} changed {data.changes === 1 ? 'file comes' : 'files come'} along on a switch; git
             refuses if they would be overwritten.
+          </Txt>
+        ) : null}
+        {data?.truncated ? (
+          <Txt size="small" tone="muted">
+            Showing the newest branches: type to search them all.
           </Txt>
         ) : null}
         {busy ? (

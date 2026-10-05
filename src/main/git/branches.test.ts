@@ -38,6 +38,14 @@ describe('branches', () => {
       ['feature', false, wt.cwd]
     ])
     expect(info.remotes.map((r) => r.name)).toEqual(['origin/remote-only'])
+    expect(info.truncated).toBe(false)
+    // A search covers every branch by name; the current one always stays.
+    const found = await listBranches(dir, base, 'FEAT')
+    expect(found.branches.map((b) => b.name)).toEqual(['main', 'feature'])
+    expect((await listBranches(dir, base, 'remote-only')).remotes.map((r) => r.name)).toEqual([
+      'origin/remote-only'
+    ])
+    expect((await listBranches(dir, base, 'nothing')).branches.map((b) => b.name)).toEqual(['main'])
     expect(info.worktrees.map((w) => [w.path, w.branch, w.main, w.app, w.current])).toEqual([
       [dir, 'main', true, false, true],
       [wt.cwd, 'feature', false, true, false]

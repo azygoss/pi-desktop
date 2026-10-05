@@ -654,7 +654,8 @@ export interface PiDesktopApi {
   }
   /** A project repository's branches and worktrees. */
   git: {
-    branches(input: { cwd: string }): Promise<RepoBranches>
+    /** `query` searches every branch by name (the list is capped otherwise). */
+    branches(input: { cwd: string; query?: string }): Promise<RepoBranches>
     /** Check out a branch here (a remote "origin/x" gets a tracking branch). */
     switchBranch(input: { cwd: string; branch: string }): Promise<GitActionResult>
     /** Create a branch from `from` (HEAD by default); switches to it unless `switch` is false. */

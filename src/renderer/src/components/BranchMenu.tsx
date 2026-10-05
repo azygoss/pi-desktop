@@ -66,6 +66,14 @@ export function BranchMenu({
   const rootRef = useRef<HTMLDivElement>(null)
   const placement = usePopoverPlacement(rootRef, open, PLACEMENT)
 
+  // The typed name also searches on the computer (debounced): the list it
+  // sends is capped, the search covers every branch.
+  const [search, setSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(query.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [query])
+
   useEffect(() => {
     if (!open) {
       return
@@ -73,7 +81,7 @@ export function BranchMenu({
     let live = true
     const load = () =>
       window.piDesktop.git
-        .branches({ cwd })
+        .branches({ cwd, ...(search ? { query: search } : {}) })
         .then((next) => {
           if (live) {
             setData(next)
@@ -94,7 +102,7 @@ export function BranchMenu({
       off()
       document.removeEventListener('pointerdown', onPointerDown)
     }
-  }, [open, cwd])
+  }, [open, cwd, search])
 
   const rows = useMemo<Row[]>(() => {
     if (!data) {
@@ -135,7 +143,8 @@ export function BranchMenu({
     }
     const typed = query.trim()
     const exists =
-      data.branches.some((b) => b.name === typed) || data.remotes.some((r) => r.branch === typed)
+      data.branches.some((b) => b.name === typed) ||
+      data.remotes.some((r) => r.name === typed || r.branch === typed)
     if (typed && !exists) {
       out.push({ kind: 'create-branch', name: typed })
       out.push({ kind: 'create-worktree', name: typed })
@@ -280,6 +289,9 @@ export function BranchMenu({
               {data.changes} changed {data.changes === 1 ? 'file comes' : 'files come'} along on a
               switch (git refuses if they would be overwritten)
             </div>
+          )}
+          {data?.truncated && (
+            <div className="branch-note">Showing the newest branches: type to search them all</div>
           )}
           {busy && <div className="branch-note">pi is working here: switching waits until it is done</div>}
           <div className="model-list">

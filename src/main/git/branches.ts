@@ -100,24 +100,39 @@ async function hasRef(cwd: string, ref: string): Promise<boolean> {
   return (await git(cwd, ['show-ref', '--verify', '--quiet', ref])).ok
 }
 
-/** The repository's branches, remote branches and worktrees, seen from `cwd`. */
-export async function listBranches(cwd: string, worktreesBase: string): Promise<RepoBranches> {
+/**
+ * The repository's branches, remote branches and worktrees, seen from
+ * `cwd`. With `query`, every branch is searched (by name, case-insensitive)
+ * before the newest MAX_BRANCHES are kept, so an old branch can always be
+ * found.
+ */
+export async function listBranches(
+  cwd: string,
+  worktreesBase: string,
+  query?: unknown
+): Promise<RepoBranches> {
   const root = await topLevel(cwd)
+  const needle = typeof query === 'string' ? query.trim().toLowerCase().slice(0, 200) : ''
   const [current, status, local, remote, worktrees] = await Promise.all([
     git(root, ['branch', '--show-current']),
     git(root, ['status', '--porcelain']),
-    git(root, ['for-each-ref', `--count=${MAX_BRANCHES}`, '--sort=-committerdate', `--format=${LOCAL_FORMAT}`, 'refs/heads']),
-    git(root, ['for-each-ref', `--count=${MAX_BRANCHES}`, '--sort=-committerdate', `--format=${REMOTE_FORMAT}`, 'refs/remotes']),
+    git(root, ['for-each-ref', '--sort=-committerdate', `--format=${LOCAL_FORMAT}`, 'refs/heads']),
+    git(root, ['for-each-ref', '--sort=-committerdate', `--format=${REMOTE_FORMAT}`, 'refs/remotes']),
     git(root, ['worktree', 'list', '--porcelain'])
   ])
-  const branches = parseLocalBranches(local.out, root)
+  const all = parseLocalBranches(local.out, root)
+  const allRemotes = parseRemoteBranches(remote.out, new Set(all.map((b) => b.name)))
+  const hit = (name: string) => !needle || name.toLowerCase().includes(needle)
+  const matching = all.filter((b) => b.current || hit(b.name))
+  const matchingRemotes = allRemotes.filter((r) => hit(r.name))
   return {
     root,
     current: current.out.trim() || null,
     changes: status.out.split('\n').filter((l) => l.trim()).length,
-    branches,
-    remotes: parseRemoteBranches(remote.out, new Set(branches.map((b) => b.name))),
-    worktrees: parseWorktrees(worktrees.out, root, (path) => isAppWorktree(path, worktreesBase))
+    branches: matching.slice(0, MAX_BRANCHES),
+    remotes: matchingRemotes.slice(0, MAX_BRANCHES),
+    worktrees: parseWorktrees(worktrees.out, root, (path) => isAppWorktree(path, worktreesBase)),
+    truncated: matching.length > MAX_BRANCHES || matchingRemotes.length > MAX_BRANCHES
   }
 }
 
