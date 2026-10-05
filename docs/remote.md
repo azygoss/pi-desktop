@@ -73,6 +73,17 @@ in your projects through pi. Treat pairing a phone like handing someone your
 keyboard: pair only your own devices, and remove a lost phone under
 Settings → Remote control.
 
+## Channels only a phone uses
+
+Besides the window's own channels, a few exist for phones
+(`REMOTE_CHANNELS`): the live chats, browsing folders, turning computer use
+on or off (the only app setting a phone may change, announced to the window
+through `pi-desktop:app-settings:changed`), a session as HTML text, a file
+upload (stored under the app's data directory in a folder of its own, never
+in a project; up to 20 MB, removed after 30 days) and a project image as base64. Transcripts page
+backwards with `before`, an index on the active branch, so loading earlier
+messages sends one page.
+
 ## Without the desktop app
 
 `pi-remote` (`src/host/`) is the same host for a server: a Node CLI that

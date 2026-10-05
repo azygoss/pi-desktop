@@ -144,6 +144,28 @@ describe('readSessionTranscript', () => {
     expect(first?.role === 'user' && first.content === 'msg 10').toBe(true)
   })
 
+  it('pages backwards from an index', async () => {
+    const lines: unknown[] = [{ type: 'session', id: 's', cwd: '/x' }]
+    let parent: string | null = null
+    for (let i = 0; i < 60; i++) {
+      lines.push(user(`m${i}`, parent, `msg ${i}`))
+      parent = `m${i}`
+    }
+    const path = await write(lines)
+    const latest = await readSessionTranscript(path, { limit: 25 })
+    expect(latest.startIndex).toBe(35)
+    const page = await readSessionTranscript(path, { limit: 25, before: 35 })
+    expect(page.messages.map((m) => (m.role === 'user' ? m.content : ''))).toEqual(
+      Array.from({ length: 25 }, (_, i) => `msg ${i + 10}`)
+    )
+    expect(page.hasEarlier).toBe(true)
+    expect(page.startIndex).toBe(10)
+    const last = await readSessionTranscript(path, { limit: 25, before: 10 })
+    expect(last.messages).toHaveLength(10)
+    expect(last.hasEarlier).toBe(false)
+    expect((await readSessionTranscript(path, { before: 0 })).messages).toEqual([])
+  })
+
   it('returns empty for a missing file', async () => {
     const result = await readSessionTranscript(join(dir, 'nope.jsonl'))
     expect(result).toEqual({ messages: [], hasEarlier: false, totalMessages: 0 })

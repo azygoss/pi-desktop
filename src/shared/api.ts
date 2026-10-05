@@ -60,6 +60,8 @@ export interface ChatTranscriptResult {
   /** True when the active branch has more messages than were returned. */
   hasEarlier: boolean
   totalMessages: number
+  /** Index of the first returned message on the branch (pass as `before` to page back). */
+  startIndex?: number
 }
 
 /**
@@ -650,6 +652,8 @@ export interface PiDesktopApi {
   appSettings: {
     get(): Promise<AppSettings>
     update(patch: Partial<AppSettings>): Promise<AppSettings>
+    /** Settings changed elsewhere (a paired phone turned computer use on). */
+    onChanged(callback: (settings: AppSettings) => void): () => void
   }
   app: {
     getUserFirstName(): Promise<string>

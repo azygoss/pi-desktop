@@ -15,7 +15,8 @@ and everything between the two is end-to-end encrypted
 Download `Pi-Remote-<version>.apk` from
 [Releases](https://github.com/azygoss/pi-desktop/releases) and open it on the
 phone (Android asks once to allow installing from that source). It needs Pi
-Desktop 0.11.0 or newer on the computer.
+Desktop (or pi-remote) 0.11.0 or newer on the computer; file uploads, chat
+export, image previews, paging and the computer-use switch need 0.12.0.
 
 ## Pairing
 
@@ -24,20 +25,38 @@ Desktop 0.11.0 or newer on the computer.
    phone's own camera, or opening the pairing link, opens the app and pairs
    as well; the link can also be pasted in.
 
-The code works once, for five minutes. Remove a phone under Settings → Remote
-control on the computer, or choose "Unpair this phone" in the app's settings.
+On a server without the desktop app, run [pi-remote](../docs/pi-remote.md)
+and scan the code `pi-remote pair` prints.
+
+The code works once, for five minutes. Pi Remote keeps several computers
+(your Mac, a VPS, a home server): pair more from Settings → Computers or by
+tapping the computer's name at the top, and switch there. Remove a phone on
+the computer (Settings → Remote control, or `pi-remote revoke`), or forget a
+computer in the app's settings.
 
 ## What it does
 
 - **Chats** — every session on the computer, with what is active on top;
   search titles and the text of conversations; pin, archive, rename, delete.
 - **A chat** — streaming replies, thinking, tool steps (shell output, edits as
-  diffs, screenshots), folded work groups, stop / steer / queue, `@` file
-  mentions, `/` commands, `!shell` runs, photos from the library or camera,
-  model and thinking effort, context usage, fork / retry / restore files to
-  before a prompt, compaction, side chat, copy as Markdown.
+  diffs, live elapsed time), folded work groups, stop / steer / queue, `@`
+  file mentions, `/` commands, `!shell` runs, model and thinking effort,
+  context usage, fork / retry / restore files to before a prompt, the
+  session tree, compaction, side chat, copy as Markdown, share as a web page.
+  Older messages load as you scroll up.
+- **Images** — screenshots pi takes and images it shows you (its `show_image`
+  tool) appear in the chat even with the steps folded; open them full screen,
+  at actual size, and share or save them.
+- **Attachments** — photos from the library, the camera or the clipboard, and
+  any file up to 20 MB (kept on the computer for 30 days for pi to read).
+- **Files** — open files of the project from replies or steps, with syntax
+  highlighting; images show as images. `localhost` links open at the
+  computer's address.
 - **Changes** — the working-tree diff with line comments, a review pass by pi,
-  discard, commit and push; the branch's pull request with its checks.
+  discard, commit and push; the branch's pull request with its checks, also
+  in the chat's header, which says when they finish.
+- **Computer use** — turn it on or off for the Mac from the composer's menu;
+  pause or stop it while it runs.
 - **Projects** — start a chat in a project, in a fresh git worktree, in any
   folder on the computer, or without a project.
 - **Automations** — create, edit, enable and run scheduled prompts.
@@ -47,7 +66,7 @@ A chat open on both the computer and the phone is the same chat: both see the
 same stream, and a question answered on one closes on the other.
 
 Not on the phone: the interactive terminal and browser panels, dictation
-(use the keyboard's own), HTML export and the app's settings.
+(use the keyboard's own) and the app's other settings.
 
 ## Notifications
 

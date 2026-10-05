@@ -63,6 +63,10 @@ export interface ChatState extends ChatViewState {
   /** The session file has more messages than are loaded. */
   hasEarlier?: boolean
   transcriptLimit?: number
+  /** Branch index of the oldest loaded message: where "load earlier" continues. */
+  transcriptStart?: number
+  /** Why the conversation could not be read from the session file. */
+  transcriptError?: string
   transcriptApplied?: boolean
   /** A run finished while this chat was not on screen. */
   unread?: boolean
@@ -96,6 +100,8 @@ interface ChatStoreState {
   /** Re-read state and messages from pi (after fork / clone / compact). */
   refresh(chatId: string): Promise<void>
   loadEarlier(chatId: string): Promise<void>
+  /** Read the conversation again after it failed to load. */
+  retryTranscript(chatId: string): void
   forkAtEntry(chatId: string, entryId: string): Promise<string | undefined>
   forkFromUserMessage(chatId: string, userIndex: number): Promise<string | undefined>
   retryFromUserMessage(chatId: string, userIndex: number): Promise<void>
@@ -343,9 +349,22 @@ async function applyTranscript(
   }
   current.hasEarlier = transcript.hasEarlier
   current.transcriptLimit = Math.max(limit, transcript.messages.length)
+  current.transcriptStart = transcript.startIndex
   current.transcriptApplied = true
+  current.transcriptError = undefined
   current.title = sessionTitle(sessionPath) ?? titleOf(view.messages) ?? current.title
   publish(chatId)
+}
+
+/** Read the transcript; a failure is kept on the chat for the screen to offer a retry. */
+function loadTranscript(chatId: string, sessionPath: string, limit: number): void {
+  void applyTranscript(chatId, sessionPath, limit).catch((error: unknown) => {
+    const current = drafts.get(chatId)
+    if (current && !current.transcriptApplied) {
+      current.transcriptError = errorText(error)
+      publish(chatId)
+    }
+  })
 }
 
 /** What the computer says about a chat right now: running, waiting on the user. */
@@ -446,9 +465,7 @@ async function bringUp(
   publish(chatId)
 
   if (input.sessionPath) {
-    void applyTranscript(chatId, input.sessionPath, draft.transcriptLimit ?? TRANSCRIPT_PAGE).catch(
-      () => {}
-    )
+    loadTranscript(chatId, input.sessionPath, draft.transcriptLimit ?? TRANSCRIPT_PAGE)
   }
   // Last-known models and commands, so the composer is usable while pi starts.
   void api.app
@@ -492,7 +509,7 @@ async function bringUp(
   publish(chatId)
   // A chat joined by id alone learns its session file from pi.
   if (!current.transcriptApplied && current.sessionPath && (input.live || input.sessionPath)) {
-    void applyTranscript(chatId, current.sessionPath, TRANSCRIPT_PAGE).catch(() => {})
+    loadTranscript(chatId, current.sessionPath, TRANSCRIPT_PAGE)
   }
   // A live chat with no session file to read: take its messages from pi.
   if (input.live && !current.sessionPath && current.messages.length === 0) {
@@ -842,9 +859,20 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
     current.status = result.state.isStreaming ? 'streaming' : 'idle'
     current.hasEarlier = false
     current.transcriptLimit = undefined
+    current.transcriptStart = undefined
     current.title = titleOf(view.messages) ?? current.title
     publish(chatId)
     void refreshStats(chatId)
+  },
+
+  retryTranscript(chatId) {
+    const draft = drafts.get(chatId)
+    if (!draft?.sessionPath) {
+      return
+    }
+    draft.transcriptError = undefined
+    publish(chatId)
+    loadTranscript(chatId, draft.sessionPath, draft.transcriptLimit ?? TRANSCRIPT_PAGE)
   },
 
   async loadEarlier(chatId) {
@@ -852,6 +880,25 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
     if (!draft?.sessionPath) {
       return
     }
+    const start = draft.transcriptStart
+    if (start !== undefined && start > 0) {
+      // Only the page before what is loaded travels, not the whole history again.
+      const sessionPath = draft.sessionPath
+      const page = await api.chat.transcript(sessionPath, TRANSCRIPT_PAGE * 2, start)
+      const current = drafts.get(chatId)
+      if (!current || current.sessionPath !== sessionPath || current.transcriptStart !== start) {
+        return
+      }
+      const view = buildChatViewState(page.messages)
+      current.messages = [...view.messages, ...current.messages]
+      current.toolRuns = { ...view.toolRuns, ...current.toolRuns }
+      current.hasEarlier = page.hasEarlier
+      current.transcriptStart = page.startIndex ?? 0
+      current.transcriptLimit = (current.transcriptLimit ?? 0) + page.messages.length
+      publish(chatId)
+      return
+    }
+    // A computer that cannot page: a bigger window from the end.
     await applyTranscript(
       chatId,
       draft.sessionPath,

@@ -1,5 +1,5 @@
-import { Clock, FolderGit2, MessagesSquare, Settings, type LucideIcon } from 'lucide-react-native'
-import { useFocusEffect } from '@react-navigation/native'
+import { ChevronsUpDown, Clock, FolderGit2, MessagesSquare, Monitor, Plus, Server, Settings, type LucideIcon } from 'lucide-react-native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { useCallback, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnection } from '../state/connection'
 import { setListsVisible } from '../state/data'
 import { radius, space, useTheme } from '../theme'
-import { Button, Mono, Pixel, Tap, Txt } from '../ui'
+import type { Nav } from '../nav'
+import { Button, Mono, Pixel, Sheet, SheetAction, Tap, Txt } from '../ui'
 import { AutomationsTab } from './AutomationsTab'
 import { ChatsTab } from './ChatsTab'
 import { ProjectsTab } from './ProjectsTab'
@@ -32,6 +33,10 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets()
   const phase = useConnection((s) => s.phase)
   const name = useConnection((s) => s.server?.name ?? s.pairing?.name ?? 'Computer')
+  const computers = useConnection((s) => s.computers)
+  const activeKey = useConnection((s) => s.pairing?.key ?? null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const navigation = useNavigation<Nav>()
   const [tab, setTab] = useState<TabId>('chats')
   const [mounted, setMounted] = useState<Set<TabId>>(() => new Set<TabId>(['chats']))
 
@@ -71,15 +76,47 @@ export function HomeScreen() {
         }}
       >
         <Pixel tone={phase === 'online' ? 'ok' : phase === 'connecting' || phase === 'loading' ? 'working' : 'error'} size={9} />
-        <View style={{ flex: 1 }}>
-          <Txt size="heading" weight="semibold" numberOfLines={1} accessibilityRole="header">
-            {name}
-          </Txt>
+        <Tap
+          style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}
+          label={`${name}, ${phase === 'online' ? 'connected' : phase}. ${computers.length > 1 ? 'Switch computer' : 'Computers'}`}
+          onPress={() => setSwitcherOpen(true)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            <Txt size="heading" weight="semibold" numberOfLines={1} accessibilityRole="header" style={{ flexShrink: 1 }}>
+              {name}
+            </Txt>
+            {computers.length > 1 ? <ChevronsUpDown size={16} color={theme.muted} strokeWidth={1.75} /> : null}
+          </View>
           <Mono size={12} tone="muted">
             {phase === 'online' ? 'connected' : phase === 'offline' ? 'offline' : 'connecting…'}
           </Mono>
-        </View>
+        </Tap>
       </View>
+      <Sheet visible={switcherOpen} onClose={() => setSwitcherOpen(false)} title="Computers">
+        {computers.map((computer) => (
+          <SheetAction
+            key={computer.key}
+            icon={computer.kind === 'server' ? Server : Monitor}
+            title={computer.name}
+            detail={`${computer.kind === 'server' ? 'pi-remote' : 'Pi Desktop'} · ${computer.lastHost ?? computer.hosts[0] ?? ''}`}
+            selected={computer.key === activeKey}
+            onPress={() => {
+              setSwitcherOpen(false)
+              if (computer.key !== activeKey) {
+                void useConnection.getState().switchTo(computer.key)
+              }
+            }}
+          />
+        ))}
+        <SheetAction
+          icon={Plus}
+          title="Pair another computer"
+          onPress={() => {
+            setSwitcherOpen(false)
+            navigation.navigate('AddComputer', {})
+          }}
+        />
+      </Sheet>
       {phase === 'offline' ? (
         <View
           accessibilityRole="alert"

@@ -415,6 +415,8 @@ export function watchSessions(
       if (existsSync(sessionsDir)) {
         clearInterval(poll)
         startWatch()
+        // The first session may already be in it: nothing would report that.
+        notify()
       }
     }, 1000)
     poll.unref?.()

@@ -5,7 +5,8 @@ import {
   computerToolSummary,
   formatKeyChord,
   summarizeToolNames,
-  summarizeToolRuns
+  summarizeToolRuns,
+  toolCategory
 } from './tool-summary'
 
 describe('summarizeToolNames', () => {
@@ -208,5 +209,17 @@ describe('computerGroupApp', () => {
       ])
     ).toBeNull()
     expect(computerGroupApp([])).toBeNull()
+  })
+})
+
+describe('toolCategory word matching', () => {
+  it('keeps show_image out of the shell tools', () => {
+    expect(toolCategory('show_image')).toBe('image')
+    expect(toolCategory('shell')).toBe('run')
+    expect(toolCategory('sh')).toBe('run')
+    expect(toolCategory('run_command')).toBe('run')
+    expect(toolCategory('execute_command')).toBe('run')
+    expect(toolCategory('runtime_info')).toBe('other')
+    expect(summarizeToolRuns([{ name: 'show_image', args: {}, status: 'done' }]).text).toBe('Showed an image')
   })
 })

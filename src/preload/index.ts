@@ -51,7 +51,8 @@ const api: PiDesktopApi = {
   },
   appSettings: {
     get: () => ipcRenderer.invoke('pi-desktop:app-settings:get'),
-    update: (patch) => ipcRenderer.invoke('pi-desktop:app-settings:update', patch)
+    update: (patch) => ipcRenderer.invoke('pi-desktop:app-settings:update', patch),
+    onChanged: subscribe('pi-desktop:app-settings:changed')
   },
   terminal: {
     spawn: (input) => ipcRenderer.invoke('pi-desktop:terminal:spawn', input),

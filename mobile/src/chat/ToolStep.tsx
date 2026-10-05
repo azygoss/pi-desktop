@@ -5,6 +5,7 @@ import {
   FilePlus,
   FileText,
   Globe,
+  ImageIcon,
   Lightbulb,
   ListTree,
   MousePointer2,
@@ -15,7 +16,7 @@ import {
   type LucideIcon
 } from 'lucide-react-native'
 import { memo, useMemo, useState, type ReactNode } from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 
 import {
   MIN_SHOWN_DURATION_MS,
@@ -34,7 +35,7 @@ import {
   type ToolCategory,
   type ToolRun
 } from '../desktop'
-import { useTick } from '../lib/live-clock'
+import { formatElapsed, useTick } from '../lib/live-clock'
 import { fonts, makeStyles, radius, space, TOUCH, useTheme, type Theme } from '../theme'
 import { IconButton, Mono, Tap, toast, Txt } from '../ui'
 
@@ -54,6 +55,7 @@ const ICONS: Record<ToolCategory, LucideIcon> = {
   search: Search,
   browser: Globe,
   computer: MousePointer2,
+  image: ImageIcon,
   other: Wrench
 }
 
@@ -97,12 +99,6 @@ const useStyles = makeStyles((t: Theme) => ({
   added: { backgroundColor: t.successSoft, color: t.text },
   removed: { backgroundColor: t.dangerSoft, color: t.text },
   gap: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 17, color: t.muted, paddingHorizontal: space.sm },
-  shot: {
-    width: '100%',
-    height: 200,
-    borderRadius: radius.sm,
-    backgroundColor: t.codeBg
-  },
   thought: { color: t.text2, fontSize: 14, lineHeight: 21 },
   nested: { marginLeft: space.md, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.border, paddingLeft: space.xs }
 }))
@@ -260,17 +256,14 @@ function ToolDetail({
   call,
   run,
   category,
-  onImage
 }: {
   call: ToolCall
   run: ToolRun | undefined
   category: ToolCategory
-  onImage?(uri: string): void
 }) {
   const styles = useStyles()
   const args = run && Object.keys(run.args).length > 0 ? run.args : call.arguments
   const text = resultText(run)
-  const images = run?.result?.content.filter((b) => b.type === 'image') ?? []
 
   if (category === 'run') {
     const { output, status } = splitShellStatus(text)
@@ -352,22 +345,6 @@ function ToolDetail({
           </Text>
         </View>
       ) : null}
-      {images.map((image, index) =>
-        image.type === 'image' ? (
-          <Tap
-            key={index}
-            label="Open screenshot"
-            onPress={() => onImage?.(`data:${image.mimeType};base64,${image.data}`)}
-          >
-            <Image
-              source={{ uri: `data:${image.mimeType};base64,${image.data}` }}
-              style={styles.shot}
-              resizeMode="contain"
-              accessibilityLabel="Screenshot from the tool"
-            />
-          </Tap>
-        ) : null
-      )}
       {text.trim() ? (
         <View style={styles.term}>
           <Folded text={text.replace(/\n+$/, '')} />
@@ -375,6 +352,17 @@ function ToolDetail({
       ) : null}
     </>
   )
+}
+
+/** "0:42" on a step that is still running, on the shared 1 Hz clock. */
+function StepElapsed({ since }: { since: number }) {
+  useTick(true)
+  const ms = Date.now() - since
+  return ms >= MIN_SHOWN_DURATION_MS ? (
+    <Mono size={12} tone="accent">
+      {formatElapsed(ms)}
+    </Mono>
+  ) : null
 }
 
 function stateOf(run: ToolRun | undefined, live: boolean): StepState {
@@ -409,14 +397,12 @@ export const ToolStep = memo(function ToolStep({
   run,
   cwd,
   live,
-  onImage,
   onOpenFile
 }: {
   call: ToolCall
   run: ToolRun | undefined
   cwd: string
   live: boolean
-  onImage?(uri: string): void
   onOpenFile?(path: string): void
 }) {
   const styles = useStyles()
@@ -447,7 +433,9 @@ export const ToolStep = memo(function ToolStep({
         right={
           <>
             {stat ? <DiffStat added={stat.added} removed={stat.removed} /> : null}
-            {duration ? (
+            {state === 'running' && run?.startedAt !== undefined ? (
+              <StepElapsed since={run.startedAt} />
+            ) : duration ? (
               <Mono size={12} tone="muted">
                 {duration}
               </Mono>
@@ -457,9 +445,9 @@ export const ToolStep = memo(function ToolStep({
       />
       {open ? (
         <View style={styles.body}>
-          <ToolDetail call={call} run={run} category={category} onImage={onImage} />
+          <ToolDetail call={call} run={run} category={category} />
           {path && onOpenFile && (category === 'read' || category === 'edit' || category === 'create') ? (
-            <Tap onPress={() => onOpenFile(path)} style={{ minHeight: 40, justifyContent: 'center' }}>
+            <Tap onPress={() => onOpenFile(path)} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
               <Txt size="small" tone="accent">
                 Open file
               </Txt>
@@ -517,14 +505,12 @@ export const ToolGroup = memo(function ToolGroup({
   toolRuns,
   cwd,
   live,
-  onImage,
   onOpenFile
 }: {
   calls: ToolCall[]
   toolRuns: Record<string, ToolRun>
   cwd: string
   live: boolean
-  onImage?(uri: string): void
   onOpenFile?(path: string): void
 }) {
   const styles = useStyles()
@@ -568,7 +554,7 @@ export const ToolGroup = memo(function ToolGroup({
               run={toolRuns[call.id]}
               cwd={cwd}
               live={live}
-              onImage={onImage}
+             
               onOpenFile={onOpenFile}
             />
           ))}

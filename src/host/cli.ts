@@ -6,6 +6,7 @@ import QRCode from 'qrcode'
 
 import type { RemoteStatus } from '../main/remote/remote-server'
 import { callControl, controlSocketPath, serveControl } from './control'
+import { doctor, logs, uninstallService, update } from './maintenance'
 
 declare const __HOST_VERSION__: string
 
@@ -25,7 +26,11 @@ Usage:
   pi-remote pair               Show a pairing QR code for the running host
   pi-remote status             Show the running host and its paired phones
   pi-remote revoke <phone>     Remove a paired phone (its name or id)
-  pi-remote service [install]  Print (or install) a systemd user service
+  pi-remote service [install|uninstall]
+                               Print, install or remove a systemd user service
+  pi-remote doctor             Check the setup and say what to fix
+  pi-remote logs [-f]          Show (or follow) the service's log
+  pi-remote update [--check]   Install the newest release and restart the service
 
 Options for start and service:
   --host <address>   Address the phone connects to: a public IP, a domain or a
@@ -55,6 +60,8 @@ interface Args {
   name?: string
   pi?: string
   pair: boolean
+  follow: boolean
+  check: boolean
   dataDir: string
 }
 
@@ -66,6 +73,8 @@ function parseArgs(argv: string[]): Args {
     positional: [],
     hosts: [],
     pair: false,
+    follow: false,
+    check: false,
     dataDir:
       process.env['PI_REMOTE_DATA_DIR'] ||
       join(process.env['XDG_CONFIG_HOME'] || join(homedir(), '.config'), 'pi-remote-host')
@@ -113,6 +122,13 @@ function parseArgs(argv: string[]): Args {
         break
       case '--pi':
         args.pi = resolve(value())
+        break
+      case '-f':
+      case '--follow':
+        args.follow = true
+        break
+      case '--check':
+        args.check = true
         break
       case '--pair':
         args.pair = true
@@ -420,6 +436,12 @@ function serviceUnit(args: Args): string {
 }
 
 async function commandService(args: Args): Promise<void> {
+  if (args.positional[0] === 'uninstall') {
+    if (!(await uninstallService(log))) {
+      process.exit(1)
+    }
+    return
+  }
   const unit = serviceUnit(args)
   if (args.positional[0] !== 'install') {
     log(unit.trimEnd())
@@ -475,6 +497,17 @@ export async function main(argv: string[]): Promise<void> {
         return
       case 'revoke':
         await commandRevoke(args)
+        return
+      case 'doctor':
+        process.exit(
+          (await doctor({ dataDir: args.dataDir, socket: await socketPath(args), log })) ? 0 : 1
+        )
+        return
+      case 'logs':
+        process.exit(await logs(args.follow, log))
+        return
+      case 'update':
+        process.exit((await update(VERSION, { check: args.check, log })) ? 0 : 1)
         return
       case 'service':
         await commandService(args)

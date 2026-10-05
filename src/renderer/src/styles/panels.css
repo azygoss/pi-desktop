@@ -356,6 +356,23 @@
   white-space: nowrap;
   color: var(--text-2);
 }
+.tree-row:not(.is-active) .tree-snippet {
+  color: var(--muted);
+}
+.tree-row.is-branch {
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.tree-row.is-active .tree-snippet {
+  color: var(--text);
+}
+.tree-here {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
 .tree-fork {
   padding: 2px 8px;
   min-height: 24px;

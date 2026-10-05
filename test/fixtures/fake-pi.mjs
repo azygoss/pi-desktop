@@ -289,6 +289,70 @@ async function scriptedBrowserReply(id, promptMessage) {
   writeLine({ type: 'agent_settled' })
 }
 
+/**
+ * "show image <path>": calls show_image as the pi extension would — the real
+ * implementation from resources/pi-extension — then answers in text.
+ */
+async function scriptedShowImage(promptMessage) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+  writeLine({ type: 'turn_start' })
+  const path = /show image\s+(\S+)/i.exec(String(promptMessage))?.[1] ?? 'image.png'
+  const toolCall = {
+    type: 'toolCall',
+    id: 'call_show_1',
+    name: 'show_image',
+    arguments: { paths: [path], caption: 'Synthetic image' }
+  }
+  const callMessage = {
+    role: 'assistant',
+    content: [toolCall],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...callMessage, content: [] } })
+  writeLine({ type: 'message_end', message: callMessage })
+  const { showImage } = await import('../../resources/pi-extension/pi-desktop-browser/show-image.js')
+  writeLine({ type: 'tool_execution_start', toolCallId: toolCall.id, toolName: 'show_image', args: toolCall.arguments })
+  let content
+  let isError = false
+  try {
+    content = (await showImage(toolCall.arguments, process.cwd())).content
+  } catch (error) {
+    isError = true
+    content = [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
+  }
+  writeLine({ type: 'tool_execution_end', toolCallId: toolCall.id, toolName: 'show_image', result: { content }, isError })
+  const toolResult = { role: 'toolResult', toolCallId: toolCall.id, toolName: 'show_image', content, isError, timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: toolResult })
+  writeLine({ type: 'message_end', message: toolResult })
+  writeLine({ type: 'turn_end', message: callMessage, toolResults: [toolResult] })
+  writeLine({ type: 'turn_start' })
+  const done = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Here it is.' }],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...done, content: [] } })
+  writeLine({ type: 'message_end', message: done })
+  writeLine({ type: 'turn_end', message: done, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [done], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
 const SCRIPT_TEXT =
   'Here is a synthetic reply with a code block.\n\n' +
   '```ts\n' +
@@ -1078,6 +1142,8 @@ function handle(command) {
         void scriptedReply(id, command.message, 2500)
       } else if (/\bgroup tools\b/i.test(String(command.message))) {
         void scriptedGroupReply(command.message)
+      } else if (/\bshow image\b/i.test(String(command.message))) {
+        void scriptedShowImage(command.message)
       } else if (BRIDGE_URL && BRIDGE_TOKEN && /\bbrowser\b/i.test(String(command.message))) {
         void scriptedBrowserReply(id, command.message)
       } else {

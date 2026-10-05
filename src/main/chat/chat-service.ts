@@ -323,11 +323,13 @@ export class ChatService {
     const extraArgs: string[] = []
     const extraEnv: Record<string, string> = {}
     let token: string | undefined
+    // The extension loads even without a bridge (pi-remote): its show_image
+    // tool needs none; the bridge env adds the browser and computer tools.
+    const extensionPath = this.bridge?.extensionPath() ?? ''
+    if (extensionPath) {
+      extraArgs.push('--extension', extensionPath)
+    }
     if (this.bridge && this.bridge.url()) {
-      const extensionPath = this.bridge.extensionPath()
-      if (extensionPath) {
-        extraArgs.push('--extension', extensionPath)
-      }
       token = this.bridge.issue(chatId)
       extraEnv['PI_DESKTOP_BRIDGE_URL'] = this.bridge.url()
       extraEnv['PI_DESKTOP_BRIDGE_TOKEN'] = token

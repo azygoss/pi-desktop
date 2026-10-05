@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { access } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 
@@ -48,6 +51,24 @@ const fileExists = (path: string): Promise<boolean> =>
     () => false
   )
 
+/**
+ * The pi extension (show_image): packed next to pi-remote.mjs, or in the
+ * repository when run from a build in out/host.
+ */
+function hostExtensionPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  for (const base of [
+    join(here, 'pi-extension'),
+    join(here, '..', '..', 'resources', 'pi-extension')
+  ]) {
+    const file = join(base, 'pi-desktop-browser', 'index.js')
+    if (existsSync(file)) {
+      return file
+    }
+  }
+  return ''
+}
+
 export interface HostOptions {
   /** Port to listen on; the next free one is used unless `strictPort`. */
   port?: number
@@ -79,8 +100,15 @@ export async function startHost(options: HostOptions): Promise<Host> {
 
   // PI_DESKTOP_PI_COMMAND (the CLI's --pi) wins over the saved setting.
   const pool = new PiProcessPool(runtimeOptionsFromSettings(settings))
-  // No loopback bridge: the browser and computer tools need a desktop.
-  const chat = new ChatService(pool, broadcastAll)
+  // No loopback bridge (the browser and computer tools need a desktop), but
+  // the extension still loads for show_image.
+  const extensionPath = hostExtensionPath()
+  const chat = new ChatService(pool, broadcastAll, {
+    url: () => '',
+    issue: () => '',
+    revoke: () => {},
+    extensionPath: () => extensionPath
+  })
   const side = new SideChatService(pool, broadcastAll)
 
   const name = options.name || hostname().replace(/\.local$/, '') || 'Server'

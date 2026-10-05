@@ -1,7 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Clipboard from 'expo-clipboard'
+import * as DocumentPicker from 'expo-document-picker'
+import { File as LocalFile } from 'expo-file-system'
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import * as ImagePicker from 'expo-image-picker'
-import { ArrowUp, AtSign, Camera, ImagePlus, Plus, Slash, Square, SquareTerminal, X } from 'lucide-react-native'
+import {
+  ArrowUp,
+  AtSign,
+  Camera,
+  ClipboardPaste,
+  FileUp,
+  ImagePlus,
+  MousePointerClick,
+  Plus,
+  Slash,
+  Square,
+  SquareTerminal,
+  X
+} from 'lucide-react-native'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Image, StyleSheet, TextInput, View } from 'react-native'
 
@@ -251,6 +267,29 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
   const [cursor, setCursor] = useState(0)
   const [images, setImages] = useState<(ImageContent & { uri: string })[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  const [uploading, setUploading] = useState<string | null>(null)
+  // What the sheet offers depends on the computer and the clipboard: looked up when it opens.
+  const [computerUse, setComputerUse] = useState<boolean | null>(null)
+  const [clipboardImage, setClipboardImage] = useState(false)
+  useEffect(() => {
+    if (!attachOpen) {
+      return
+    }
+    let cancelled = false
+    void Clipboard.hasImageAsync()
+      .then((has) => !cancelled && setClipboardImage(has))
+      .catch(() => {})
+    void Promise.all([api.cua.permissions(), api.app.settings()])
+      .then(([perms, settings]) => {
+        if (!cancelled) {
+          setComputerUse(perms.available ? settings.computerUse.enabled : null)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [attachOpen])
   const [queueMode, setQueueMode] = useState<'steer' | 'followUp'>('steer')
   const [files, setFiles] = useState<string[]>([])
   const input = useRef<TextInput>(null)
@@ -402,6 +441,61 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
     }
   }
 
+  /** Any file from the phone: stored on the computer, mentioned by path. */
+  const sendFile = async (): Promise<void> => {
+    setAttachOpen(false)
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true })
+      const asset = picked.canceled ? undefined : picked.assets[0]
+      if (!asset) {
+        return
+      }
+      if ((asset.size ?? 0) > 20 * 1024 * 1024) {
+        toast('Files up to 20 MB can be sent')
+        return
+      }
+      setUploading(asset.name)
+      const data = await new LocalFile(asset.uri).base64()
+      const { path } = await api.files.upload(asset.name, data)
+      const current = textRef.current
+      setText(`${current}${current && !current.endsWith(' ') ? ' ' : ''}${formatMention(path)} `)
+      haptic('success')
+      input.current?.focus()
+    } catch (e) {
+      toast(`Could not send the file: ${errorText(e)}`)
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const pasteImage = async (): Promise<void> => {
+    setAttachOpen(false)
+    try {
+      const image = await Clipboard.getImageAsync({ format: 'jpeg', jpegQuality: 0.85 })
+      const match = image ? /^data:([^;]+);base64,(.+)$/.exec(image.data) : null
+      if (!match) {
+        toast('There is no image on the clipboard')
+        return
+      }
+      setImages((current) =>
+        [...current, { type: 'image' as const, data: match[2]!, mimeType: match[1]!, uri: image!.data }].slice(0, MAX_IMAGES)
+      )
+    } catch (e) {
+      toast(`Could not paste: ${errorText(e)}`)
+    }
+  }
+
+  const toggleComputerUse = (): void => {
+    const next = !computerUse
+    setAttachOpen(false)
+    void api.cua
+      .setEnabled(next)
+      .then(() =>
+        toast(next ? 'Computer use is on. pi can use it from its next start in a chat.' : 'Computer use is off.')
+      )
+      .catch((e) => toast(errorText(e)))
+  }
+
   const insert = (prefix: string): void => {
     setAttachOpen(false)
     setText(text && !text.endsWith(' ') && prefix === '@' ? `${text} ${prefix}` : `${prefix}${prefix === '@' ? '' : text}`)
@@ -412,6 +506,10 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
     const message = text.trim()
     const chats = useChats.getState()
     if (!message && images.length === 0) {
+      return
+    }
+    if (uploading) {
+      toast(`Sending ${uploading} first…`)
       return
     }
     if (useConnection.getState().phase !== 'online') {
@@ -461,6 +559,12 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
   return (
     <View style={styles.wrap}>
       <QueueStrip chatId={chatId} />
+      {uploading ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.xs }} accessibilityLiveRegion="polite">
+          <Mono size={12} tone="accent">↑</Mono>
+          <Mono size={12} tone="muted" numberOfLines={1} style={{ flex: 1 }}>{`Sending ${uploading} to the computer…`}</Mono>
+        </View>
+      ) : null}
       {suggestions > 0 ? (
         <View style={styles.suggestions}>
           {slash !== null ? (
@@ -575,6 +679,15 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
       <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)} title="Add to the message">
         <SheetAction icon={ImagePlus} title="Photo library" onPress={() => void addImages('library')} />
         <SheetAction icon={Camera} title="Take a photo" onPress={() => void addImages('camera')} />
+        {clipboardImage ? (
+          <SheetAction icon={ClipboardPaste} title="Paste image" detail="The image on the clipboard" onPress={() => void pasteImage()} />
+        ) : null}
+        <SheetAction
+          icon={FileUp}
+          title="Send a file"
+          detail="Any file up to 20 MB: stored on the computer, pi reads it"
+          onPress={() => void sendFile()}
+        />
         <SheetAction icon={AtSign} title="Mention a file" detail="Search the project's files" onPress={() => insert('@')} />
         <SheetAction icon={Slash} title="Command" detail="pi's skills, prompts and app commands" onPress={() => insert('/')} />
         <SheetAction
@@ -583,6 +696,15 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
           detail="Runs on the computer; its output joins the next prompt"
           onPress={() => insert('!')}
         />
+        {computerUse !== null ? (
+          <SheetAction
+            icon={MousePointerClick}
+            title={computerUse ? 'Turn computer use off' : 'Turn computer use on'}
+            detail="Lets pi operate the Mac's apps; new and restarted chats pick it up"
+            selected={computerUse}
+            onPress={toggleComputerUse}
+          />
+        ) : null}
       </Sheet>
     </View>
   )

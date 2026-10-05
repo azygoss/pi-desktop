@@ -1,7 +1,8 @@
-import { open, realpath, stat } from 'node:fs/promises'
+import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { FileReadResult } from '../../shared/api'
+import { MAX_REMOTE_IMAGE_BYTES } from '../../shared/remote/protocol'
 
 /** Larger files are cut off; the viewer says so. */
 export const MAX_VIEW_BYTES = 512 * 1024
@@ -16,11 +17,12 @@ function inside(parent: string, child: string): boolean {
  * the project folder (symlinks resolved) and outside `denyDirs` — the pi
  * agent dir holds credentials the app must never read.
  */
-export async function readProjectFile(
+/** The real path of a file inside the project, refusing everything else. */
+async function resolveProjectFile(
   cwd: string,
   path: unknown,
-  denyDirs: string[] = []
-): Promise<FileReadResult> {
+  denyDirs: string[]
+): Promise<{ root: string; real: string; size: number }> {
   if (typeof path !== 'string' || path.length === 0 || path.length > 4096) {
     throw new Error('Invalid path')
   }
@@ -39,6 +41,52 @@ export async function readProjectFile(
   if (!info.isFile()) {
     throw new Error('Not a file')
   }
+  return { root, real, size: info.size }
+}
+
+/** The image type from a file's first bytes (the extension can lie). */
+export function sniffImageType(bytes: Uint8Array): string | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+  if (bytes.length >= 8 && bytes[0] === 0x89 && ascii(1, 4) === 'PNG') {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (bytes.length >= 6 && ascii(0, 4) === 'GIF8') {
+    return 'image/gif'
+  }
+  if (bytes.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') {
+    return 'image/webp'
+  }
+  return null
+}
+
+/** An image file inside the project as base64, for a phone's file viewer. */
+export async function readProjectImage(
+  cwd: string,
+  path: unknown,
+  denyDirs: string[] = []
+): Promise<{ mimeType: string; data: string; size: number }> {
+  const { real, size } = await resolveProjectFile(cwd, path, denyDirs)
+  if (size > MAX_REMOTE_IMAGE_BYTES) {
+    throw new Error('That image is too large to send to the phone')
+  }
+  const bytes = await readFile(real)
+  const mimeType = sniffImageType(bytes)
+  if (!mimeType) {
+    throw new Error('Not an image this viewer can show')
+  }
+  return { mimeType, data: bytes.toString('base64'), size }
+}
+
+export async function readProjectFile(
+  cwd: string,
+  path: unknown,
+  denyDirs: string[] = []
+): Promise<FileReadResult> {
+  const { root, real, size } = await resolveProjectFile(cwd, path, denyDirs)
+  const info = { size }
   const handle = await open(real, 'r')
   try {
     const length = Math.min(info.size, MAX_VIEW_BYTES)

@@ -1,38 +1,15 @@
 import { Copy, ExternalLink, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import clsx from 'clsx'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { ChatSessionStats, ForkMessage } from '../../../shared/api'
-import type { AgentMessage, PiTreeNode, PiTreeResult } from '../../../shared/pi-types'
+import type { PiTreeResult } from '../../../shared/pi-types'
+import { flattenSessionTree } from '../lib/session-tree'
 import { collapseWhitespace } from '../../../shared/text'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { toast } from '../state/toast-store'
-
-function messageSnippet(message: AgentMessage | undefined): string {
-  if (!message) {
-    return ''
-  }
-  const content = 'content' in message ? message.content : undefined
-  if (typeof content === 'string') {
-    return collapseWhitespace(content).slice(0, 80)
-  }
-  if (Array.isArray(content)) {
-    const text = content.find((c) => c.type === 'text')
-    if (text && 'text' in text) {
-      return collapseWhitespace(text.text).slice(0, 80)
-    }
-    const thinking = content.find((c) => c.type === 'thinking')
-    if (thinking && 'thinking' in thinking) {
-      return collapseWhitespace(thinking.thinking).slice(0, 80)
-    }
-    return `[${content.map((c) => c.type).join(', ')}]`
-  }
-  if (message.role === 'bashExecution' && 'command' in message) {
-    return `$ ${message.command}`
-  }
-  return `[${message.role}]`
-}
 
 export function ModalShell({
   title,
@@ -214,31 +191,7 @@ function TreeModal({ chatId, onClose }: { chatId: string; onClose(): void }) {
     })
   }
 
-  function renderNode(node: PiTreeNode, depth: number): React.ReactNode {
-    const entry = node.entry
-    const isUser = entry.message?.role === 'user'
-    const snippet = collapseWhitespace(node.label ?? messageSnippet(entry.message)).slice(0, 90)
-    return (
-      <div key={entry.id}>
-        <div className="tree-row" style={{ paddingLeft: depth * 16 }}>
-          <span className={isUser ? 'tree-role tree-role-user' : 'tree-role'}>
-            {entry.message?.role ?? entry.type}
-          </span>
-          <span className="tree-snippet">{snippet}</span>
-          {isUser && (
-            <button
-              type="button"
-              className="ui-btn tree-fork"
-              onClick={() => void fork(entry.id)}
-            >
-              Fork from here
-            </button>
-          )}
-        </div>
-        {node.children.map((child) => renderNode(child, depth + 1))}
-      </div>
-    )
-  }
+  const rows = useMemo(() => (result ? flattenSessionTree(result) : []), [result])
 
   return (
     <ModalShell title="Session tree" onClose={onClose}>
@@ -246,7 +199,22 @@ function TreeModal({ chatId, onClose }: { chatId: string; onClose(): void }) {
       {result && result.tree.length === 0 && (
         <div className="cmd-modal-hint">Empty session.</div>
       )}
-      {result?.tree.map((node) => renderNode(node, 0))}
+      {rows.map((row) => (
+        <div
+          key={row.id}
+          className={clsx('tree-row', { 'is-active': row.active, 'is-leaf': row.leaf, 'is-branch': row.branchStart })}
+          style={{ paddingLeft: row.depth * 16 }}
+        >
+          <span className={row.role === 'user' ? 'tree-role tree-role-user' : 'tree-role'}>{row.role}</span>
+          <span className="tree-snippet">{row.snippet}</span>
+          {row.leaf && <span className="tree-here">you are here</span>}
+          {row.forkable && (
+            <button type="button" className="ui-btn tree-fork" onClick={() => void fork(row.id)}>
+              Fork from here
+            </button>
+          )}
+        </div>
+      ))}
       {error && <div className="cmd-modal-error">{error}</div>}
     </ModalShell>
   )

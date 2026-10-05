@@ -148,6 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionMeta
       })
       applyTheme(appSettings.theme)
+      window.piDesktop.appSettings.onChanged?.((next) => set({ appSettings: next }))
       applyPlatform(appInfo?.platform)
       // Another window (or a session delete in main) may change the map.
       window.piDesktop.sessionMeta.onChanged((map) => set({ sessionMeta: map }))

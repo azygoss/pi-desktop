@@ -1,14 +1,16 @@
-import { Copy } from 'lucide-react-native'
-import { memo, useState } from 'react'
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Copy, RotateCcw } from 'lucide-react-native'
+import { memo, useMemo, useState } from 'react'
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import {
   formatDuration,
   parseSkillPrefix,
   shellStatusLabel,
   splitMentions,
+  collectToolShots,
   summarizeToolRuns,
   type DisplayBlock,
+  type ToolShot,
   type DisplayMessage,
   type ToolRun
 } from '../desktop'
@@ -47,6 +49,20 @@ const useStyles = makeStyles((t: Theme) => ({
     color: t.accent
   },
   thumb: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: t.codeBg },
+  shotThumb: {
+    width: 136,
+    height: 88,
+    borderRadius: radius.sm,
+    backgroundColor: t.codeBg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.border
+  },
+  shown: {
+    width: '100%',
+    maxHeight: 520,
+    borderRadius: radius.md,
+    backgroundColor: t.codeBg
+  },
   steps: { marginHorizontal: -space.sm },
   error: {
     borderLeftWidth: 2,
@@ -100,6 +116,12 @@ export const UserRow = memo(function UserRow({
         delayLongPress={350}
         accessibilityRole="text"
         accessibilityHint="Long press for actions"
+        accessibilityActions={[{ name: 'longpress', label: 'Prompt actions: copy, edit, retry, restore' }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'longpress') {
+            actions.onUserMenu(message, userIndex)
+          }
+        }}
         style={styles.user}
       >
         {/* A prompt, not a bubble: a › in the gutter. */}
@@ -210,7 +232,6 @@ function AssistantBody({
                   run={toolRuns[item.id]}
                   cwd={cwd}
                   live={live}
-                  onImage={actions.onImage}
                   onOpenFile={actions.onOpenFile}
                 />
               </View>
@@ -223,7 +244,6 @@ function AssistantBody({
                   toolRuns={toolRuns}
                   cwd={cwd}
                   live={live}
-                  onImage={actions.onImage}
                   onOpenFile={actions.onOpenFile}
                 />
               </View>
@@ -260,6 +280,78 @@ function AssistantBody({
   )
 }
 
+/**
+ * Images the row's tools produced, outside the folded steps: what the agent
+ * showed with show_image at full width with its caption, screenshots as a
+ * strip of thumbnails. Tap opens the viewer.
+ */
+function Shots({
+  messages,
+  toolRuns,
+  actions
+}: {
+  messages: Assistant[]
+  toolRuns: Record<string, ToolRun>
+  actions: RowActions
+}) {
+  const styles = useStyles()
+  const shots = useMemo(() => collectToolShots(messages, toolRuns), [messages, toolRuns])
+  if (shots.length === 0) {
+    return null
+  }
+  const shown = shots.filter((s) => s.shown)
+  const screenshots = shots.filter((s) => !s.shown)
+  return (
+    <View style={{ gap: space.sm, marginTop: space.sm }}>
+      {shown.map((shot) => (
+        <ShownImage key={shot.key} shot={shot} onOpen={actions.onImage} />
+      ))}
+      {screenshots.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
+          {screenshots.map((shot) => (
+            <Tap
+              key={shot.key}
+              label={shot.caption ? `Open screenshot: ${shot.caption}` : 'Open screenshot'}
+              onPress={() => actions.onImage(`data:${shot.mimeType};base64,${shot.data}`)}
+            >
+              <Image source={{ uri: `data:${shot.mimeType};base64,${shot.data}` }} style={styles.shotThumb} resizeMode="cover" />
+            </Tap>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  )
+}
+
+function ShownImage({ shot, onOpen }: { shot: ToolShot; onOpen(uri: string): void }) {
+  const uri = useMemo(() => `data:${shot.mimeType};base64,${shot.data}`, [shot])
+  const styles = useStyles()
+  const [ratio, setRatio] = useState(16 / 10)
+  return (
+    <View style={{ gap: space.xs }}>
+      <Tap label={shot.caption ? `Open image: ${shot.caption}` : 'Open image'} onPress={() => onOpen(uri)}>
+        <Image
+          source={{ uri }}
+          style={[styles.shown, { aspectRatio: ratio }]}
+          resizeMode="contain"
+          onLoad={(event) => {
+            const { width, height } = event.nativeEvent.source
+            if (width > 0 && height > 0) {
+              // Tall images are capped so one does not fill several screens.
+              setRatio(Math.max(width / height, 0.6))
+            }
+          }}
+        />
+      </Tap>
+      {shot.caption ? (
+        <Txt size="small" tone="text2">
+          {shot.caption}
+        </Txt>
+      ) : null}
+    </View>
+  )
+}
+
 /** Only the runs this message's tool calls point at matter for a re-render. */
 function sameRuns(
   message: Assistant,
@@ -285,9 +377,11 @@ interface AssistantRowProps {
 export const AssistantRow = memo(
   function AssistantRow(props: AssistantRowProps) {
     const styles = useStyles()
+    const messages = useMemo(() => [props.message], [props.message])
     return (
       <View style={styles.row}>
         <AssistantBody {...props} />
+        <Shots messages={messages} toolRuns={props.toolRuns} actions={props.actions} />
       </View>
     )
   },
@@ -385,6 +479,7 @@ export const WorkGroupRow = memo(
             </View>
           ) : null}
         </View>
+        <Shots messages={messages} toolRuns={toolRuns} actions={actions} />
       </View>
     )
   },
@@ -482,11 +577,14 @@ export const NoticeRow = memo(function NoticeRow({
 export const MetaRow = memo(function MetaRow({
   text,
   reply,
-  onCopy
+  onCopy,
+  onRetry
 }: {
   text: string
   reply: string
   onCopy(text: string): void
+  /** The last turn: ask pi again from its prompt. */
+  onRetry?(): void
 }) {
   const styles = useStyles()
   return (
@@ -494,13 +592,16 @@ export const MetaRow = memo(function MetaRow({
       <Mono size={12} tone="muted" style={{ flex: 1 }}>
         {text}
       </Mono>
+      {onRetry ? (
+        <IconButton icon={RotateCcw} label="Retry: ask pi again from this prompt" size={15} tone="muted" onPress={onRetry} />
+      ) : null}
       {reply ? (
         <IconButton
           icon={Copy}
           label="Copy reply"
           size={15}
           tone="muted"
-          style={{ height: 40, marginRight: -space.md }}
+          style={{ marginRight: -space.md }}
           onPress={() => onCopy(reply)}
         />
       ) : null}

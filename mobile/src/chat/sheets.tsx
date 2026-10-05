@@ -1,11 +1,14 @@
-import { X } from 'lucide-react-native'
+import * as Clipboard from 'expo-clipboard'
+import { Share2, X } from 'lucide-react-native'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { FlatList, Image, Modal, ScrollView, SectionList, View } from 'react-native'
+import { FlatList, Image, Modal, PixelRatio, ScrollView, SectionList, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
+  flattenSessionTree,
   providerLabel,
   thinkingLevelLabel,
+  type TreeRow,
   type ChatSessionStats,
   type ExtensionUiRequest,
   type ForkMessage,
@@ -13,6 +16,7 @@ import {
   type ThinkingLevel
 } from '../desktop'
 import { compactNumber, formatCost } from '../lib/format'
+import { shareDataUri } from '../lib/share'
 import { api, errorText } from '../remote/api'
 import { useChats } from '../state/chats'
 import { radius, space, TOUCH, useTheme } from '../theme'
@@ -294,12 +298,18 @@ export function UiRequestCard({ chatId, request }: { chatId: string; request: In
 export function StatsSheet({
   stats,
   visible,
-  onClose
+  onClose,
+  sessionPath,
+  onCompact
 }: {
   stats: ChatSessionStats | undefined
   visible: boolean
   onClose(): void
+  sessionPath?: string
+  /** Summarize earlier messages now (offered when context fills up). */
+  onCompact?(): void
 }) {
+  const percent = stats?.contextUsage?.percent ?? null
   const rows: [string, string][] = stats
     ? [
         ['Context', stats.contextUsage?.percent != null ? `${Math.round(stats.contextUsage.percent)}% of ${compactNumber(stats.contextUsage.contextWindow ?? 0)}` : '—'],
@@ -320,6 +330,33 @@ export function StatsSheet({
       ) : (
         <Empty title="No stats yet" detail="They appear once pi has answered." />
       )}
+      {sessionPath ? (
+        <Row
+          title="Session file"
+          detail={sessionPath}
+          onLongPress={() => {
+            void Clipboard.setStringAsync(sessionPath)
+            toast('Path copied')
+          }}
+        />
+      ) : null}
+      {onCompact ? (
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.xs }}>
+          <Button
+            title="Compact now"
+            kind={percent !== null && percent >= 70 ? 'primary' : 'secondary'}
+            onPress={() => {
+              onClose()
+              onCompact()
+            }}
+          />
+          <Txt size="caption" tone="muted">
+            {percent !== null && percent >= 70
+              ? 'Context is filling up: a summary of earlier messages frees room for the rest of the work.'
+              : 'Summarizes earlier messages to free up context.'}
+          </Txt>
+        </View>
+      ) : null}
     </Sheet>
   )
 }
@@ -451,25 +488,152 @@ export function ForkSheet({
   )
 }
 
+/**
+ * /tree: the session's branches. A linear chat stays flat; branches indent
+ * and the one pi is on is marked. A prompt forks from before it.
+ */
+export function TreeSheet({ chatId, visible, onClose }: { chatId: string; visible: boolean; onClose(): void }) {
+  const theme = useTheme()
+  const [rows, setRows] = useState<TreeRow[] | null>(null)
+  useEffect(() => {
+    if (!visible) {
+      return
+    }
+    setRows(null)
+    let cancelled = false
+    api.chat
+      .tree(chatId)
+      .then((result) => {
+        if (!cancelled) {
+          setRows(flattenSessionTree(result))
+        }
+      })
+      .catch((e) => {
+        toast(errorText(e))
+        onClose()
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [visible, chatId, onClose])
+  const branches = rows?.filter((row) => row.branchStart).length ?? 0
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Session tree" scroll={false}>
+      <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <Txt size="small" tone="muted">
+          {branches > 0
+            ? `${branches} branches. The one pi is on is highlighted; tap a prompt to fork from before it.`
+            : 'Tap a prompt to continue on a new branch from before it.'}
+        </Txt>
+      </View>
+      <FlatList
+        style={{ maxHeight: 480 }}
+        data={rows ?? []}
+        keyExtractor={(row) => row.id}
+        initialNumToRender={30}
+        renderItem={({ item }) => (
+          <Tap
+            disabled={!item.forkable}
+            label={`${item.role}: ${item.snippet}${item.leaf ? ', current position' : ''}${item.forkable ? '. Fork from here' : ''}`}
+            onPress={() => {
+              onClose()
+              void useChats
+                .getState()
+                .forkAtEntry(chatId, item.id)
+                .catch((e) => toast(`Could not fork: ${errorText(e)}`))
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.sm,
+              minHeight: 40,
+              paddingVertical: space.xs,
+              paddingRight: space.lg,
+              paddingLeft: space.lg + item.depth * 14,
+              borderTopWidth: item.branchStart ? 1 : 0,
+              borderTopColor: theme.border,
+              opacity: item.active ? 1 : 0.62
+            }}
+          >
+            <Mono size={11} tone={item.role === 'user' ? 'accent' : 'muted'} style={{ width: 64 }} numberOfLines={1}>
+              {item.role}
+            </Mono>
+            <Txt size="small" tone={item.active ? 'text' : 'text2'} numberOfLines={1} style={{ flex: 1 }}>
+              {item.snippet}
+            </Txt>
+            {item.leaf ? (
+              <Mono size={11} tone="accent">
+                here
+              </Mono>
+            ) : null}
+          </Tap>
+        )}
+        ListEmptyComponent={<Empty title={rows === null ? 'Loading…' : 'Empty session'} />}
+      />
+    </Sheet>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Image viewer
 // ---------------------------------------------------------------------------
 
+/**
+ * Full-screen image. Tap switches between fitting the screen and actual
+ * pixels (scroll around a screenshot to read it); Share saves or sends it.
+ */
 export function Lightbox({ uri, onClose }: { uri: string | null; onClose(): void }) {
   const insets = useSafeAreaInsets()
+  const [actual, setActual] = useState(false)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    setActual(false)
+    setSize(null)
+    if (uri) {
+      Image.getSize(uri, (width, height) => setSize({ width, height }), () => {})
+    }
+  }, [uri])
+  const close = (): void => {
+    setActual(false)
+    onClose()
+  }
   return (
-    <Modal visible={uri !== null} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
+    <Modal visible={uri !== null} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.94)' }}>
-        {uri ? (
-          <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" accessibilityLabel="Image, full screen" />
+        {uri && actual && size ? (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ minHeight: '100%', justifyContent: 'center' }}>
+            <ScrollView horizontal contentContainerStyle={{ minWidth: '100%', justifyContent: 'center' }}>
+              <Tap label="Fit to screen" onPress={() => setActual(false)}>
+                <Image source={{ uri }} style={{ width: size.width / PixelRatio.get(), height: size.height / PixelRatio.get() }} />
+              </Tap>
+            </ScrollView>
+          </ScrollView>
+        ) : uri ? (
+          <Tap label="Show actual size" onPress={() => setActual(true)} style={{ flex: 1 }}>
+            <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" accessibilityLabel="Image, full screen" />
+          </Tap>
         ) : null}
-        <IconButton
-          icon={X}
-          label="Close image"
-          tone="onAccent"
-          onPress={onClose}
-          style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm }}
-        />
+        <View style={{ position: 'absolute', top: insets.top + space.sm, right: space.sm, flexDirection: 'row', gap: space.xs }}>
+          <IconButton
+            icon={Share2}
+            label="Share or save image"
+            tone="onAccent"
+            onPress={() => {
+              if (uri) {
+                void shareDataUri(uri).catch((e) => toast(`Could not share: ${errorText(e)}`))
+              }
+            }}
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          />
+          <IconButton icon={X} label="Close image" tone="onAccent" onPress={close} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+        </View>
+        {size ? (
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: insets.bottom + space.lg, alignItems: 'center' }} pointerEvents="none">
+            <Mono size={12} style={{ color: '#a0a0a8' }}>
+              {`${size.width}×${size.height} · tap for ${actual ? 'fit' : 'actual size'}`}
+            </Mono>
+          </View>
+        ) : null}
       </View>
     </Modal>
   )

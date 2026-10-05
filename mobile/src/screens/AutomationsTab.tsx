@@ -1,7 +1,7 @@
 import { useNavigation } from '@react-navigation/native'
 import { Clock, History, Play, Plus, Trash2 } from 'lucide-react-native'
 import { memo, useCallback, useEffect, useState } from 'react'
-import { FlatList, Switch, View } from 'react-native'
+import { FlatList, RefreshControl, Switch, View } from 'react-native'
 
 import { describeSchedule, nextRunAt, type Automation } from '../desktop'
 import { baseName, relativeTime } from '../lib/format'
@@ -129,8 +129,9 @@ export function AutomationsTab() {
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<Automation | null>(null)
 
+  const [refreshing, setRefreshing] = useState(false)
   const load = useCallback(() => {
-    api.automations
+    return api.automations
       .list()
       .then((list) => {
         setAutomations(list)
@@ -138,11 +139,12 @@ export function AutomationsTab() {
       })
       .catch((e: unknown) => setError(errorText(e)))
   }, [])
+  const theme = useTheme()
 
   useEffect(() => {
-    load()
-    const offOnline = onOnline(load)
-    const offChanged = onRemote(EVENTS.automationsChanged, load)
+    void load()
+    const offOnline = onOnline(() => void load())
+    const offChanged = onRemote(EVENTS.automationsChanged, () => void load())
     return () => {
       offOnline()
       offChanged()
@@ -277,6 +279,18 @@ export function AutomationsTab() {
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
         contentContainerStyle={{ paddingBottom: 24 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true)
+              void load().finally(() => setRefreshing(false))
+            }}
+            tintColor={theme.muted}
+            colors={[theme.accent]}
+            progressBackgroundColor={theme.raised}
+          />
+        }
       />
       <Sheet visible={menu !== null} onClose={() => setMenu(null)} title={menu?.name}>
         {menu ? (

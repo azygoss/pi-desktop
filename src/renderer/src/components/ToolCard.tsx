@@ -1,4 +1,5 @@
 import {
+  Image as ImageIcon,
   Check,
   ChevronRight,
   Copy,
@@ -19,6 +20,7 @@ import type { ToolRun } from '../../../shared/chat-view'
 import { diffLines, trimContext } from '../lib/line-diff'
 import { isAbsolute, joinPath } from '../lib/paths'
 import { summarizeToolRuns, toolCallSummary } from '../lib/tool-summary'
+import { toolShots, type ToolShot } from '../lib/tool-images'
 import {
   MIN_SHOWN_DURATION_MS,
   formatDuration,
@@ -62,6 +64,9 @@ function toolIcon(name: string): ReactNode {
   }
   if (n.startsWith('computer_')) {
     return <MousePointerClick size={12} />
+  }
+  if (n === 'show_image') {
+    return <ImageIcon size={12} />
   }
   switch (toolKind(name)) {
     case 'bash':
@@ -486,7 +491,52 @@ export const ToolCard = memo(function ToolCard({
         </span>
       </button>
 
-      {open && <ToolDetail run={run} cwd={cwd} />}
+      {open ? <ToolDetail run={run} cwd={cwd} /> : <ToolShots shots={toolShots(run)} />}
+    </div>
+  )
+})
+
+/**
+ * Images tools produced, shown under a folded card or group: what the agent
+ * put in front of the user with show_image at full width with its caption,
+ * screenshots as thumbnails. Click opens the lightbox.
+ */
+export const ToolShots = memo(function ToolShots({ shots }: { shots: ToolShot[] }) {
+  if (shots.length === 0) {
+    return null
+  }
+  const shown = shots.filter((shot) => shot.shown)
+  const thumbs = shots.filter((shot) => !shot.shown)
+  return (
+    <div className="tool-shots">
+      {shown.map((shot) => (
+        <figure key={shot.key} className="tool-shown">
+          <button
+            type="button"
+            className="tool-shown-image"
+            title="View image"
+            onClick={() => zoomImage(shot.mimeType, shot.data)}
+          >
+            <img src={`data:${shot.mimeType};base64,${shot.data}`} alt={shot.caption ?? 'Image from pi'} />
+          </button>
+          {shot.caption && <figcaption>{shot.caption}</figcaption>}
+        </figure>
+      ))}
+      {thumbs.length > 0 && (
+        <div className="tool-thumbs">
+          {thumbs.map((shot) => (
+            <button
+              key={shot.key}
+              type="button"
+              className="tool-image"
+              title={shot.caption ?? 'View screenshot'}
+              onClick={() => zoomImage(shot.mimeType, shot.data)}
+            >
+              <img src={`data:${shot.mimeType};base64,${shot.data}`} alt={shot.caption ?? 'Screenshot'} />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 })

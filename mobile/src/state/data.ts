@@ -11,12 +11,15 @@ import type {
   SessionMetaPatch,
   SessionSummary
 } from '../desktop'
-import { api, EVENTS } from '../remote/api'
+import { api, errorText, EVENTS } from '../remote/api'
+import { toast } from '../ui'
 import { onComputerRemoved, onOnline, onRemote, onUnpair, useConnection } from './connection'
 
 interface DataState {
   /** False until the first answer from the computer. */
   loaded: boolean
+  /** The lists could not be read (shown until the next successful refresh). */
+  loadError: string | null
   sessions: SessionSummary[]
   projects: ProjectSummary[]
   meta: SessionMetaMap
@@ -31,6 +34,7 @@ interface DataState {
 
 export const useData = create<DataState>((set, get) => ({
   loaded: false,
+  loadError: null,
   sessions: [],
   projects: [],
   meta: {},
@@ -39,8 +43,13 @@ export const useData = create<DataState>((set, get) => ({
   userName: '',
 
   async refresh() {
-    const [sessions, projects] = await Promise.all([api.sessions.list(), api.projects.list()])
-    set({ sessions, projects, loaded: true })
+    try {
+      const [sessions, projects] = await Promise.all([api.sessions.list(), api.projects.list()])
+      set({ sessions, projects, loaded: true, loadError: null })
+    } catch (error) {
+      set({ loadError: errorText(error) })
+      throw error
+    }
   },
 
   async refreshLive() {
@@ -69,10 +78,20 @@ export const useData = create<DataState>((set, get) => ({
         delete current.archived
       }
     }
+    const before = get().meta[sessionPath]
     set({ meta: { ...get().meta, [sessionPath]: current } })
-    const map = await api.sessions.setMeta(sessionPath, patch).catch(() => null)
-    if (map) {
-      set({ meta: map })
+    try {
+      set({ meta: await api.sessions.setMeta(sessionPath, patch) })
+    } catch (error) {
+      // Put it back: the computer did not take the change.
+      const meta = { ...get().meta }
+      if (before) {
+        meta[sessionPath] = before
+      } else {
+        delete meta[sessionPath]
+      }
+      set({ meta })
+      toast(`Could not ${patch.pinned !== undefined ? (patch.pinned ? 'pin' : 'unpin') : patch.archived ? 'archive' : 'unarchive'}: ${errorText(error)}`)
     }
   }
 }))

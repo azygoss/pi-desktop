@@ -1,7 +1,7 @@
-import { basename, delimiter, isAbsolute, resolve } from 'node:path'
-import { copyFile, stat } from 'node:fs/promises'
+import { basename, delimiter, isAbsolute, join, resolve } from 'node:path'
+import { copyFile, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
-import { homedir, userInfo } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron'
 import QRCode from 'qrcode'
 import type {
@@ -22,7 +22,7 @@ import { CHAT_CHANNELS, ChatService } from './chat/chat-service'
 import { validateChatId, validateCwd, validateSessionPath } from './chat/validation'
 import { loadAppSettings, updateAppSettings } from './config/app-settings'
 import { listLocalServers, type LocalServer } from './local-servers'
-import { workspaceDir, worktreesDir } from './config/app-paths'
+import { appUserDataDir, workspaceDir, worktreesDir } from './config/app-paths'
 import { commitAll, discardFile, pushBranch } from './git/git-actions'
 import {
   createWorktree,
@@ -30,7 +30,8 @@ import {
   removeWorktree,
   worktreeDisplayName
 } from './git/worktrees'
-import { readProjectFile } from './files/read-file'
+import { readProjectFile, readProjectImage } from './files/read-file'
+import { saveUpload } from './files/upload'
 import { usageReport } from './sessions/usage'
 import type { Automation } from '../shared/automations'
 import {
@@ -89,6 +90,8 @@ export const IPC_CHANNELS = {
   runtimeRefresh: 'pi-desktop:runtime:refresh',
   appSettingsGet: 'pi-desktop:app-settings:get',
   appSettingsUpdate: 'pi-desktop:app-settings:update',
+  /** Broadcast: settings changed outside this window (from a paired phone). */
+  appSettingsChanged: 'pi-desktop:app-settings:changed',
   sessionsChanged: 'pi-desktop:sessions:changed',
   sessionsRename: 'pi-desktop:sessions:rename',
   sessionsExportHtml: 'pi-desktop:sessions:export-html',
@@ -298,7 +301,11 @@ const REMOTE_ALLOWED: ReadonlySet<string> = new Set([
   IPC_CHANNELS.cuaResume,
   IPC_CHANNELS.cuaStop,
   REMOTE_CHANNELS.liveChats,
-  REMOTE_CHANNELS.listDirs
+  REMOTE_CHANNELS.listDirs,
+  REMOTE_CHANNELS.setComputerUse,
+  REMOTE_CHANNELS.exportHtml,
+  REMOTE_CHANNELS.upload,
+  REMOTE_CHANNELS.readImage
 ])
 
 /** Broadcasts a paired phone receives (chat events are filtered per chat). */
@@ -548,6 +555,38 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     await deps.remote?.revoke(input.deviceId)
   })
   handle(REMOTE_CHANNELS.liveChats, () => deps.chat.listLive())
+  handle(REMOTE_CHANNELS.setComputerUse, async (_e, input: { enabled?: unknown }) => {
+    if (typeof input?.enabled !== 'boolean') {
+      throw new Error('Invalid value')
+    }
+    const next = await updateAppSettings({ computerUse: { enabled: input.enabled } })
+    // Baked into each pi's spawn env: spares are respawned, and a chat
+    // picks it up when it is next started (as from the desktop composer).
+    void deps.chat.resetSpares().catch(() => {})
+    broadcastAll(IPC_CHANNELS.appSettingsChanged, next)
+    return { enabled: next.computerUse.enabled }
+  })
+  handle(REMOTE_CHANNELS.exportHtml, async (_e, input: { sessionPath?: unknown }) => {
+    const sessionPath = validateSessionPath(input?.sessionPath)
+    const dir = await mkdtemp(join(tmpdir(), 'pi-desktop-export-'))
+    try {
+      const outputPath = join(dir, 'session.html')
+      await deps.chat.exportSession({ sessionPath, outputPath })
+      // Only the file asked for, never a path pi reports back.
+      const html = await readFile(outputPath, 'utf8')
+      return { html }
+    } finally {
+      // Our own scratch file, never user data.
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+  handle(REMOTE_CHANNELS.upload, (_e, input: { name?: unknown; data?: unknown }) =>
+    saveUpload(join(appUserDataDir(), 'uploads'), input?.name, input?.data)
+  )
+  handle(REMOTE_CHANNELS.readImage, async (_e, input: { cwd?: unknown; path?: unknown }) => {
+    const cwd = await validateCwd(input?.cwd)
+    return readProjectImage(cwd, input?.path, [getAgentDir()])
+  })
   handle(REMOTE_CHANNELS.listDirs, (_e, input: { path?: unknown }) =>
     // The pi agent dir holds credentials; the app never reads inside it.
     listDirs(input?.path, [getAgentDir()])
@@ -1076,13 +1115,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle(
     IPC_CHANNELS.chatTranscript,
-    (_e, input: { sessionPath: string; limit?: number }) => {
+    (_e, input: { sessionPath: string; limit?: number; before?: number }) => {
       const sessionPath = validateSessionPath(input.sessionPath)
       const limit =
         typeof input?.limit === 'number' && Number.isFinite(input.limit)
           ? Math.min(Math.max(Math.floor(input.limit), 1), 20_000)
           : undefined
-      return readSessionTranscript(sessionPath, { ...(limit ? { limit } : {}) })
+      const before =
+        typeof input?.before === 'number' && Number.isFinite(input.before) && input.before >= 0
+          ? Math.floor(input.before)
+          : undefined
+      return readSessionTranscript(sessionPath, {
+        ...(limit ? { limit } : {}),
+        ...(before !== undefined ? { before } : {})
+      })
     }
   )
 
