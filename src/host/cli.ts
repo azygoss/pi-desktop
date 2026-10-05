@@ -437,7 +437,9 @@ function serviceUnit(args: Args): string {
 
 async function commandService(args: Args): Promise<void> {
   if (args.positional[0] === 'uninstall') {
-    await uninstallService(log)
+    if (!(await uninstallService(log))) {
+      process.exit(1)
+    }
     return
   }
   const unit = serviceUnit(args)
