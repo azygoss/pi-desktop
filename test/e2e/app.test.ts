@@ -410,6 +410,30 @@ describe('Pi Desktop e2e', () => {
       .toBe(true)
   })
 
+  it('shows an image pi put in front of the user under the folded step', async () => {
+    // A 1×1 PNG: show_image (the real extension code) reads it, the step
+    // stays folded and the image appears under it with its caption.
+    const png = join(tmpdir(), `pi-e2e-shown-${Date.now()}.png`)
+    await writeFile(
+      png,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64'
+      )
+    )
+    await page.locator('.composer-input').fill(`show image ${png}`)
+    await page.keyboard.press('Enter')
+    await visible(page, '.tool-shown img', 30_000)
+    expect(await page.locator('.tool-shown figcaption').last().textContent()).toBe('Synthetic image')
+    expect(await page.locator('.tool-card.is-open').count()).toBe(0)
+    await expect
+      .poll(async () => {
+        const stats = await page.locator('.chat-stats').allTextContents()
+        return !stats.some((t) => t.includes('Enter to steer'))
+      })
+      .toBe(true)
+  })
+
   it('shows the pending status with a run timer while a reply starts', async () => {
     // "slow" makes the fake pi pause 2.5s before its first delta, so the
     // pending row is on screen long enough to capture.

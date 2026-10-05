@@ -1,4 +1,4 @@
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect, useIsFocused } from '@react-navigation/native'
 import * as Clipboard from 'expo-clipboard'
 import {
   Archive,
@@ -28,7 +28,17 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Keyboard, KeyboardAvoidingView, View, type ListRenderItem } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { chatToMarkdown, parseSkillPrefix, thinkingLevelLabel, type DisplayMessage, type RepoSummary, type ThinkingLevel } from '../desktop'
+import {
+  chatToMarkdown,
+  parseSkillPrefix,
+  summarizeChecks,
+  thinkingLevelLabel,
+  type DisplayMessage,
+  type PrSummary,
+  type PullRequest,
+  type RepoSummary,
+  type ThinkingLevel
+} from '../desktop'
 import { Composer, PHONE_COMMANDS } from '../chat/Composer'
 import { setComputerHost, setFileLinkHandler } from '../chat/Markdown'
 import { AssistantRow, BashRow, MetaRow, NoticeRow, UserRow, WorkGroupRow, type RowActions } from '../chat/MessageRows'
@@ -193,6 +203,51 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       cancelled = true
     }
   }, [cwd, online, streaming])
+
+  // The branch's pull request: number and checks in the header. While
+  // checks run (and this chat is on screen) they are looked at every minute;
+  // the moment they finish is announced.
+  const focused = useIsFocused()
+  const [pr, setPr] = useState<PullRequest | null>(null)
+  const prSeen = useRef<{ sha: string; summary: PrSummary } | null>(null)
+  const branch = repo?.branch
+  useEffect(() => {
+    if (!cwd || !online || !branch || !focused) {
+      return
+    }
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const check = (): void => {
+      api.pr
+        .status(cwd)
+        .then((status) => {
+          if (cancelled) {
+            return
+          }
+          const next = status.pr && status.pr.state === 'OPEN' ? status.pr : null
+          setPr(next)
+          const summary = next ? summarizeChecks(next.checks) : 'none'
+          const previous = prSeen.current
+          if (next && previous?.sha === next.headSha && previous.summary === 'pending' && summary !== 'pending') {
+            haptic(summary === 'failing' ? 'warning' : 'success')
+            toast(`Pull request #${next.number}: ${summary === 'failing' ? 'checks failed' : 'checks passed'}`)
+          }
+          prSeen.current = next ? { sha: next.headSha, summary } : null
+          if (summary === 'pending') {
+            timer = setTimeout(check, 60_000)
+          }
+        })
+        .catch(() => {})
+    }
+    check()
+    return () => {
+      cancelled = true
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
+  }, [cwd, online, branch, focused, streaming])
+  const prSummary = pr ? summarizeChecks(pr.checks) : 'none'
 
   // Display-only extension requests are acknowledged at once so the
   // extension never hangs waiting on a phone.
@@ -470,7 +525,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
         <Tap
           style={{ flex: 1, paddingHorizontal: space.sm, minHeight: TOUCH, justifyContent: 'center' }}
           onPress={repo ? () => navigation.navigate('Diff', { cwd, chatId }) : undefined}
-          accessibilityLabel={`${title}. ${repo ? `${repo.files} changed files. Open changes` : ''}`}
+          accessibilityLabel={`${title}. ${repo ? `${repo.files} changed files. Open changes` : ''}${pr ? ` Pull request ${pr.number}, checks ${prSummary}.` : ''}`}
         >
           <Txt size="heading" weight="semibold" numberOfLines={1}>
             {title}
@@ -481,6 +536,17 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             <Mono size={12} tone="muted" numberOfLines={1}>
               {projectless ? 'no project' : baseName(cwd) || '…'}
               {repo?.branch ? ` · ${repo.branch}` : ''}
+              {pr ? (
+                <>
+                  {` · #${pr.number} `}
+                  <Mono
+                    size={12}
+                    tone={prSummary === 'failing' ? 'danger' : prSummary === 'passing' ? 'success' : prSummary === 'pending' ? 'accent' : 'muted'}
+                  >
+                    {prSummary === 'failing' ? '✗' : prSummary === 'passing' ? '✓' : prSummary === 'pending' ? '●' : ''}
+                  </Mono>
+                </>
+              ) : null}
               {repo && repo.files > 0 ? (
                 <>
                   {' · '}
