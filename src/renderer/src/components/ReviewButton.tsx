@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ScanSearch, Search } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import type { Model } from '../../../shared/pi-types'
@@ -35,23 +35,22 @@ export function ReviewButton({
   const placement = usePopoverPlacement(rootRef, open, PLACEMENT)
 
   // Row 0 is the chat's model; the rest are the other models, filtered.
-  const others = useMemo(() => {
+  const isCurrent = (m: Model): boolean =>
+    current !== null && m.provider === current.provider && m.id === current.id
+  const matches = (m: Model): boolean => {
     const needle = query.trim().toLowerCase()
-    return models.filter(
-      (m) =>
-        !(current && m.provider === current.provider && m.id === current.id) &&
-        (!needle || `${m.provider} ${m.name} ${m.id}`.toLowerCase().includes(needle))
-    )
-  }, [models, current, query])
-  const grouped = useMemo(() => {
-    const byProvider = new Map<string, Model[]>()
-    for (const model of others) {
-      byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model])
-    }
-    return [...byProvider.entries()]
-  }, [others])
-  const flat = useMemo(() => grouped.flatMap(([, list]) => list), [grouped])
-  const showCurrent = current !== null && query.trim() === ''
+    return !needle || `${m.provider} ${m.name} ${m.id}`.toLowerCase().includes(needle)
+  }
+  // The menu is only worth opening when there is another model to pick.
+  const hasOthers = models.some((m) => !isCurrent(m))
+  const others = models.filter((m) => !isCurrent(m) && matches(m))
+  const byProvider = new Map<string, Model[]>()
+  for (const model of others) {
+    byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model])
+  }
+  const grouped = [...byProvider.entries()]
+  const flat = grouped.flatMap(([, list]) => list)
+  const showCurrent = current !== null && matches(current)
   const rows: (Model | 'current')[] = [...(showCurrent ? ['current' as const] : []), ...flat]
 
   useEffect(() => {
@@ -80,7 +79,7 @@ export function ReviewButton({
   }
 
   const onClick = (): void => {
-    if (models.length === 0) {
+    if (!hasOthers) {
       run(current)
       return
     }
@@ -116,14 +115,14 @@ export function ReviewButton({
         className="diff-action"
         data-testid="review-diff"
         title="Have pi review these changes"
-        aria-haspopup={models.length > 0 ? 'menu' : undefined}
-        aria-expanded={models.length > 0 ? open : undefined}
+        aria-haspopup={hasOthers ? 'dialog' : undefined}
+        aria-expanded={hasOthers ? open : undefined}
         disabled={disabled}
         onClick={onClick}
       >
         <ScanSearch size={12} />
         {busy ? 'Reviewing…' : 'Review'}
-        {models.length > 0 && !busy && <ChevronDown size={11} className="review-chevron" />}
+        {hasOthers && !busy && <ChevronDown size={11} className="review-chevron" />}
       </button>
       {open && (
         <div
@@ -186,7 +185,7 @@ export function ReviewButton({
                 })}
               </div>
             ))}
-            {flat.length === 0 && (
+            {flat.length === 0 && !showCurrent && (
               <div className="model-empty">
                 {query.trim() ? 'No models match' : 'No other models'}
               </div>

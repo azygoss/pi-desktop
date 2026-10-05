@@ -669,10 +669,14 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   // Choose the model first when the chat has others to offer.
   const startReview = (): void => {
     const chat = chatId ? useChats.getState().chats[chatId] : undefined
-    if ((chat?.models.length ?? 0) > 1) {
+    const current = chat?.model ?? null
+    const others = (chat?.models ?? []).filter(
+      (m) => !(current && m.provider === current.provider && m.id === current.id)
+    )
+    if (others.length > 0) {
       setReviewMenu(true)
     } else {
-      void review(chat?.model ?? null)
+      void review(current)
     }
   }
 
