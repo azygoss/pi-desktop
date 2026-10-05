@@ -53,7 +53,8 @@ computer in the app's settings.
   highlighting; images show as images. `localhost` links open at the
   computer's address.
 - **Changes** — the working-tree diff with line comments (shared with the
-  computer's window and other phones), a review pass by pi
+  computer's window and other phones, and postable to the pull request as a
+  review signed pi-bot), a review pass by pi
   with the chat's model or another one,
   discard, commit and push; the branch's pull request with its checks, also
   in the chat's header, which says when they finish.

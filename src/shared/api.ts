@@ -14,6 +14,14 @@ import type { PiRuntimeInfo, PiSettings, ProjectSummary, SessionSummary } from '
 import type { Automation, AutomationSchedule } from './automations'
 import type { PrStatus } from './pr-status'
 import type { PiReviewComment, ReviewComment, ReviewCommentsChange } from './review'
+import type { PrCommentInput } from './pr-review'
+
+export interface PrReviewPosted {
+  url: string
+  inline: number
+  listed: number
+  account: string
+}
 
 /** Which model a side chat or review pass should use (the chat's own). */
 export interface SideModelInput {
@@ -201,6 +209,8 @@ export interface AppSettings {
   dictation: { locale?: string; autoStop: boolean }
   /** Remote control: whether paired phones may connect. */
   remote: { enabled: boolean }
+  /** The `gh` account that posts diff comments to a PR (gh's own when unset). */
+  github: { commentAccount?: string }
 }
 
 /** A phone paired for remote control. */
@@ -634,6 +644,12 @@ export interface PiDesktopApi {
      * comments. Null when pi's reply was not a list of comments.
      */
     review(input: { cwd: string; model?: SideModelInput }): Promise<PiReviewComment[] | null>
+    /**
+     * Post comments to the branch's pull request as one review (through gh,
+     * as the account in Settings → GitHub, signed pi-bot). Comments on
+     * lines the PR does not have yet are listed in the review's body.
+     */
+    postComments(input: { cwd: string; comments: PrCommentInput[] }): Promise<PrReviewPosted>
   }
   /**
    * A project's diff comments, kept on the computer: every window and paired

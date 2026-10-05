@@ -216,6 +216,7 @@ describe('Pi Desktop e2e', () => {
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, 'sessions'),
         PI_DESKTOP_PICK_FILES: join(repoDir, 'attach me.txt'),
         PI_DESKTOP_USER_DATA_DIR: userDataDir,
+        PI_FAKE_GH_LOG: join(userDataDir, 'gh-reviews.log'),
         NODE_ENV: 'production'
       }
     })
@@ -1398,6 +1399,31 @@ describe('Pi Desktop e2e', () => {
     expect(await remark.textContent()).toContain(
       `Synthetic review remark by ${otherName.toLowerCase().replace(/ /g, '-')}.`
     )
+    // Posted to the PR as one review, through the bot account in Settings.
+    await page.evaluate(
+      "window.piDesktop.appSettings.update({ github: { commentAccount: 'synthetic-bot' } })"
+    )
+    await panel.locator('[data-testid="post-comments"]').click()
+    await expect
+      .poll(() => page.locator('.toast').allTextContents(), { timeout: 15_000 })
+      .toContainEqual(expect.stringContaining('Posted to the PR as synthetic-bot'))
+    const [posted] = (await readFile(join(userDataDir, 'gh-reviews.log'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { login: string; review: Record<string, unknown> })
+    expect(posted!.login).toBe('synthetic-bot')
+    expect(posted!.review).toMatchObject({
+      commit_id: 'synthetic-sha-1',
+      event: 'COMMENT',
+      comments: [
+        {
+          path: 'notes.txt',
+          line: 1,
+          side: 'RIGHT',
+          body: expect.stringContaining("<sub>pi-bot · pi's review</sub>")
+        }
+      ]
+    })
     // pi's remarks travel with yours when they are sent to the composer.
     await panel.locator('[data-testid="send-comments"]').click()
     const composer = page.locator('.composer-input')

@@ -121,3 +121,17 @@ is why a VPN is the better default.
 
 Projects are folders on the server: add one from the phone's Projects tab
 by browsing to it.
+
+## Posting comments to a pull request
+
+"Post to PR" on the phone's Changes screen posts the diff comments to the
+branch's pull request as one review signed pi-bot, through the server's
+`gh`. It posts as gh's signed-in account, or as a separate bot account: sign
+that account in too (`gh auth login`) and name it in the data directory's
+`settings.json`:
+
+```json
+{ "github": { "commentAccount": "your-bot-account" } }
+```
+
+Restart pi-remote after editing the file.

@@ -21,6 +21,7 @@ export {
 } from '../../../src/shared/diff-parse'
 export type { DiffLine as PatchLine } from '../../../src/shared/diff-parse'
 export type { PiReviewComment, ReviewCommentsChange } from '../../../src/shared/review'
+export type { PrCommentInput } from '../../../src/shared/pr-review'
 export type {
   AppInfo,
   AttachmentReadResult,
@@ -50,6 +51,7 @@ export type {
   SetModelResult,
   SideEventPayload,
   SideModelInput,
+  PrReviewPosted,
   UsageReport,
   UsageTotals,
   WorktreeInfo

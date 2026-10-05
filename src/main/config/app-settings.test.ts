@@ -105,3 +105,18 @@ describe('app settings', () => {
     expect(next.hiddenProjects).toEqual(['/a'])
   })
 })
+
+describe('github.commentAccount', () => {
+  it('keeps a valid GitHub login and drops anything else', async () => {
+    const { githubAccount, normalizeAppSettings } = await import('./app-settings')
+    expect(githubAccount('@pi-bot')).toBe('pi-bot')
+    expect(githubAccount('-bad')).toBeUndefined()
+    expect(githubAccount('two--dashes')).toBeUndefined()
+    expect(githubAccount('a'.repeat(40))).toBeUndefined()
+    expect(githubAccount('x; rm -rf ~')).toBeUndefined()
+    expect(normalizeAppSettings({ github: { commentAccount: 'my-bot' } }).github).toEqual({
+      commentAccount: 'my-bot'
+    })
+    expect(normalizeAppSettings({ github: { commentAccount: '--user' } }).github).toEqual({})
+  })
+})

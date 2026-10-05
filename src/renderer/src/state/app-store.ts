@@ -30,7 +30,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   onboarding: {},
   updates: { check: true },
   dictation: { autoStop: false },
-  remote: { enabled: false }
+  remote: { enabled: false },
+  github: {}
 }
 
 export type SettingsSection = 'general' | 'computer' | 'remote' | 'runtime' | 'usage' | 'data' | 'about'

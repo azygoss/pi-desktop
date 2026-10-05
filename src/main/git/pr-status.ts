@@ -12,7 +12,7 @@ const LOG_TAIL_CHARS = 8000
 const PR_FIELDS =
   'number,title,url,state,isDraft,headRefOid,reviewDecision,statusCheckRollup'
 
-interface GhRun {
+export interface GhRun {
   ok: boolean
   out: string
   err: string
@@ -20,11 +20,21 @@ interface GhRun {
   missing: boolean
 }
 
-async function gh(cwd: string, args: string[], timeout: number): Promise<GhRun> {
+export async function gh(
+  cwd: string,
+  args: string[],
+  timeout: number,
+  options: { env?: Record<string, string>; input?: string } = {}
+): Promise<GhRun> {
   // Packaged apps get a minimal PATH; gh lives where the login shell finds it.
-  const env = { ...(await loginShellEnv()), GH_PROMPT_DISABLED: '1', NO_COLOR: '1' }
+  const env = {
+    ...(await loginShellEnv()),
+    ...options.env,
+    GH_PROMPT_DISABLED: '1',
+    NO_COLOR: '1'
+  }
   return new Promise((resolvePromise) => {
-    execFile(
+    const child = execFile(
       // Test/dev override: a stand-in for the GitHub CLI (e2e fixture).
       process.env['PI_DESKTOP_GH_COMMAND'] || 'gh',
       args,
@@ -37,6 +47,10 @@ async function gh(cwd: string, args: string[], timeout: number): Promise<GhRun> 
           missing: (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
         })
     )
+    if (options.input !== undefined) {
+      child.stdin?.on('error', () => {}) // gh exited first: its error says why
+      child.stdin?.end(options.input)
+    }
   })
 }
 

@@ -77,7 +77,10 @@ Diff comments, yours and pi's review remarks, are kept by the computer per
 project (`review-comments.json` in the app's data directory) and announced
 on `pi-desktop:review-comments:changed`, so the window and every phone show
 the same list. A commit clears a project's comments, discarding a file
-clears that file's, and handing them to pi removes them.
+clears that file's, and handing them to pi removes them. Posting them to
+the pull request (`pi-desktop:diff:post-comments`) runs `gh` on the
+computer, as the account named in its settings (`github.commentAccount`);
+the account's token goes to gh's own process only.
 
 ## Channels only a phone uses
 

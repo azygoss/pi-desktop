@@ -58,6 +58,7 @@ export function SettingsModal() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [startupMs, setStartupMs] = useState<number | undefined>(undefined)
   const [displayName, setDisplayName] = useState(appSettings.displayName ?? '')
+  const [commentAccount, setCommentAccount] = useState(appSettings.github.commentAccount ?? '')
   const [refreshing, setRefreshing] = useState(false)
   const [cuaPerms, setCuaPerms] = useState<CuaPermissions | null>(null)
   const [resettingCua, setResettingCua] = useState(false)
@@ -139,6 +140,13 @@ export function SettingsModal() {
     const name = displayName.trim()
     if (name !== (appSettings.displayName ?? '')) {
       void updateAppSettings({ displayName: name || undefined })
+    }
+  }
+
+  function commitCommentAccount(): void {
+    const account = commentAccount.trim().replace(/^@/, '')
+    if (account !== (appSettings.github.commentAccount ?? '')) {
+      void updateAppSettings({ github: { commentAccount: account || undefined } })
     }
   }
 
@@ -232,6 +240,31 @@ export function SettingsModal() {
                   }}
                   placeholder="Your name"
                   spellCheck={false}
+                />
+              </div>
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">PR comments account</div>
+                  <div className="settings-hint">
+                    Diff comments posted to a pull request go out as this GitHub account (sign it
+                    in with <code>gh auth login</code>); empty uses gh&apos;s own. They are signed
+                    pi-bot either way.
+                  </div>
+                </div>
+                <input
+                  className="settings-input"
+                  data-testid="settings-comment-account"
+                  value={commentAccount}
+                  onChange={(e) => setCommentAccount(e.target.value)}
+                  onBlur={commitCommentAccount}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      commitCommentAccount()
+                    }
+                  }}
+                  placeholder="gh's account"
+                  spellCheck={false}
+                  autoCapitalize="off"
                 />
               </div>
               <div className="settings-row">

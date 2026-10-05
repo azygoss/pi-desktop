@@ -42,6 +42,7 @@ import {
   setAutomationSession
 } from './automations/automation-store'
 import { getFailedLog, getPrStatus } from './git/pr-status'
+import { postCommentsToPr } from './git/pr-review'
 import { createCheckpoint, restoreCheckpoint } from './git/checkpoints'
 import type { SideChatService } from './chat/side-service'
 import { REVIEW_PROMPT, parseReviewComments } from '../shared/review'
@@ -176,6 +177,7 @@ export const IPC_CHANNELS = {
   sideClose: 'pi-desktop:side:close',
   diffDiscard: 'pi-desktop:diff:discard',
   diffCommit: 'pi-desktop:diff:commit',
+  diffPostComments: 'pi-desktop:diff:post-comments',
   reviewCommentsList: 'pi-desktop:review-comments:list',
   reviewCommentsAdd: 'pi-desktop:review-comments:add',
   reviewCommentsRemove: 'pi-desktop:review-comments:remove',
@@ -296,6 +298,7 @@ const REMOTE_ALLOWED: ReadonlySet<string> = new Set([
   IPC_CHANNELS.diffCommit,
   IPC_CHANNELS.diffPush,
   IPC_CHANNELS.diffReview,
+  IPC_CHANNELS.diffPostComments,
   IPC_CHANNELS.reviewCommentsList,
   IPC_CHANNELS.reviewCommentsAdd,
   IPC_CHANNELS.reviewCommentsRemove,
@@ -732,6 +735,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     return remarks
   })
+  // Public once posted: the window and the phone each ask first.
+  handle(
+    IPC_CHANNELS.diffPostComments,
+    async (_e, input: { cwd: unknown; comments: unknown }) =>
+      postCommentsToPr(
+        await validateCwd(input?.cwd),
+        input?.comments,
+        (await loadAppSettings()).github.commentAccount
+      )
+  )
   handle(IPC_CHANNELS.reviewCommentsList, async (_e, input: { cwd: unknown }) =>
     reviewComments.list(await validateCwd(input?.cwd))
   )

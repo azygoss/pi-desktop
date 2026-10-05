@@ -44,6 +44,12 @@ export interface AppSettings {
   dictation: { locale?: string; autoStop: boolean }
   /** Remote control: whether paired phones may connect. */
   remote: { enabled: boolean }
+  /**
+   * Diff comments posted to a pull request: the `gh` account that posts
+   * them (a bot account signed in with `gh auth login`), or the account gh
+   * uses when unset.
+   */
+  github: { commentAccount?: string }
   /** Last window geometry; restored on launch when present. */
   windowBounds?: {
     width: number
@@ -71,7 +77,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   onboarding: {},
   updates: { check: true },
   dictation: { autoStop: false },
-  remote: { enabled: false }
+  remote: { enabled: false },
+  github: {}
 }
 
 export function settingsFilePath(): string {
@@ -85,6 +92,12 @@ function stringOrUndefined(value: unknown, maxLength = 1024): string | undefined
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength
     ? value
     : undefined
+}
+
+/** A GitHub login (letters, digits, single dashes, up to 39), or undefined. */
+export function githubAccount(value: unknown): string | undefined {
+  const login = typeof value === 'string' ? value.trim().replace(/^@/, '') : ''
+  return /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(login) ? login : undefined
 }
 
 function normalizeProjects(value: unknown): AppProject[] | undefined {
@@ -152,7 +165,8 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     onboarding: { ...DEFAULT_APP_SETTINGS.onboarding },
     updates: { ...DEFAULT_APP_SETTINGS.updates },
     dictation: { ...DEFAULT_APP_SETTINGS.dictation },
-    remote: { ...DEFAULT_APP_SETTINGS.remote }
+    remote: { ...DEFAULT_APP_SETTINGS.remote },
+    github: {}
   }
   if (raw === null || typeof raw !== 'object') {
     return settings
@@ -264,6 +278,13 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
     const r = remote as Record<string, unknown>
     if (typeof r['enabled'] === 'boolean') {
       settings.remote.enabled = r['enabled']
+    }
+  }
+  const github = input['github']
+  if (github !== null && typeof github === 'object') {
+    const account = githubAccount((github as Record<string, unknown>)['commentAccount'])
+    if (account) {
+      settings.github.commentAccount = account
     }
   }
   return settings
@@ -384,6 +405,13 @@ export async function updateAppSettings(patch: unknown): Promise<AppSettings> {
       const r = input['remote'] as Record<string, unknown>
       if (typeof r['enabled'] === 'boolean') {
         merged.remote = { ...merged.remote, enabled: r['enabled'] }
+      }
+    }
+    if (input['github'] !== null && typeof input['github'] === 'object') {
+      const g = input['github'] as Record<string, unknown>
+      if ('commentAccount' in g) {
+        const account = githubAccount(g['commentAccount'])
+        merged.github = account ? { commentAccount: account } : {}
       }
     }
     const bounds = normalizeWindowBounds(input['windowBounds'])

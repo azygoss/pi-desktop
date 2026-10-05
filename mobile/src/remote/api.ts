@@ -16,6 +16,8 @@ import type {
   GitActionResult,
   ImageContent,
   PiReviewComment,
+  PrCommentInput,
+  PrReviewPosted,
   ReviewComment,
   PiRuntimeInfo,
   PiTreeResult,
@@ -179,7 +181,9 @@ export const api = {
       request<GitActionResult>('pi-desktop:diff:commit', { cwd, message }, 60_000),
     push: (cwd: string) => request<GitActionResult>('pi-desktop:diff:push', { cwd }, 120_000),
     review: (cwd: string, model?: SideModelInput) =>
-      request<PiReviewComment[] | null>('pi-desktop:diff:review', { cwd, model }, LONG_TIMEOUT_MS)
+      request<PiReviewComment[] | null>('pi-desktop:diff:review', { cwd, model }, LONG_TIMEOUT_MS),
+    postComments: (cwd: string, comments: PrCommentInput[]) =>
+      request<PrReviewPosted>('pi-desktop:diff:post-comments', { cwd, comments }, 120_000)
   },
   /** A project's diff comments, kept on the computer and shared by every screen. */
   reviewComments: {
