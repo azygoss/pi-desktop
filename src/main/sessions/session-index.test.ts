@@ -261,8 +261,18 @@ describe('watchSessions', () => {
       calls += 1
     }, env)
     try {
-      await writeSession('p', 's.jsonl', [HEADER])
-      await expect.poll(() => calls, { timeout: 10_000 }).toBeGreaterThan(0)
+      // Linux's recursive watch is set up asynchronously: a write right
+      // after watch() can land before it listens, so keep writing until heard.
+      let n = 0
+      await expect
+        .poll(
+          async () => {
+            await writeSession('p', `s${n++}.jsonl`, [HEADER])
+            return calls
+          },
+          { timeout: 10_000, interval: 300 }
+        )
+        .toBeGreaterThan(0)
     } finally {
       unwatch()
     }
