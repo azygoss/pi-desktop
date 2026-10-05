@@ -507,8 +507,11 @@ export function DiffPanel({ active }: { active: boolean }) {
       return
     }
     useChatStore.getState().seedComposer(chatId, reviewPrompt(comments))
-    // They went to pi: done with, here and on every other screen.
-    void window.piDesktop.reviewComments.clear({ cwd }).catch(() => {})
+    // They went to pi: done with, here and on every other screen. Comments
+    // on files the diff no longer shows were not sent, so they stay.
+    void window.piDesktop.reviewComments
+      .remove({ cwd, ids: comments.map((c) => c.id) })
+      .catch(() => {})
   }
 
   const discard = async (file: DiffFile): Promise<void> => {

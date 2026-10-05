@@ -7,7 +7,8 @@ import type { PiReviewComment, ReviewComment } from '../../shared/review'
 /** Per project; a review pass adds at most 20, the rest are yours. */
 export const MAX_COMMENTS_PER_PROJECT = 200
 const MAX_TEXT = 4000
-const MAX_LINE_TEXT = 1000
+/** Long enough for minified lines, so a comment still finds its line. */
+const MAX_LINE_TEXT = 20_000
 const MAX_PATH = 1000
 const MAX_PROJECTS = 200
 /** Ids or paths one request may name. */
@@ -17,9 +18,10 @@ function cleanPath(value: unknown): string {
   if (typeof value !== 'string') {
     throw new Error('Invalid path')
   }
-  const path = value.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+  // Not trimmed: a file name may legally start or end with a space.
+  const path = value.replace(/\\/g, '/').replace(/^\.\//, '')
   if (
-    !path ||
+    !path.trim() ||
     path.length > MAX_PATH ||
     path.startsWith('/') ||
     path.split('/').includes('..') ||

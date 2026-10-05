@@ -96,5 +96,9 @@ describe('ReviewCommentStore', () => {
     await expect(store.add('/w', { path: 'a/../../b', text: 'x' })).rejects.toThrow('path')
     await expect(store.add('/w', { path: 'a\u0000b', text: 'x' })).rejects.toThrow('path')
     await expect(store.remove('/w', new Array(501).fill('id'))).rejects.toThrow('list')
+    // A selective clear that is not a list never turns into clearing all.
+    await store.add('/w', { path: ' spaced name.txt', text: 'kept' })
+    await expect(store.clear('/w', 'spaced name.txt')).rejects.toThrow('list')
+    expect((await store.list('/w')).map((c) => c.path)).toEqual([' spaced name.txt'])
   })
 })
