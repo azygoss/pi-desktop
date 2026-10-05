@@ -26,14 +26,19 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
-import { anchorForLine, reviewPrompt, type ReviewComment } from '../lib/review-comments'
+import {
+  placeComments,
+  reviewPrompt,
+  type PlacedComment,
+  type ReviewComment
+} from '../lib/review-comments'
 import { joinPath } from '../lib/paths'
 import { ReviewButton } from './ReviewButton'
 
 const COLLAPSE_LINES = 400
 const REFRESH_DEBOUNCE_MS = 500
 const WRITE_TOOLS = /edit|write|bash|apply/i
-const NO_COMMENTS = new Map<string, ReviewComment[]>()
+const NO_COMMENTS = new Map<string, PlacedComment[]>()
 const NO_MODELS: Model[] = []
 
 /** Renders one file's hunks with line numbers; files stay collapsed >400 lines. */
@@ -50,11 +55,11 @@ const DiffFileView = memo(function DiffFileView({
   file: DiffFile
   expanded: boolean
   /** This file's review comments, keyed by `hunk:line`. */
-  comments: Map<string, ReviewComment[]>
+  comments: Map<string, PlacedComment[]>
   onToggle(): void
   onOpen(): void
   onDiscard(): void
-  onComment(key: string, line: number | undefined, lineText: string, text: string): void
+  onComment(line: number | undefined, lineText: string, text: string): void
   onRemoveComment(id: string): void
 }) {
   const { added, deleted } = countChanges(file)
@@ -63,9 +68,9 @@ const DiffFileView = memo(function DiffFileView({
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
 
-  const save = (key: string, line: number | undefined, lineText: string): void => {
+  const save = (line: number | undefined, lineText: string): void => {
     if (draft.trim()) {
-      onComment(key, line, lineText, draft.trim())
+      onComment(line, lineText, draft.trim())
     }
     setEditing(null)
     setDraft('')
@@ -189,7 +194,7 @@ const DiffFileView = memo(function DiffFileView({
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault()
-                                save(key, lineNo, line.text)
+                                save(lineNo, line.text)
                               } else if (e.key === 'Escape') {
                                 e.stopPropagation()
                                 setEditing(null)
@@ -320,8 +325,9 @@ export function DiffPanel({ active }: { active: boolean }) {
   // Explicit expand/collapse overrides; untouched files follow the size rule.
   const [toggled, setToggled] = useState<Map<string, boolean>>(new Map())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Review comments on diff lines, sent to pi as one prompt.
-  const [comments, setComments] = useState<(ReviewComment & { key: string })[]>([])
+  // Review comments on diff lines, sent to pi as one prompt. The computer
+  // keeps them per project, shared with other windows and paired phones.
+  const [stored, setStored] = useState<{ cwd: string; comments: ReviewComment[] } | null>(null)
   const [commitOpen, setCommitOpen] = useState(false)
   const [commitMessage, setCommitMessage] = useState('')
   const [busy, setBusy] = useState<'commit' | 'push' | 'review' | null>(null)
@@ -407,8 +413,33 @@ export function DiffPanel({ active }: { active: boolean }) {
     return added + deleted <= COLLAPSE_LINES
   }
 
+  useEffect(() => {
+    if (!active || !cwd) {
+      return
+    }
+    let live = true
+    const off = window.piDesktop.reviewComments.onChanged((change) => {
+      if (change.cwd === cwd) {
+        setStored(change)
+      }
+    })
+    window.piDesktop.reviewComments
+      .list({ cwd })
+      .then((comments) => live && setStored((prev) => (prev?.cwd === cwd ? prev : { cwd, comments })))
+      .catch(() => {})
+    return () => {
+      live = false
+      off()
+    }
+  }, [active, cwd])
+
+  const comments = useMemo(
+    () => (stored && stored.cwd === cwd ? placeComments(files, stored.comments) : []),
+    [stored, cwd, files]
+  )
+
   const commentsByFile = useMemo(() => {
-    const byFile = new Map<string, Map<string, ReviewComment[]>>()
+    const byFile = new Map<string, Map<string, PlacedComment[]>>()
     for (const comment of comments) {
       let lines = byFile.get(comment.path)
       if (!lines) {
@@ -440,32 +471,13 @@ export function DiffPanel({ active }: { active: boolean }) {
       toast("pi's review could not be read")
       return
     }
-    const placed: (ReviewComment & { key: string })[] = []
-    for (const remark of remarks) {
-      const file = files.find((f) => f.path === remark.path)
-      const anchor = file ? anchorForLine(file, remark.line) : null
-      if (!file || !anchor) {
-        continue
-      }
-      placed.push({
-        id: crypto.randomUUID(),
-        key: anchor.key,
-        path: file.path,
-        line: anchor.exact ? anchor.line : remark.line,
-        lineText: anchor.exact ? anchor.lineText : '',
-        text:
-          !anchor.exact && remark.line !== undefined
-            ? `Line ${remark.line}: ${remark.comment}`
-            : remark.comment,
-        author: 'pi'
-      })
-    }
-    // A new pass replaces pi's earlier remarks; yours stay.
-    setComments((prev) => [...prev.filter((c) => c.author !== 'pi'), ...placed])
+    // The remarks land in the project's comments (shown through the change
+    // broadcast); open the files they are on.
+    const placed = remarks.filter((r) => files.some((f) => f.path === r.path))
     setToggled((prev) => {
       const next = new Map(prev)
-      for (const comment of placed) {
-        next.set(comment.path, true)
+      for (const remark of placed) {
+        next.set(remark.path, true)
       }
       return next
     })
@@ -481,7 +493,8 @@ export function DiffPanel({ active }: { active: boolean }) {
       return
     }
     useChatStore.getState().seedComposer(chatId, reviewPrompt(comments))
-    setComments([])
+    // They went to pi: done with, here and on every other screen.
+    void window.piDesktop.reviewComments.clear({ cwd }).catch(() => {})
   }
 
   const discard = async (file: DiffFile): Promise<void> => {
@@ -503,7 +516,6 @@ export function DiffPanel({ active }: { active: boolean }) {
     if (!outcome.ok) {
       toast(`Discard failed: ${outcome.message}`)
     }
-    setComments((prev) => prev.filter((c) => c.path !== file.path))
     void refresh()
   }
 
@@ -521,7 +533,6 @@ export function DiffPanel({ active }: { active: boolean }) {
     if (outcome.ok) {
       setCommitOpen(false)
       setCommitMessage('')
-      setComments([])
       void refresh()
     }
   }
@@ -653,13 +664,16 @@ export function DiffPanel({ active }: { active: boolean }) {
               usePanelStore.getState().openFile(cwd, joinPath(result?.root ?? cwd, file.path))
             }
             onDiscard={() => void discard(file)}
-            onComment={(key, line, lineText, text) =>
-              setComments((prev) => [
-                ...prev,
-                { id: crypto.randomUUID(), key, path: file.path, line, lineText, text }
-              ])
+            onComment={(line, lineText, text) =>
+              void window.piDesktop.reviewComments
+                .add({ cwd, path: file.path, ...(line !== undefined ? { line } : {}), lineText, text })
+                .catch((e: unknown) =>
+                  toast(`Could not add the comment: ${e instanceof Error ? e.message : String(e)}`)
+                )
             }
-            onRemoveComment={(id) => setComments((prev) => prev.filter((c) => c.id !== id))}
+            onRemoveComment={(id) =>
+              void window.piDesktop.reviewComments.remove({ cwd, ids: [id] }).catch(() => {})
+            }
           />
         ))}
       </div>

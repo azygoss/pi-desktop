@@ -20,7 +20,7 @@ export {
   type DiffFileStatus
 } from '../../../src/shared/diff-parse'
 export type { DiffLine as PatchLine } from '../../../src/shared/diff-parse'
-export type { PiReviewComment } from '../../../src/shared/review'
+export type { PiReviewComment, ReviewCommentsChange } from '../../../src/shared/review'
 export type {
   AppInfo,
   AttachmentReadResult,

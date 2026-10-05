@@ -56,8 +56,9 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   comments to pi as one prompt; "Review" has pi read the changes in a
   separate process, with the chat's model or any other one you pick (a
   second model checking the first one's work), and pin its remarks to the
-  lines; discard a file's
-  changes (untracked files go to the Trash); commit everything and push
+  lines. Comments are kept per project on the computer, so the window and
+  a paired phone show the same ones until you commit or hand them to pi;
+  discard a file's changes (untracked files go to the Trash); commit everything and push
   without leaving the app.
 - **Checkpoints** — in a git project the files are snapshotted before every
   prompt. Hover a prompt and restore the files to how they were before it;

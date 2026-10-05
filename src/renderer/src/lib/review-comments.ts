@@ -1,17 +1,7 @@
 import type { DiffFile } from '../../../shared/diff-parse'
+import type { ReviewComment } from '../../../shared/review'
 
-/** A note left on one line of the working-tree diff. */
-export interface ReviewComment {
-  id: string
-  path: string
-  /** Line number in the new file (old file for removed lines). */
-  line?: number
-  /** The line the comment is about, as shown in the diff. */
-  lineText: string
-  text: string
-  /** Set on remarks pi left in a review pass; yours have none. */
-  author?: 'pi'
-}
+export type { ReviewComment }
 
 /**
  * Where a remark about `line` of the new file belongs in a parsed diff
@@ -48,7 +38,9 @@ const MAX_QUOTED = 120
  * comment with its file, line and the line's text, so pi can find each spot
  * without the diff in front of it.
  */
-export function reviewPrompt(comments: readonly ReviewComment[]): string {
+export function reviewPrompt(
+  comments: readonly Pick<ReviewComment, 'path' | 'line' | 'lineText' | 'text'>[]
+): string {
   if (comments.length === 0) {
     return ''
   }
@@ -68,4 +60,78 @@ export function reviewPrompt(comments: readonly ReviewComment[]): string {
       ? 'Please address this review comment on the current changes:'
       : 'Please address these review comments on the current changes:'
   return `${intro}\n\n${items.join('\n\n')}\n`
+}
+
+/** A comment placed on a line of the current diff, ready to show or send. */
+export interface PlacedComment extends ReviewComment {
+  /** `hunk:line` of the diff line it sits under. */
+  key: string
+  /**
+   * The line it was about is not in the diff any more (or pi named a line
+   * the diff does not show): it sits on the file's first line instead, and
+   * its text starts with the line number.
+   */
+  fallback: boolean
+}
+
+/**
+ * Place a project's comments on the diff. Yours follow their line by its
+ * text, nearest to where it was; pi's remarks go on the line they name.
+ * Comments on files the diff no longer shows are left out.
+ */
+export function placeComments(
+  files: readonly DiffFile[],
+  comments: readonly ReviewComment[]
+): PlacedComment[] {
+  const placed: PlacedComment[] = []
+  for (const comment of comments) {
+    const file = files.find((f) => f.path === comment.path)
+    if (!file) {
+      continue
+    }
+    let found: { key: string; line?: number; lineText: string } | null = null
+    if (comment.lineText) {
+      let best = Infinity
+      file.hunks.forEach((hunk, i) =>
+        hunk.lines.forEach((line, j) => {
+          if (line.text !== comment.lineText) {
+            return
+          }
+          const no = line.newNo ?? line.oldNo
+          const distance = Math.abs((no ?? 0) - (comment.line ?? 0))
+          if (distance < best) {
+            best = distance
+            found = { key: `${i}:${j}`, ...(no !== undefined ? { line: no } : {}), lineText: line.text }
+          }
+        })
+      )
+    } else {
+      const anchor = anchorForLine(file, comment.line)
+      if (anchor?.exact) {
+        found = anchor
+      }
+    }
+    if (found) {
+      const at = found as { key: string; line?: number; lineText: string }
+      const line = at.line ?? comment.line
+      placed.push({
+        ...comment,
+        key: at.key,
+        ...(line !== undefined ? { line } : {}),
+        lineText: at.lineText,
+        fallback: false
+      })
+      continue
+    }
+    const first = anchorForLine(file, undefined)
+    if (first) {
+      placed.push({
+        ...comment,
+        key: first.key,
+        text: comment.line !== undefined ? `Line ${comment.line}: ${comment.text}` : comment.text,
+        fallback: true
+      })
+    }
+  }
+  return placed
 }

@@ -176,6 +176,44 @@ describe('remote control', () => {
     }
   })
 
+  it('shares diff comments between the window and the phone', async () => {
+    const { workspaceDir: cwd } = await call<{ workspaceDir: string }>('pi-desktop:app:info')
+    type Change = { cwd: string; comments: { id: string; text: string }[] }
+    const nextChange = async (): Promise<Change> => {
+      for (;;) {
+        const frame = await phone.next(isEvent)
+        expect(frame).not.toBeNull()
+        if (frame!.ch === 'pi-desktop:review-comments:changed') {
+          return frame!.d as Change
+        }
+      }
+    }
+    // Written on the phone: the window sees it.
+    const added = await call<{ id: string }>('pi-desktop:review-comments:add', {
+      cwd,
+      path: 'notes.txt',
+      line: 1,
+      lineText: 'line one',
+      text: 'From the phone'
+    })
+    expect((await nextChange()).comments.map((c) => c.text)).toEqual(['From the phone'])
+    const inWindow = (await page.evaluate(
+      `window.piDesktop.reviewComments.list({ cwd: ${JSON.stringify(cwd)} })`
+    )) as { text: string }[]
+    expect(inWindow.map((c) => c.text)).toEqual(['From the phone'])
+    // Written in the window: the phone hears of it.
+    await page.evaluate(
+      `window.piDesktop.reviewComments.add({ cwd: ${JSON.stringify(cwd)}, path: 'notes.txt', lineText: '', text: 'From the window' })`
+    )
+    const change = await nextChange()
+    expect(change.cwd).toBe(cwd)
+    expect(change.comments.map((c) => c.text)).toEqual(['From the phone', 'From the window'])
+    expect(
+      (await call<{ id: string }[]>('pi-desktop:review-comments:remove', { cwd, ids: [added.id] })).length
+    ).toBe(1)
+    await call('pi-desktop:review-comments:clear', { cwd })
+  })
+
   it('cuts the phone off when it is removed', async () => {
     const status = await remoteStatus()
     await page.evaluate(

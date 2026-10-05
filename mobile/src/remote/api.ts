@@ -16,6 +16,7 @@ import type {
   GitActionResult,
   ImageContent,
   PiReviewComment,
+  ReviewComment,
   PiRuntimeInfo,
   PiTreeResult,
   ProjectSummary,
@@ -180,6 +181,16 @@ export const api = {
     review: (cwd: string, model?: SideModelInput) =>
       request<PiReviewComment[] | null>('pi-desktop:diff:review', { cwd, model }, LONG_TIMEOUT_MS)
   },
+  /** A project's diff comments, kept on the computer and shared by every screen. */
+  reviewComments: {
+    list: (cwd: string) => request<ReviewComment[]>('pi-desktop:review-comments:list', { cwd }),
+    add: (cwd: string, comment: { path: string; line?: number; lineText: string; text: string }) =>
+      request<ReviewComment>('pi-desktop:review-comments:add', { cwd, ...comment }),
+    remove: (cwd: string, ids: string[]) =>
+      request<ReviewComment[]>('pi-desktop:review-comments:remove', { cwd, ids }),
+    clear: (cwd: string, paths?: string[]) =>
+      request<ReviewComment[]>('pi-desktop:review-comments:clear', { cwd, ...(paths ? { paths } : {}) })
+  },
   pr: {
     status: (cwd: string) => request<PrStatus>('pi-desktop:pr:status', { cwd }, 60_000),
     failedLog: (cwd: string, runId: string) =>
@@ -214,6 +225,7 @@ export const EVENTS = {
   sessionsChanged: 'pi-desktop:sessions:changed',
   sessionMetaChanged: 'pi-desktop:session-meta:changed',
   automationsChanged: 'pi-desktop:automations:changed',
+  reviewCommentsChanged: 'pi-desktop:review-comments:changed',
   cuaActivity: 'pi-desktop:cua:activity'
 } as const
 

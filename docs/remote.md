@@ -73,6 +73,12 @@ in your projects through pi. Treat pairing a phone like handing someone your
 keyboard: pair only your own devices, and remove a lost phone under
 Settings → Remote control.
 
+Diff comments, yours and pi's review remarks, are kept by the computer per
+project (`review-comments.json` in the app's data directory) and announced
+on `pi-desktop:review-comments:changed`, so the window and every phone show
+the same list. A commit clears a project's comments, discarding a file
+clears that file's, and handing them to pi removes them.
+
 ## Channels only a phone uses
 
 Besides the window's own channels, a few exist for phones
