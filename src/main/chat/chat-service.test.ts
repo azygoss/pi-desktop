@@ -364,6 +364,36 @@ describe('ChatService', () => {
     }
   })
 
+  it('closes and retires the chats in a folder that goes away', async () => {
+    const { service, pool } = makeService({ maxIdleProcesses: 1 })
+    const dir = await mkdtemp(join(tmpdir(), 'pi-desktop-wt-'))
+    const other = await mkdtemp(join(tmpdir(), 'pi-desktop-other-'))
+    try {
+      // w1 is the oldest idle chat, so it is evicted; w2 (focused) and o1 run.
+      await service.open({ chatId: 'w1', cwd: dir })
+      await new Promise((r) => setTimeout(r, 10))
+      await service.open({ chatId: 'o1', cwd: other })
+      await new Promise((r) => setTimeout(r, 10))
+      await service.open({ chatId: 'w2', cwd: dir })
+      service.markFocused('w2')
+      await service.sweepEvictions()
+      expect(service.isEvicted('w1')).toBe(true)
+      expect(service.busyIn(dir)).toBe(false)
+
+      await service.closeIn(dir)
+      expect(service.hasProcess('w2')).toBe(false)
+      expect(service.isEvicted('w1')).toBe(false)
+      expect(service.hasProcess('o1')).toBe(true)
+      // Neither is revived in the removed folder.
+      await expect(service.send({ chatId: 'w1', message: 'hi', mode: 'prompt' })).rejects.toThrow(/folder was removed/)
+      await expect(service.send({ chatId: 'w2', message: 'hi', mode: 'prompt' })).rejects.toThrow(/folder was removed/)
+    } finally {
+      await pool.closeAll()
+      await rm(dir, { recursive: true, force: true })
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+
   it('lets a second device join an open chat instead of starting another pi', async () => {
     const { service, broadcasts, pool } = makeService({ maxIdleProcesses: 0 })
     try {
