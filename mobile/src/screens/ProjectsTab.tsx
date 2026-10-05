@@ -34,6 +34,7 @@ import {
   type PixelTone
 } from '../ui'
 import { SessionRow } from '../ui/SessionRow'
+import { BranchSheet } from '../chat/BranchSheet'
 
 const MAX_SESSIONS = 30
 
@@ -142,6 +143,7 @@ export function ProjectsTab() {
   const loaded = useData((s) => s.loaded)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<ProjectSummary | null>(null)
+  const [branchesCwd, setBranchesCwd] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
   const items = useMemo<Item[]>(() => {
@@ -241,10 +243,12 @@ export function ProjectsTab() {
   )
 
   const removeWorktree = useCallback(
-    async (project: ProjectSummary) => {
+    async (project: ProjectSummary, deleteBranch: boolean) => {
       const sure = await confirm({
         title: `Remove the worktree "${project.name}"?`,
-        message: 'Its folder is deleted on the computer. The branch is kept.',
+        message: deleteBranch
+          ? 'Its folder is deleted on the computer, and its branch too if it is merged.'
+          : 'Its folder is deleted on the computer. The branch is kept.',
         action: 'Remove',
         danger: true
       })
@@ -252,7 +256,7 @@ export function ProjectsTab() {
         return
       }
       try {
-        let result = await api.projects.removeWorktree(project.cwd)
+        let result = await api.projects.removeWorktree(project.cwd, false, deleteBranch)
         if (!result.ok) {
           const force = await confirm({
             title: 'Remove anyway?',
@@ -263,7 +267,7 @@ export function ProjectsTab() {
           if (!force) {
             return
           }
-          result = await api.projects.removeWorktree(project.cwd, true)
+          result = await api.projects.removeWorktree(project.cwd, true, deleteBranch)
         }
         toast(result.message)
       } catch (e) {
@@ -381,16 +385,38 @@ export function ProjectsTab() {
                 newChat(menu.cwd)
               }}
             />
+            <SheetAction
+              icon={GitBranch}
+              title="Branches and worktrees"
+              detail="Switch or create a branch, or open one in a worktree"
+              onPress={() => {
+                setBranchesCwd(menu.cwd)
+                setMenu(null)
+              }}
+            />
             {menu.worktree ? (
-              <SheetAction
-                icon={Trash2}
-                title="Remove worktree…"
-                danger
-                onPress={() => {
-                  setMenu(null)
-                  void removeWorktree(menu)
-                }}
-              />
+              <>
+                <SheetAction
+                  icon={Trash2}
+                  title="Remove worktree…"
+                  detail="Its branch is kept"
+                  danger
+                  onPress={() => {
+                    setMenu(null)
+                    void removeWorktree(menu, false)
+                  }}
+                />
+                <SheetAction
+                  icon={Trash2}
+                  title="Remove worktree and its branch…"
+                  detail="The branch is deleted only if it is merged"
+                  danger
+                  onPress={() => {
+                    setMenu(null)
+                    void removeWorktree(menu, true)
+                  }}
+                />
+              </>
             ) : (
               <SheetAction
                 icon={GitBranch}
@@ -405,6 +431,15 @@ export function ProjectsTab() {
           </>
         ) : null}
       </Sheet>
+      {branchesCwd ? (
+        <BranchSheet
+          cwd={branchesCwd}
+          visible
+          busy={false}
+          navigation={navigation}
+          onClose={() => setBranchesCwd(null)}
+        />
+      ) : null}
     </View>
   )
 }

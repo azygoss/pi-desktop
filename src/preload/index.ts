@@ -85,6 +85,12 @@ const api: PiDesktopApi = {
     review: (input) => ipcRenderer.invoke('pi-desktop:diff:review', input),
     postComments: (input) => ipcRenderer.invoke('pi-desktop:diff:post-comments', input)
   },
+  git: {
+    branches: (input) => ipcRenderer.invoke('pi-desktop:git:branches', input),
+    switchBranch: (input) => ipcRenderer.invoke('pi-desktop:git:switch', input),
+    createBranch: (input) => ipcRenderer.invoke('pi-desktop:git:create-branch', input),
+    onChanged: subscribe('pi-desktop:git:changed')
+  },
   reviewComments: {
     list: (input) => ipcRenderer.invoke('pi-desktop:review-comments:list', input),
     add: (input) => ipcRenderer.invoke('pi-desktop:review-comments:add', input),

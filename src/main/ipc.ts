@@ -43,6 +43,7 @@ import {
 } from './automations/automation-store'
 import { getFailedLog, getPrStatus } from './git/pr-status'
 import { postCommentsToPr } from './git/pr-review'
+import { createBranch, listBranches, switchBranch } from './git/branches'
 import { createCheckpoint, restoreCheckpoint } from './git/checkpoints'
 import type { SideChatService } from './chat/side-service'
 import { REVIEW_PROMPT, parseReviewComments } from '../shared/review'
@@ -178,6 +179,10 @@ export const IPC_CHANNELS = {
   diffDiscard: 'pi-desktop:diff:discard',
   diffCommit: 'pi-desktop:diff:commit',
   diffPostComments: 'pi-desktop:diff:post-comments',
+  gitBranches: 'pi-desktop:git:branches',
+  gitSwitch: 'pi-desktop:git:switch',
+  gitCreateBranch: 'pi-desktop:git:create-branch',
+  gitChanged: 'pi-desktop:git:changed',
   reviewCommentsList: 'pi-desktop:review-comments:list',
   reviewCommentsAdd: 'pi-desktop:review-comments:add',
   reviewCommentsRemove: 'pi-desktop:review-comments:remove',
@@ -299,6 +304,9 @@ const REMOTE_ALLOWED: ReadonlySet<string> = new Set([
   IPC_CHANNELS.diffPush,
   IPC_CHANNELS.diffReview,
   IPC_CHANNELS.diffPostComments,
+  IPC_CHANNELS.gitBranches,
+  IPC_CHANNELS.gitSwitch,
+  IPC_CHANNELS.gitCreateBranch,
   IPC_CHANNELS.reviewCommentsList,
   IPC_CHANNELS.reviewCommentsAdd,
   IPC_CHANNELS.reviewCommentsRemove,
@@ -336,6 +344,7 @@ export const REMOTE_FORWARD = {
     IPC_CHANNELS.sessionMetaChanged,
     IPC_CHANNELS.automationsChanged,
     IPC_CHANNELS.reviewCommentsChanged,
+    IPC_CHANNELS.gitChanged,
     IPC_CHANNELS.cuaActivity
   ]) as ReadonlySet<string>
 }
@@ -645,9 +654,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     )
   })
 
-  handle(IPC_CHANNELS.projectsCreateWorktree, async (_e, input: { cwd: string }) => {
+  handle(IPC_CHANNELS.projectsCreateWorktree, async (_e, input: { cwd: string; source?: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
-    const worktree = await createWorktree(cwd, worktreesDir())
+    const worktree = await createWorktree(cwd, worktreesDir(), input?.source)
+    broadcastAll(IPC_CHANNELS.gitChanged, { root: worktree.repo })
     // Listed right away, before its first chat has a session file.
     const settings = await loadAppSettings()
     if (!settings.projects.some((p) => p.cwd === worktree.cwd)) {
@@ -660,10 +670,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle(
     IPC_CHANNELS.projectsRemoveWorktree,
-    async (_e, input: { cwd: string; force?: unknown }) => {
+    async (_e, input: { cwd: string; force?: unknown; deleteBranch?: unknown }) => {
       const cwd = await validateCwd(input?.cwd)
-      const result = await removeWorktree(cwd, worktreesDir(), input?.force === true)
+      const result = await removeWorktree(
+        cwd,
+        worktreesDir(),
+        input?.force === true,
+        input?.deleteBranch === true
+      )
       if (result.ok) {
+        broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
         const settings = await loadAppSettings()
         await updateAppSettings({
           projects: settings.projects.filter((p) => p.cwd !== cwd),
@@ -735,6 +751,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
     return remarks
   })
+  // Branches of a project's repository. A switch or a new branch is
+  // announced so every window and phone rereads its branch.
+  handle(IPC_CHANNELS.gitBranches, async (_e, input: { cwd: unknown }) =>
+    listBranches(await validateCwd(input?.cwd), worktreesDir())
+  )
+  handle(IPC_CHANNELS.gitSwitch, async (_e, input: { cwd: unknown; branch?: unknown }) => {
+    const cwd = await validateCwd(input?.cwd)
+    const result = await switchBranch(cwd, input)
+    if (result.ok) {
+      broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
+    }
+    return result
+  })
+  handle(IPC_CHANNELS.gitCreateBranch, async (_e, input: Record<string, unknown>) => {
+    const cwd = await validateCwd(input?.['cwd'])
+    const result = await createBranch(cwd, input)
+    if (result.ok) {
+      broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
+    }
+    return result
+  })
+
   // Public once posted: the window and the phone each ask first.
   handle(
     IPC_CHANNELS.diffPostComments,

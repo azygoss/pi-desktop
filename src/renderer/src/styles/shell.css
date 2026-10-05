@@ -745,3 +745,46 @@ button.sidebar-section-header:hover {
     animation: none;
   }
 }
+
+/* Branch menu: the branch chip in the chat header and its popover. */
+.branch-menu {
+  position: relative;
+  min-width: 0;
+  display: inline-flex;
+  /* The branch name is the chip's point: other chips give way first. */
+  flex-shrink: 0;
+}
+.branch-chevron {
+  color: var(--muted);
+  margin-left: -1px;
+}
+.branch-popover {
+  bottom: auto;
+  top: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  width: 360px;
+  -webkit-app-region: no-drag;
+}
+.branch-popover.popover-below {
+  top: calc(100% + 6px);
+}
+.branch-note {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.branch-row .model-row-hint {
+  font-size: 10.5px;
+}
+.branch-row-action {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.branch-row.is-highlight .branch-row-action,
+.branch-row-action:focus-visible {
+  opacity: 1;
+}

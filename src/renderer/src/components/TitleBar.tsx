@@ -1,7 +1,7 @@
 import {
   ChevronLeft,
   ChevronRight,
-  GitBranch,
+  FileDiff,
   MoreHorizontal,
   PanelLeft,
   PanelRight
@@ -16,6 +16,7 @@ import { archiveSessionPath, setSessionArchived, setSessionPinned } from '../lib
 import { Elapsed, LiveDot } from './LiveIndicators'
 import { ProjectSigil } from './Pixels'
 import { useRepoSummary } from '../lib/repo-summary'
+import { BranchMenu } from './BranchMenu'
 import { PrChip } from './PrChip'
 
 /**
@@ -268,6 +269,13 @@ export function MainTopBar() {
             </button>
           )}
           {repo?.isRepo && (
+            <BranchMenu
+              cwd={chat.cwd}
+              branch={repo.branch ?? null}
+              busy={chat.streaming === true || chat.bashRunning === true}
+            />
+          )}
+          {repo?.isRepo && (
             <button
               type="button"
               className="repo-chip"
@@ -279,8 +287,8 @@ export function MainTopBar() {
               }
               onClick={() => usePanelStore.getState().openDiff()}
             >
-              <GitBranch size={11} />
-              {repo.branch && <span className="repo-chip-branch">{repo.branch}</span>}
+              <FileDiff size={11} />
+              {repo.files === 0 && <span>clean</span>}
               {repo.files > 0 && (
                 <span className="repo-chip-stat">
                   {repo.added > 0 && <span className="diff-add-count">+{repo.added}</span>}

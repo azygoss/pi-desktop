@@ -68,9 +68,14 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   files created since go to the Trash.
 - **Side chat** — ⌘; or `/btw` asks a question with the chat's context in a
   side-panel tab. Nothing asked there is added to the chat.
-- **Worktrees** — "New Chat in a Worktree" (project menu or ⌘K) gives a chat
-  its own git worktree on a fresh `pi/…` branch, so several chats can change
-  the same project in parallel without touching each other's files.
+- **Branches and worktrees** — the branch chip in the chat header opens the
+  branch menu: switch the folder to a branch (a remote one gets a tracking
+  branch), create a branch, open any branch in a new worktree chat, or go to
+  one of the repository's worktrees (also ones made outside the app).
+  "New Chat in a Worktree" (project menu or ⌘K) gives a chat its own git
+  worktree on a fresh `pi/…` branch, so several chats can change the same
+  project in parallel without touching each other's files; removing a
+  worktree can take its merged branch with it.
 - **Automations** — prompts pi runs on a schedule (daily at a time, weekdays
   only, or every N minutes/hours) while the app is open. Each run is an
   ordinary chat that starts in the background and notifies you when it is

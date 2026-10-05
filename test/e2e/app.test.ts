@@ -1439,6 +1439,30 @@ describe('Pi Desktop e2e', () => {
     await expect.poll(() => panel.locator('.diff-comment-pi').count(), { timeout: 5000 }).toBe(0)
   })
 
+  it('creates a branch and switches back from the branch menu', async () => {
+    const chip = page.locator('[data-testid="branch-chip"]')
+    await chip.waitFor({ state: 'visible', timeout: 10_000 })
+    const original = ((await chip.textContent()) ?? '').trim()
+    await chip.click()
+    const menu = page.locator('[data-testid="branch-popover"]')
+    await menu.locator('[data-testid="branch-row-branch"]').first().waitFor({ timeout: 10_000 })
+    await menu.locator('input').fill('e2e-topic')
+    await menu.locator('[data-testid="branch-row-create-branch"]').click()
+    await expect.poll(async () => ((await chip.textContent()) ?? '').trim(), { timeout: 10_000 }).toBe('e2e-topic')
+    // Back to where it was, picked from the list.
+    await chip.click()
+    await menu.locator('input').fill(original)
+    await menu.locator('[data-testid="branch-row-branch"]', { hasText: original }).first().click()
+    await expect.poll(async () => ((await chip.textContent()) ?? '').trim(), { timeout: 10_000 }).toBe(original)
+    // The new branch is listed, with a way to open it in a worktree.
+    await chip.click()
+    await menu.locator('input').fill('e2e-topic')
+    const row = menu.locator('[data-testid="branch-row-branch"]', { hasText: 'e2e-topic' })
+    await row.hover()
+    expect(await row.locator('.branch-row-action').getAttribute('title')).toContain('new worktree chat')
+    await page.keyboard.press('Escape')
+  })
+
   it('answers a side question without adding to the chat', async () => {
     const rowsBefore = await page.locator('.msg-user-row').count()
     await page.locator('.composer-input').focus()
