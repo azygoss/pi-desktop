@@ -6,8 +6,8 @@
 /** The name diff comments are signed with on GitHub. */
 export const PR_COMMENT_SIGNATURE = 'pi-bot'
 
-/** Most comments one review takes; more would bury the PR. */
-export const MAX_PR_COMMENTS = 100
+/** Most comments one review takes: as many as a project keeps. */
+export const MAX_PR_COMMENTS = 200
 
 export interface PrCommentInput {
   path: string
@@ -17,6 +17,11 @@ export interface PrCommentInput {
   lineText: string
   text: string
   author?: 'pi'
+  /**
+   * The comment is on a removed line (`line` is then the old file's): never
+   * put on a line of the new file, it is listed in the review's body.
+   */
+  removed?: boolean
 }
 
 /** A file of the pull request as GitHub's `pulls/{n}/files` lists it. */
@@ -86,6 +91,7 @@ export function buildPrReview(
   for (const comment of comments.slice(0, MAX_PR_COMMENTS)) {
     const lines = byPath.get(comment.path)
     const onLine =
+      !comment.removed &&
       comment.line !== undefined &&
       lines?.has(comment.line) &&
       (comment.lineText === '' || lines.get(comment.line) === comment.lineText)
@@ -95,7 +101,7 @@ export function buildPrReview(
     }
     const where = comment.line !== undefined ? `${comment.path}:${comment.line}` : comment.path
     const about = comment.lineText.trim() ? ` — \`${quote(comment.lineText.trim())}\`` : ''
-    const by = comment.author === 'pi' ? ' _(pi)_' : ''
+    const by = `${comment.removed ? ' _(removed line)_' : ''}${comment.author === 'pi' ? ' _(pi)_' : ''}`
     const text = comment.text.trim().split('\n').join('\n  ')
     listed.push(`- \`${where}\`${about}${by}\n  ${text}`)
   }

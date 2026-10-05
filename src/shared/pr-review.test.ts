@@ -41,6 +41,15 @@ describe('buildPrReview', () => {
     expect(review.body).toBe('**pi-bot** · 2 review comments from Pi Desktop')
   })
 
+  it('never puts a comment on a removed line onto the new file', () => {
+    const review = buildPrReview(
+      [{ path: 'src/a.ts', line: 2, lineText: 'TWO', text: 'Was two', removed: true }],
+      files
+    )
+    expect(review.comments).toEqual([])
+    expect(review.body).toContain('- `src/a.ts:2` — `TWO` _(removed line)_\n  Was two')
+  })
+
   it('lists comments on lines the pull request does not have in the body', () => {
     const review = buildPrReview(
       [

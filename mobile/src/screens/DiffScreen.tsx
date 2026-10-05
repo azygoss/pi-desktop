@@ -749,7 +749,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     const yes = await confirm({
       title: `Post ${comments.length} ${comments.length === 1 ? 'comment' : 'comments'} to the pull request?`,
       message:
-        'They are added to the PR on GitHub as one review signed pi-bot, visible to everyone who can see the repository.',
+        'They are added to the PR on GitHub as one review signed pi-bot, visible to everyone who can see the repository, and leave this list.',
       action: 'Post'
     })
     if (!yes) {
@@ -764,9 +764,12 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
           ...(c.line !== undefined ? { line: c.line } : {}),
           lineText: c.fallback ? '' : c.lineText,
           text: c.text,
-          ...(c.author ? { author: c.author } : {})
+          ...(c.author ? { author: c.author } : {}),
+          ...(c.removed ? { removed: true } : {})
         }))
       )
+      // They live on the PR now: posting again would only repeat them.
+      void api.reviewComments.remove(cwd, comments.map((c) => c.id)).catch(() => {})
       haptic('success')
       toast(
         `Posted to the PR${posted.account ? ` as ${posted.account}` : ''}${posted.listed > 0 ? ` (${posted.listed} in the summary)` : ''}`,

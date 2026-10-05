@@ -1399,7 +1399,19 @@ describe('Pi Desktop e2e', () => {
     expect(await remark.textContent()).toContain(
       `Synthetic review remark by ${otherName.toLowerCase().replace(/ /g, '-')}.`
     )
-    // Posted to the PR as one review, through the bot account in Settings.
+    // pi's remarks travel with yours when they are sent to the composer.
+    await panel.locator('[data-testid="send-comments"]').click()
+    const composer = page.locator('.composer-input')
+    await expect
+      .poll(() => composer.inputValue(), { timeout: 5000 })
+      .toContain('Synthetic review remark by')
+    expect(await composer.inputValue()).toContain('`notes.txt:1`')
+    await composer.fill('')
+    // Another pass, posted to the PR as one review through the bot account
+    // in Settings; posted comments leave the list.
+    await panel.locator('[data-testid="review-diff"]').click()
+    await menu.locator('[data-testid="review-current-model"]').click()
+    await visible(page, '.panel-tab-content.is-active .diff-comment-pi', 30_000)
     await page.evaluate(
       "window.piDesktop.appSettings.update({ github: { commentAccount: 'synthetic-bot' } })"
     )
@@ -1424,14 +1436,7 @@ describe('Pi Desktop e2e', () => {
         }
       ]
     })
-    // pi's remarks travel with yours when they are sent to the composer.
-    await panel.locator('[data-testid="send-comments"]').click()
-    const composer = page.locator('.composer-input')
-    await expect
-      .poll(() => composer.inputValue(), { timeout: 5000 })
-      .toContain('Synthetic review remark by')
-    expect(await composer.inputValue()).toContain('`notes.txt:1`')
-    await composer.fill('')
+    await expect.poll(() => panel.locator('.diff-comment-pi').count(), { timeout: 5000 }).toBe(0)
   })
 
   it('answers a side question without adding to the chat', async () => {

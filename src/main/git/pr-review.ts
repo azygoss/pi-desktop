@@ -38,7 +38,8 @@ function validateComments(value: unknown): PrCommentInput[] {
       ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}),
       lineText: typeof c['lineText'] === 'string' ? c['lineText'].slice(0, MAX_LINE_TEXT) : '',
       text: text.slice(0, MAX_TEXT),
-      ...(c['author'] === 'pi' ? { author: 'pi' as const } : {})
+      ...(c['author'] === 'pi' ? { author: 'pi' as const } : {}),
+      ...(c['removed'] === true ? { removed: true } : {})
     }
   })
 }
@@ -54,12 +55,31 @@ function ghError(run: { err: string; out: string }, what: string): Error {
  * as that signed-in account (a bot account, say); its token goes to gh's
  * own process only and is never kept or logged.
  */
+const posting = new Set<string>()
+
 export async function postCommentsToPr(
   cwd: string,
   input: unknown,
   account: string | undefined
 ): Promise<PrReviewPosted> {
   const comments = validateComments(input)
+  // One post per project at a time: a second tap would post twice.
+  if (posting.has(cwd)) {
+    throw new Error('Already posting these comments')
+  }
+  posting.add(cwd)
+  try {
+    return await post(cwd, comments, account)
+  } finally {
+    posting.delete(cwd)
+  }
+}
+
+async function post(
+  cwd: string,
+  comments: PrCommentInput[],
+  account: string | undefined
+): Promise<PrReviewPosted> {
   const view = await gh(cwd, ['pr', 'view', '--json', 'number,url,headRefOid,state'], GH_TIMEOUT_MS)
   if (view.missing) {
     throw new Error('The GitHub CLI (gh) is not installed')
@@ -91,14 +111,23 @@ export async function postCommentsToPr(
     env = { GH_TOKEN: token.out.trim(), GH_HOST: host! }
   }
 
-  const listed = await gh(cwd, ['api', '--paginate', `${api}/files?per_page=100`], GH_TIMEOUT_MS, {
-    ...(env ? { env } : {})
-  })
-  if (!listed.ok) {
-    throw ghError(listed, 'gh could not list the pull request files')
+  // Page by page (100 a page; GitHub lists at most 3000 files). Only the
+  // files that have a comment matter.
+  const wanted = new Set(comments.map((c) => c.path))
+  const files: PrFile[] = []
+  for (let page = 1; page <= 30; page++) {
+    const listed = await gh(cwd, ['api', `${api}/files?per_page=100&page=${page}`], GH_TIMEOUT_MS, {
+      ...(env ? { env } : {})
+    })
+    if (!listed.ok) {
+      throw ghError(listed, 'gh could not list the pull request files')
+    }
+    const batch = JSON.parse(listed.out) as PrFile[]
+    files.push(...batch.filter((file) => wanted.has(file.filename)))
+    if (batch.length < 100) {
+      break
+    }
   }
-  // --paginate concatenates the pages' arrays: "[...][...]".
-  const files = JSON.parse(`[${listed.out.trim().replace(/\]\s*\[/g, ',').slice(1, -1)}]`) as PrFile[]
   const draft = buildPrReview(comments, files)
 
   const posted = await gh(cwd, ['api', '-X', 'POST', `${api}/reviews`, '--input', '-'], GH_TIMEOUT_MS, {

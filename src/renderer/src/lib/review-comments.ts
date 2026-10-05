@@ -72,6 +72,8 @@ export interface PlacedComment extends ReviewComment {
    * its text starts with the line number.
    */
   fallback: boolean
+  /** It sits on a removed line (its `line` is the old file's). */
+  removed: boolean
 }
 
 /**
@@ -89,7 +91,7 @@ export function placeComments(
     if (!file) {
       continue
     }
-    let found: { key: string; line?: number; lineText: string } | null = null
+    let found: { key: string; line?: number; lineText: string; removed?: boolean } | null = null
     if (comment.lineText) {
       let best = Infinity
       file.hunks.forEach((hunk, i) =>
@@ -101,7 +103,12 @@ export function placeComments(
           const distance = Math.abs((no ?? 0) - (comment.line ?? 0))
           if (distance < best) {
             best = distance
-            found = { key: `${i}:${j}`, ...(no !== undefined ? { line: no } : {}), lineText: line.text }
+            found = {
+              key: `${i}:${j}`,
+              ...(no !== undefined ? { line: no } : {}),
+              lineText: line.text,
+              removed: line.type === 'del'
+            }
           }
         })
       )
@@ -112,14 +119,15 @@ export function placeComments(
       }
     }
     if (found) {
-      const at = found as { key: string; line?: number; lineText: string }
+      const at = found as { key: string; line?: number; lineText: string; removed?: boolean }
       const line = at.line ?? comment.line
       placed.push({
         ...comment,
         key: at.key,
         ...(line !== undefined ? { line } : {}),
         lineText: at.lineText,
-        fallback: false
+        fallback: false,
+        removed: at.removed === true
       })
       continue
     }
@@ -129,7 +137,8 @@ export function placeComments(
         ...comment,
         key: first.key,
         text: comment.line !== undefined ? `Line ${comment.line}: ${comment.text}` : comment.text,
-        fallback: true
+        fallback: true,
+        removed: false
       })
     }
   }
