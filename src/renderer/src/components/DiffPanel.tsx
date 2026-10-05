@@ -5,6 +5,7 @@ import {
   FileDiff,
   FileText,
   GitCommitHorizontal,
+  GitPullRequest,
   Plus,
   RefreshCw,
   Send,
@@ -330,7 +331,7 @@ export function DiffPanel({ active }: { active: boolean }) {
   const [stored, setStored] = useState<{ cwd: string; comments: ReviewComment[] } | null>(null)
   const [commitOpen, setCommitOpen] = useState(false)
   const [commitMessage, setCommitMessage] = useState('')
-  const [busy, setBusy] = useState<'commit' | 'push' | 'review' | null>(null)
+  const [busy, setBusy] = useState<'commit' | 'push' | 'review' | 'post' | null>(null)
 
   const refresh = useCallback(async () => {
     if (!cwd) {
@@ -514,6 +515,54 @@ export function DiffPanel({ active }: { active: boolean }) {
       .catch(() => {})
   }
 
+  // Post the comments to the branch's pull request, where anyone with the
+  // repository (and tools like gh) can read them. Public, so ask first.
+  const postToPr = async (): Promise<void> => {
+    if (busy || comments.length === 0) {
+      return
+    }
+    const choice = await window.piDesktop.app.confirmDialog({
+      title: `Post ${comments.length} ${comments.length === 1 ? 'comment' : 'comments'} to the pull request?`,
+      message:
+        'They are added to the PR on GitHub as one review signed pi-bot, visible to everyone who can see the repository, and leave this list.',
+      buttons: ['Post', 'Cancel']
+    })
+    if (choice !== 0) {
+      return
+    }
+    setBusy('post')
+    try {
+      const posted = await window.piDesktop.diff.postComments({
+        cwd,
+        comments: comments.map((c) => ({
+          path: c.path,
+          ...(c.line !== undefined ? { line: c.line } : {}),
+          // Unknown when it sits on a fallback line; '' is a real blank line.
+          ...(c.fallback ? {} : { lineText: c.lineText }),
+          text: c.text,
+          ...(c.author ? { author: c.author } : {}),
+          ...(c.removed ? { removed: true } : {})
+        }))
+      })
+      // They live on the PR now: posting again would only repeat them.
+      void window.piDesktop.reviewComments
+        .remove({ cwd, ids: comments.map((c) => c.id) })
+        .catch(() => {})
+      toast(
+        `Posted to the PR${posted.account ? ` as ${posted.account}` : ''}${posted.listed > 0 ? ` (${posted.listed} in the review's summary)` : ''}`,
+        { action: { label: 'Open', run: () => void window.piDesktop.app.openExternal(posted.url) } }
+      )
+    } catch (e) {
+      const message = (e instanceof Error ? e.message : String(e)).replace(
+        /^Error invoking remote method [^:]+: (Error: )?/,
+        ''
+      )
+      toast(`Could not post: ${message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const discard = async (file: DiffFile): Promise<void> => {
     const untracked = file.status === 'added'
     const choice = await window.piDesktop.app.confirmDialog({
@@ -589,6 +638,24 @@ export function DiffPanel({ active }: { active: boolean }) {
             >
               <Send size={11} />
               {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+            </button>
+          )}
+          {comments.length > 0 && result?.isRepo && (
+            <button
+              type="button"
+              className="diff-action"
+              data-testid="post-comments"
+              title={
+                busy === 'post'
+                  ? 'Posting to the pull request…'
+                  : "Post the comments to this branch's pull request on GitHub"
+              }
+              aria-label="Post the comments to the pull request"
+              disabled={busy !== null}
+              onClick={() => void postToPr()}
+            >
+              <GitPullRequest size={11} />
+              {busy === 'post' ? 'Posting…' : 'PR'}
             </button>
           )}
           {result?.isRepo && files.length > 0 && (

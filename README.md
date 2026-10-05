@@ -57,7 +57,9 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   separate process, with the chat's model or any other one you pick (a
   second model checking the first one's work), and pin its remarks to the
   lines. Comments are kept per project on the computer, so the window and
-  a paired phone show the same ones until you commit or hand them to pi;
+  a paired phone show the same ones until you commit or hand them to pi,
+  and "PR" posts them to the branch's pull request as one GitHub review
+  signed pi-bot (from a bot account of yours if you set one in Settings);
   discard a file's changes (untracked files go to the Trash); commit everything and push
   without leaving the app.
 - **Checkpoints** — in a git project the files are snapshotted before every

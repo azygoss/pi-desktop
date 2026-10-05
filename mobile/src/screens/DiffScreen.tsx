@@ -4,6 +4,7 @@ import {
   ChevronRight,
   FileText,
   GitBranch,
+  GitPullRequest,
   MoreHorizontal,
   RefreshCw,
   ScanSearch,
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react-native'
 import { usePreventRemove } from '@react-navigation/native'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Keyboard, KeyboardAvoidingView, View } from 'react-native'
+import { FlatList, Keyboard, KeyboardAvoidingView, Linking, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
@@ -178,6 +179,7 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.warningSoft,
     overflow: 'hidden'
   },
+  commentActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   sendCommentsTap: { minHeight: TOUCH, justifyContent: 'center', paddingHorizontal: space.md },
   sheetBody: { paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.md },
   quoted: { backgroundColor: t.codeBg, borderRadius: radius.sm, padding: space.sm }
@@ -338,7 +340,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   const [target, setTarget] = useState<LineRowData | null>(null)
   const [draft, setDraft] = useState('')
   const [message, setMessage] = useState('')
-  const [busy, setBusy] = useState<'commit' | 'push' | null>(null)
+  const [busy, setBusy] = useState<'commit' | 'push' | 'post' | null>(null)
   const [reviewing, setReviewing] = useState(false)
   const [reviewMenu, setReviewMenu] = useState(false)
 
@@ -738,6 +740,51 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     navigation.goBack()
   }
 
+  // Post every comment here (yours and pi's) to the branch's pull request
+  // as one review signed pi-bot. Public on GitHub, so ask first.
+  const postToPr = async (): Promise<void> => {
+    if (busy || comments.length === 0) {
+      return
+    }
+    const yes = await confirm({
+      title: `Post ${comments.length} ${comments.length === 1 ? 'comment' : 'comments'} to the pull request?`,
+      message:
+        'They are added to the PR on GitHub as one review signed pi-bot, visible to everyone who can see the repository, and leave this list.',
+      action: 'Post'
+    })
+    if (!yes) {
+      return
+    }
+    setBusy('post')
+    try {
+      const posted = await api.diff.postComments(
+        cwd,
+        comments.map((c) => ({
+          path: c.path,
+          ...(c.line !== undefined ? { line: c.line } : {}),
+          // Unknown when it sits on a fallback line; '' is a real blank line.
+          ...(c.fallback ? {} : { lineText: c.lineText }),
+          text: c.text,
+          ...(c.author ? { author: c.author } : {}),
+          ...(c.removed ? { removed: true } : {})
+        }))
+      )
+      // They live on the PR now: posting again would only repeat them.
+      void api.reviewComments.remove(cwd, comments.map((c) => c.id)).catch(() => {})
+      haptic('success')
+      toast(
+        `Posted to the PR${posted.account ? ` as ${posted.account}` : ''}${posted.listed > 0 ? ` (${posted.listed} in the summary)` : ''}`,
+        { action: { label: 'Open', run: () => void Linking.openURL(posted.url) } }
+      )
+    } catch (e) {
+      toast(`Could not post: ${errorText(e)}`)
+    } finally {
+      if (mounted.current) {
+        setBusy(null)
+      }
+    }
+  }
+
   const renderItem = useCallback(
     ({ item }: { item: DiffRow }) => {
       switch (item.kind) {
@@ -848,13 +895,26 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
               }
             />
             <View style={[styles.bar, { paddingBottom: insets.bottom + space.sm }]}>
-              {chatId && mine.length > 0 ? (
-                <View style={styles.sendComments}>
-                  <Tap style={styles.sendCommentsTap} onPress={sendComments}>
-                    <Txt size="small" weight="semibold">
-                      Send {mine.length} {mine.length === 1 ? 'comment' : 'comments'} to pi
-                    </Txt>
-                  </Tap>
+              {(chatId && mine.length > 0) || (shared && comments.length > 0) ? (
+                <View style={styles.commentActions}>
+                  {chatId && mine.length > 0 ? (
+                    <View style={[styles.sendComments, { flex: 1 }]}>
+                      <Tap style={styles.sendCommentsTap} onPress={sendComments}>
+                        <Txt size="small" weight="semibold">
+                          Send {mine.length} {mine.length === 1 ? 'comment' : 'comments'} to pi
+                        </Txt>
+                      </Tap>
+                    </View>
+                  ) : null}
+                  {shared && comments.length > 0 ? (
+                    <Button
+                      title={busy === 'post' ? 'Posting…' : 'Post to PR'}
+                      kind="ghost"
+                      icon={GitPullRequest}
+                      disabled={busy !== null}
+                      onPress={() => void postToPr()}
+                    />
+                  ) : null}
                 </View>
               ) : null}
               <View style={styles.barRow}>

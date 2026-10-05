@@ -54,7 +54,14 @@ describe('placeComments', () => {
       [{ ...base, id: '1', path: 'a.ts', line: 7, lineText: 'three', text: 'Here' }]
     )
     expect(placed).toEqual([
-      expect.objectContaining({ id: '1', key: '0:2', line: 3, fallback: false, text: 'Here' })
+      expect.objectContaining({
+        id: '1',
+        key: '0:2',
+        line: 3,
+        fallback: false,
+        removed: false,
+        text: 'Here'
+      })
     ])
   })
 

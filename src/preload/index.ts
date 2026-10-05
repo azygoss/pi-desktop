@@ -82,7 +82,8 @@ const api: PiDesktopApi = {
     discard: (input) => ipcRenderer.invoke('pi-desktop:diff:discard', input),
     commit: (input) => ipcRenderer.invoke('pi-desktop:diff:commit', input),
     push: (input) => ipcRenderer.invoke('pi-desktop:diff:push', input),
-    review: (input) => ipcRenderer.invoke('pi-desktop:diff:review', input)
+    review: (input) => ipcRenderer.invoke('pi-desktop:diff:review', input),
+    postComments: (input) => ipcRenderer.invoke('pi-desktop:diff:post-comments', input)
   },
   reviewComments: {
     list: (input) => ipcRenderer.invoke('pi-desktop:review-comments:list', input),
