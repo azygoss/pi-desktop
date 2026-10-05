@@ -68,6 +68,7 @@ import { listProjectFiles } from './files/file-list'
 import { readAttachments } from './files/attachments'
 import { REMOTE_CHANNELS } from '../shared/remote/protocol'
 import { SIDE_CHANNELS } from './chat/side-service'
+import { ReviewCommentStore } from './review/comment-store'
 import { listDirs } from './remote/list-dirs'
 import { trimTranscript } from './remote/trim-transcript'
 import type { RemoteStatus } from './remote/remote-server'
@@ -175,6 +176,11 @@ export const IPC_CHANNELS = {
   sideClose: 'pi-desktop:side:close',
   diffDiscard: 'pi-desktop:diff:discard',
   diffCommit: 'pi-desktop:diff:commit',
+  reviewCommentsList: 'pi-desktop:review-comments:list',
+  reviewCommentsAdd: 'pi-desktop:review-comments:add',
+  reviewCommentsRemove: 'pi-desktop:review-comments:remove',
+  reviewCommentsClear: 'pi-desktop:review-comments:clear',
+  reviewCommentsChanged: 'pi-desktop:review-comments:changed',
   diffPush: 'pi-desktop:diff:push',
   filesRead: 'pi-desktop:files:read',
   sessionsUsage: 'pi-desktop:sessions:usage',
@@ -290,6 +296,10 @@ const REMOTE_ALLOWED: ReadonlySet<string> = new Set([
   IPC_CHANNELS.diffCommit,
   IPC_CHANNELS.diffPush,
   IPC_CHANNELS.diffReview,
+  IPC_CHANNELS.reviewCommentsList,
+  IPC_CHANNELS.reviewCommentsAdd,
+  IPC_CHANNELS.reviewCommentsRemove,
+  IPC_CHANNELS.reviewCommentsClear,
   IPC_CHANNELS.prStatus,
   IPC_CHANNELS.prFailedLog,
   IPC_CHANNELS.automationsList,
@@ -322,6 +332,7 @@ export const REMOTE_FORWARD = {
     IPC_CHANNELS.sessionsChanged,
     IPC_CHANNELS.sessionMetaChanged,
     IPC_CHANNELS.automationsChanged,
+    IPC_CHANNELS.reviewCommentsChanged,
     IPC_CHANNELS.cuaActivity
   ]) as ReadonlySet<string>
 }
@@ -706,14 +717,38 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle(IPC_CHANNELS.sideClose, (_e, input: Record<string, unknown>) =>
     requireSide().close({ sideId: input?.['sideId'] })
   )
+  // Diff comments live here, per project, so every window and paired phone
+  // sees the same list (and a review pass lands even if its screen closed).
+  const reviewComments = new ReviewCommentStore(
+    join(appUserDataDir(), 'review-comments.json'),
+    (cwd, comments) => broadcastAll(IPC_CHANNELS.reviewCommentsChanged, { cwd, comments })
+  )
   handle(IPC_CHANNELS.diffReview, async (_e, input: Record<string, unknown>) => {
-    const reply = await requireSide().ask({
-      cwd: input?.['cwd'],
-      prompt: REVIEW_PROMPT,
-      model: input?.['model']
-    })
-    return parseReviewComments(reply)
+    const cwd = await validateCwd(input?.['cwd'])
+    const reply = await requireSide().ask({ cwd, prompt: REVIEW_PROMPT, model: input?.['model'] })
+    const remarks = parseReviewComments(reply)
+    if (remarks !== null) {
+      await reviewComments.replacePi(cwd, remarks)
+    }
+    return remarks
   })
+  handle(IPC_CHANNELS.reviewCommentsList, async (_e, input: { cwd: unknown }) =>
+    reviewComments.list(await validateCwd(input?.cwd))
+  )
+  handle(IPC_CHANNELS.reviewCommentsAdd, async (_e, input: Record<string, unknown>) =>
+    reviewComments.add(await validateCwd(input?.['cwd']), {
+      path: input?.['path'],
+      line: input?.['line'],
+      lineText: input?.['lineText'],
+      text: input?.['text']
+    })
+  )
+  handle(IPC_CHANNELS.reviewCommentsRemove, async (_e, input: { cwd: unknown; ids: unknown }) =>
+    reviewComments.remove(await validateCwd(input?.cwd), input?.ids)
+  )
+  handle(IPC_CHANNELS.reviewCommentsClear, async (_e, input: { cwd: unknown; paths?: unknown }) =>
+    reviewComments.clear(await validateCwd(input?.cwd), input?.paths)
+  )
 
   // --- Automations ----------------------------------------------------------
 
@@ -771,11 +806,19 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   handle(IPC_CHANNELS.diffDiscard, async (_e, input: { cwd: string; path: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
-    return discardFile(cwd, input?.path, (absolute) => shell.trashItem(absolute))
+    const outcome = await discardFile(cwd, input?.path, (absolute) => shell.trashItem(absolute))
+    if (outcome.ok && typeof input?.path === 'string') {
+      await reviewComments.clear(cwd, [input.path])
+    }
+    return outcome
   })
   handle(IPC_CHANNELS.diffCommit, async (_e, input: { cwd: string; message: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
-    return commitAll(cwd, input?.message)
+    const outcome = await commitAll(cwd, input?.message)
+    if (outcome.ok) {
+      await reviewComments.clear(cwd) // the changes they were about are committed
+    }
+    return outcome
   })
   handle(IPC_CHANNELS.diffPush, async (_e, input: { cwd: string }) => {
     const cwd = await validateCwd(input?.cwd)

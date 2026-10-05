@@ -15,7 +15,7 @@ import { FlatList, Keyboard, KeyboardAvoidingView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
-  anchorForLine,
+  placeComments,
   countChanges,
   diffFileForUntracked,
   parseUnifiedDiff,
@@ -25,12 +25,15 @@ import {
   type PatchLine,
   type RepoDiffResult,
   type Model,
-  type ReviewComment
+  type PlacedComment,
+  type ReviewComment,
+  type ReviewCommentsChange
 } from '../desktop'
 import { ReviewSheet } from '../chat/sheets'
 import type { ScreenProps } from '../nav'
-import { api, errorText } from '../remote/api'
+import { api, errorText, EVENTS } from '../remote/api'
 import { useChats } from '../state/chats'
+import { onOnline, onRemote } from '../state/connection'
 import { makeStyles, radius, space, TOUCH, useTheme } from '../theme'
 import {
   Button,
@@ -53,7 +56,7 @@ import {
 const COLLAPSE_LINES = 400
 
 /** A comment pinned to one diff line; `key` is the line's `hunk:line` index. */
-type PinnedComment = ReviewComment & { key: string }
+type PinnedComment = PlacedComment
 
 type DiffRow =
   | {
@@ -326,7 +329,11 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   const [error, setError] = useState<string | null>(null)
   const [pulling, setPulling] = useState(false)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
-  const [comments, setComments] = useState<PinnedComment[]>([])
+  // The project's comments live on the computer, shared with its window and
+  // other phones. A computer from before 0.13 cannot keep them: then they
+  // stay on this screen, as they used to.
+  const [stored, setStored] = useState<ReviewComment[]>([])
+  const [shared, setShared] = useState(true)
   const [menuPath, setMenuPath] = useState<string | null>(null)
   const [target, setTarget] = useState<LineRowData | null>(null)
   const [draft, setDraft] = useState('')
@@ -369,43 +376,6 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       if (large.length > 0) {
         setCollapsed((prev) => new Set([...prev, ...large.map((entry) => entry.file.path)]))
       }
-      // The diff moved under the comments: each follows its line (found by
-      // its text, nearest to where it was); one whose line is gone is dropped.
-      setComments((prev) => {
-        let changed = false
-        const kept: PinnedComment[] = []
-        for (const comment of prev) {
-          const file = built.find((entry) => entry.file.path === comment.path)?.file
-          const [hunk, line] = comment.key.split(':').map(Number)
-          const here = file?.hunks[hunk ?? -1]?.lines[line ?? -1]
-          if (here && (!comment.lineText || here.text === comment.lineText)) {
-            kept.push(comment)
-            continue
-          }
-          changed = true
-          if (!file || !comment.lineText) {
-            continue
-          }
-          let best: { key: string; no: number | undefined; distance: number } | null = null
-          file.hunks.forEach((h, i) =>
-            h.lines.forEach((l, j) => {
-              if (l.text !== comment.lineText) {
-                return
-              }
-              const no = l.newNo ?? l.oldNo
-              const distance = Math.abs((no ?? 0) - (comment.line ?? 0))
-              if (!best || distance < best.distance) {
-                best = { key: `${i}:${j}`, no, distance }
-              }
-            })
-          )
-          const found = best as { key: string; no: number | undefined } | null
-          if (found) {
-            kept.push({ ...comment, key: found.key, ...(found.no !== undefined ? { line: found.no } : {}) })
-          }
-        }
-        return changed ? kept : prev
-      })
       setEntries(built)
       setResult(next)
       setError(null)
@@ -419,6 +389,49 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    let live = true
+    let changes = 0
+    const off = onRemote<ReviewCommentsChange>(EVENTS.reviewCommentsChanged, (change) => {
+      if (change.cwd === cwd) {
+        changes += 1
+        setStored(change.comments)
+      }
+    })
+    // Read on opening and after every reconnect (changes made meanwhile were
+    // never heard). A broadcast during the read is newer than its answer.
+    const read = (): void => {
+      const seen = changes
+      api.reviewComments.list(cwd).then(
+        (list) => {
+          if (live && changes === seen) {
+            setShared(true)
+            setStored(list)
+          }
+        },
+        (e: unknown) => {
+          // Only a computer without the store keeps them on this screen; a
+          // dropped connection is retried when it comes back.
+          if (live && /not available from a paired device/i.test(errorText(e))) {
+            setShared(false)
+          }
+        }
+      )
+    }
+    read()
+    const offOnline = onOnline(read)
+    return () => {
+      live = false
+      off()
+      offOnline()
+    }
+  }, [cwd])
+
+  const comments = useMemo(
+    () => placeComments(entries.map((entry) => entry.file), stored),
+    [entries, stored]
+  )
 
   const refresh = useCallback(() => {
     setPulling(true)
@@ -506,28 +519,37 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       action: 'Delete',
       danger: true
     }).then((yes) => {
-      if (yes) {
-        setComments((prev) => prev.filter((c) => c.id !== comment.id))
+      if (!yes) {
+        return
+      }
+      if (shared) {
+        api.reviewComments.remove(cwd, [comment.id]).then(setStored, (e) => toast(errorText(e)))
+      } else {
+        setStored((prev) => prev.filter((c) => c.id !== comment.id))
       }
     })
-  }, [])
+  }, [cwd, shared])
 
   const addComment = (): void => {
     const text = draft.trim()
     if (!target || !text) {
       return
     }
-    setComments((prev) => [
-      ...prev,
-      {
-        id: randomUUID(),
-        key: target.anchor,
-        path: target.path,
-        line: target.line.newNo ?? target.line.oldNo,
-        lineText: target.line.text,
-        text
-      }
-    ])
+    const line = target.line.newNo ?? target.line.oldNo
+    const comment = {
+      path: target.path,
+      ...(line !== undefined ? { line } : {}),
+      lineText: target.line.text,
+      text
+    }
+    if (shared) {
+      api.reviewComments.add(cwd, comment).then(
+        (added) => setStored((prev) => (prev.some((c) => c.id === added.id) ? prev : [...prev, added])),
+        (e) => toast(`Could not add the comment: ${errorText(e)}`)
+      )
+    } else {
+      setStored((prev) => [...prev, { ...comment, id: randomUUID(), createdAt: Date.now() }])
+    }
     haptic('tap')
     setTarget(null)
     setDraft('')
@@ -551,8 +573,8 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     try {
       const outcome = await api.diff.discard(cwd, path)
       toast(outcome.ok ? outcome.message : `Discard failed: ${outcome.message}`)
-      if (outcome.ok) {
-        setComments((prev) => prev.filter((c) => c.path !== path))
+      if (outcome.ok && !shared) {
+        setStored((prev) => prev.filter((c) => c.path !== path)) // the computer clears its own
       }
     } catch (e) {
       toast(errorText(e))
@@ -594,7 +616,9 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     Keyboard.dismiss()
     if ((await gitAction('commit', () => api.diff.commit(cwd, text))) && mounted.current) {
       setMessage('')
-      setComments([])
+      if (!shared) {
+        setStored([]) // the computer clears its own
+      }
       void load()
     }
   }
@@ -619,33 +643,29 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
         toast("pi's reply was not a list of comments")
         return
       }
-      const placed: PinnedComment[] = []
-      for (const remark of remarks) {
-        const file = entriesRef.current.find((e) => e.file.path === remark.path)?.file
-        const anchor = file ? anchorForLine(file, remark.line) : null
-        if (!file || !anchor) {
-          continue
-        }
-        placed.push({
-          id: randomUUID(),
-          key: anchor.key,
-          path: file.path,
-          line: anchor.exact ? anchor.line : remark.line,
-          lineText: anchor.exact ? anchor.lineText : '',
-          text:
-            !anchor.exact && remark.line !== undefined
-              ? `Line ${remark.line}: ${remark.comment}`
-              : remark.comment,
-          author: 'pi'
-        })
+      // The computer keeps the remarks and sends them to every screen;
+      // an older one does not, so they are kept here.
+      if (!shared) {
+        const now = Date.now()
+        setStored((prev) => [
+          ...prev.filter((c) => c.author !== 'pi'),
+          ...remarks.map((remark) => ({
+            id: randomUUID(),
+            path: remark.path,
+            ...(remark.line !== undefined ? { line: remark.line } : {}),
+            lineText: '',
+            text: remark.comment,
+            author: 'pi' as const,
+            createdAt: now
+          }))
+        ])
       }
-      // A new pass replaces pi's earlier remarks; yours stay.
-      setComments((prev) => [...prev.filter((c) => c.author !== 'pi'), ...placed])
+      const placed = remarks.filter((r) => entriesRef.current.some((e) => e.file.path === r.path))
       if (placed.length > 0) {
         setCollapsed((prev) => {
           const next = new Set(prev)
-          for (const comment of placed) {
-            next.delete(comment.path)
+          for (const remark of placed) {
+            next.delete(remark.path)
           }
           return next
         })
@@ -681,16 +701,19 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
   }
 
   const mine = useMemo(() => comments.filter((c) => c.author !== 'pi'), [comments])
-  // Back would throw away what was typed here: ask first.
+  // Back would throw away what was typed here: ask first. Comments the
+  // computer keeps are not lost by leaving.
   const leaving = useRef(false)
-  usePreventRemove(mine.length > 0 || message.trim() !== '', ({ data }) => {
+  usePreventRemove((!shared && mine.length > 0) || message.trim() !== '', ({ data }) => {
     if (leaving.current) {
       navigation.dispatch(data.action)
       return
     }
     void confirm({
-      title: 'Discard your comments?',
-      message: 'Your line comments and the commit message have not been sent.',
+      title: shared ? 'Discard the commit message?' : 'Discard your comments?',
+      message: shared
+        ? 'The commit message has not been used.'
+        : 'Your line comments and the commit message have not been sent.',
       action: 'Discard',
       danger: true
     }).then((ok) => {
@@ -707,6 +730,10 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
     }
     useChats.getState().seedComposer(chatId, reviewPrompt(mine))
     toast(mine.length === 1 ? 'Comment added to the composer' : 'Comments added to the composer')
+    // They went to pi: done with, here and on every other screen.
+    if (shared) {
+      void api.reviewComments.remove(cwd, mine.map((c) => c.id)).catch(() => {})
+    }
     leaving.current = true
     navigation.goBack()
   }

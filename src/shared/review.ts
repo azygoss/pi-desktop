@@ -7,6 +7,30 @@ export interface PiReviewComment {
   comment: string
 }
 
+/**
+ * A note on one line of a project's working-tree diff: yours, or a remark pi
+ * left in a review pass. The computer keeps them per project and every
+ * window and paired phone shows the same list.
+ */
+export interface ReviewComment {
+  id: string
+  path: string
+  /** Line number in the new file (old file for removed lines). */
+  line?: number
+  /** The line the comment is about, as shown in the diff ('' when unknown). */
+  lineText: string
+  text: string
+  /** Set on remarks pi left in a review pass; yours have none. */
+  author?: 'pi'
+  createdAt: number
+}
+
+/** Where a project's comments changed (broadcast to windows and phones). */
+export interface ReviewCommentsChange {
+  cwd: string
+  comments: ReviewComment[]
+}
+
 const MAX_COMMENTS = 20
 const MAX_COMMENT_CHARS = 600
 

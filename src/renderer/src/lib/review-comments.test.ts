@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { diffFileForUntracked } from '../../../shared/diff-parse'
-import { anchorForLine, reviewPrompt } from './review-comments'
+import { anchorForLine, placeComments, reviewPrompt } from './review-comments'
 
 describe('reviewPrompt', () => {
   it('numbers comments with file, line and the quoted line', () => {
     const prompt = reviewPrompt([
-      { id: '1', path: 'src/a.ts', line: 12, lineText: '  const b = 3', text: 'Rename this.' },
-      { id: '2', path: 'README.md', lineText: '', text: 'Two\nlines' }
+      { path: 'src/a.ts', line: 12, lineText: '  const b = 3', text: 'Rename this.' },
+      { path: 'README.md', lineText: '', text: 'Two\nlines' }
     ])
     expect(prompt).toBe(
       'Please address these review comments on the current changes:\n\n' +
@@ -18,7 +18,7 @@ describe('reviewPrompt', () => {
 
   it('keeps backticks in the quoted line from breaking the code span', () => {
     expect(
-      reviewPrompt([{ id: '1', path: 'a.md', line: 1, lineText: 'use `x`', text: 'ok' }])
+      reviewPrompt([{ path: 'a.md', line: 1, lineText: 'use `x`', text: 'ok' }])
     ).toContain("`a.md:1` — `use 'x'`")
   })
 
@@ -41,5 +41,40 @@ describe('anchorForLine', () => {
 
   it('has nowhere to put a remark on a file without hunks', () => {
     expect(anchorForLine({ path: 'x', status: 'modified', hunks: [] }, 1)).toBeNull()
+  })
+})
+
+describe('placeComments', () => {
+  const file = diffFileForUntracked('a.ts', 'one\ntwo\nthree\n')
+  const base = { createdAt: 0, lineText: '' }
+
+  it('puts your comment on its line, following the text when the line moved', () => {
+    const placed = placeComments(
+      [file],
+      [{ ...base, id: '1', path: 'a.ts', line: 7, lineText: 'three', text: 'Here' }]
+    )
+    expect(placed).toEqual([
+      expect.objectContaining({ id: '1', key: '0:2', line: 3, fallback: false, text: 'Here' })
+    ])
+  })
+
+  it("puts pi's remark on the line it names and fills in the line's text", () => {
+    const [placed] = placeComments(
+      [file],
+      [{ ...base, id: '2', path: 'a.ts', line: 2, text: 'Bug', author: 'pi' }]
+    )
+    expect(placed).toMatchObject({ key: '0:1', lineText: 'two', fallback: false })
+  })
+
+  it('falls back to the first line, naming the lost line in the text', () => {
+    const [placed] = placeComments(
+      [file],
+      [{ ...base, id: '3', path: 'a.ts', line: 40, lineText: 'gone', text: 'Old' }]
+    )
+    expect(placed).toMatchObject({ key: '0:0', fallback: true, text: 'Line 40: Old' })
+  })
+
+  it('leaves out comments on files the diff does not show', () => {
+    expect(placeComments([file], [{ ...base, id: '4', path: 'b.ts', text: 'x' }])).toEqual([])
   })
 })

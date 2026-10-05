@@ -13,7 +13,7 @@ import type {
 import type { PiRuntimeInfo, PiSettings, ProjectSummary, SessionSummary } from './session-types'
 import type { Automation, AutomationSchedule } from './automations'
 import type { PrStatus } from './pr-status'
-import type { PiReviewComment } from './review'
+import type { PiReviewComment, ReviewComment, ReviewCommentsChange } from './review'
 
 /** Which model a side chat or review pass should use (the chat's own). */
 export interface SideModelInput {
@@ -630,9 +630,29 @@ export interface PiDesktopApi {
     push(input: { cwd: string }): Promise<GitActionResult>
     /**
      * Have pi review the working-tree changes in a separate, session-less
-     * process. Null when pi's reply was not a list of comments.
+     * process; its remarks replace pi's earlier ones in the project's shared
+     * comments. Null when pi's reply was not a list of comments.
      */
     review(input: { cwd: string; model?: SideModelInput }): Promise<PiReviewComment[] | null>
+  }
+  /**
+   * A project's diff comments, kept on the computer: every window and paired
+   * phone shows the same list. A commit clears it, discarding a file clears
+   * that file's.
+   */
+  reviewComments: {
+    list(input: { cwd: string }): Promise<ReviewComment[]>
+    add(input: {
+      cwd: string
+      path: string
+      line?: number
+      lineText: string
+      text: string
+    }): Promise<ReviewComment>
+    remove(input: { cwd: string; ids: string[] }): Promise<ReviewComment[]>
+    /** All of them, or those on `paths`. */
+    clear(input: { cwd: string; paths?: string[] }): Promise<ReviewComment[]>
+    onChanged(callback: (change: ReviewCommentsChange) => void): () => void
   }
   projects: {
     list(): Promise<ProjectSummary[]>

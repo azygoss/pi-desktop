@@ -84,6 +84,13 @@ const api: PiDesktopApi = {
     push: (input) => ipcRenderer.invoke('pi-desktop:diff:push', input),
     review: (input) => ipcRenderer.invoke('pi-desktop:diff:review', input)
   },
+  reviewComments: {
+    list: (input) => ipcRenderer.invoke('pi-desktop:review-comments:list', input),
+    add: (input) => ipcRenderer.invoke('pi-desktop:review-comments:add', input),
+    remove: (input) => ipcRenderer.invoke('pi-desktop:review-comments:remove', input),
+    clear: (input) => ipcRenderer.invoke('pi-desktop:review-comments:clear', input),
+    onChanged: subscribe('pi-desktop:review-comments:changed')
+  },
   app: {
     getUserFirstName: () => ipcRenderer.invoke('pi-desktop:app:user-first-name'),
     pickFolder: () => ipcRenderer.invoke('pi-desktop:app:pick-folder'),

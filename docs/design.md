@@ -74,7 +74,8 @@ colors. Everything below follows from that, so new UI should too.
   (amber: it is waiting on you to send it). The toolbar's amber-edged
   "N comments" button moves them into the composer as one prompt. A remark
   pi left in a review pass has a blue edge and a small `pi` label: blue is
-  pi's, amber is yours.
+  pi's, amber is yours. Comments belong to the project, not the screen:
+  the computer keeps them and every window and paired phone shows the same.
 - **Prompts are prompts.** A user message is a prompt block with a `›` in
   the gutter, not a chat bubble; its actions float in the corner on hover.
 
