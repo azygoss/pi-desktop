@@ -239,7 +239,12 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             timer = setTimeout(check, 60_000)
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          // A failed look (gh, the network) is tried again, not given up on.
+          if (!cancelled && prSeen.current?.pending) {
+            timer = setTimeout(check, 60_000)
+          }
+        })
     }
     check()
     return () => {
@@ -491,18 +496,23 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
 
 
   const empty = items.length === 0
+  const nearTop = useRef(false)
 
   const loadEarlier = useCallback(() => {
     setLoadingEarlier(true)
     void chats
       .loadEarlier(chatId)
-      .catch((e) => toast(errorText(e)))
+      .catch((e) => {
+        // No automatic retry after a failure: the button (or scrolling to
+        // the top again) asks again.
+        nearTop.current = false
+        toast(errorText(e))
+      })
       .finally(() => setLoadingEarlier(false))
   }, [chats, chatId])
 
   // Still at the top once a page arrived (it fit on screen): fetch the next.
   // onEndReached only fires when the edge is crossed again.
-  const nearTop = useRef(false)
   useEffect(() => {
     if (!loadingEarlier && hasEarlier && nearTop.current) {
       loadEarlier()

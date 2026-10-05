@@ -8,17 +8,26 @@ import { MAX_UPLOAD_BYTES } from '../../shared/remote/protocol'
 function safeName(name: unknown): string {
   const raw = typeof name === 'string' ? name : ''
   const base = raw.split(/[\\/]/).pop() ?? ''
-  const clean = [...base]
+  let clean = [...base]
     .filter((char) => char.charCodeAt(0) >= 0x20 && !'<>:"|?*'.includes(char))
     .join('')
     .replace(/^\.+/, '')
     .trim()
+    .replace(/[. ]+$/, '')
     .slice(0, 120)
+  // Device names Windows will not store as files (a host may run there).
+  if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(clean)) {
+    clean = `_${clean}`
+  }
   return clean || 'file'
 }
 
-/** Uploads older than this are gone: pi read them long ago. */
-export const UPLOAD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+/**
+ * Uploads older than this are removed. A chat that comes back to a file
+ * after that sees it gone (the phone still has the original); a month keeps
+ * the files of any chat that is still being worked on.
+ */
+export const UPLOAD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
  * Drop upload folders older than the retention period. They are the app's
@@ -51,8 +60,9 @@ export async function saveUpload(
   if (typeof data !== 'string') {
     throw new Error('Invalid file data')
   }
-  // Sized from the text before anything is decoded.
-  if (Math.floor((data.length * 3) / 4) - 2 > MAX_UPLOAD_BYTES) {
+  // Sized from the text before anything is decoded (exact for valid base64).
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
+  if (Math.floor((data.length * 3) / 4) - padding > MAX_UPLOAD_BYTES) {
     throw new Error(`Files up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB can be sent`)
   }
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
@@ -61,6 +71,9 @@ export async function saveUpload(
   const bytes = Buffer.from(data, 'base64')
   if (bytes.length === 0) {
     throw new Error('The file is empty')
+  }
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    throw new Error(`Files up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB can be sent`)
   }
   await pruneUploads(root)
   const dir = join(root, randomUUID())

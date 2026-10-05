@@ -508,6 +508,10 @@ export const Composer = memo(function Composer({ chatId, onCommand, onOpenModel,
     if (!message && images.length === 0) {
       return
     }
+    if (uploading) {
+      toast(`Sending ${uploading} first…`)
+      return
+    }
     if (useConnection.getState().phase !== 'online') {
       // Keep what was typed: it can be sent once the computer is back.
       haptic('warning')

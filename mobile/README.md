@@ -48,7 +48,7 @@ computer in the app's settings.
   tool) appear in the chat even with the steps folded; open them full screen,
   at actual size, and share or save them.
 - **Attachments** — photos from the library, the camera or the clipboard, and
-  any file up to 20 MB (stored on the computer for pi to read).
+  any file up to 20 MB (kept on the computer for 30 days for pi to read).
 - **Files** — open files of the project from replies or steps, with syntax
   highlighting; images show as images. `localhost` links open at the
   computer's address.

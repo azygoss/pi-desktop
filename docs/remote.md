@@ -80,7 +80,7 @@ Besides the window's own channels, a few exist for phones
 on or off (the only app setting a phone may change, announced to the window
 through `pi-desktop:app-settings:changed`), a session as HTML text, a file
 upload (stored under the app's data directory in a folder of its own, never
-in a project; up to 20 MB) and a project image as base64. Transcripts page
+in a project; up to 20 MB, removed after 30 days) and a project image as base64. Transcripts page
 backwards with `before`, an index on the active branch, so loading earlier
 messages sends one page.
 

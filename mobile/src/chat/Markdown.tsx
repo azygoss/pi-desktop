@@ -93,7 +93,8 @@ function openLink(href: string): void {
       toast('That link points at the computer itself')
       return
     }
-    const rewritten = target.replace(LOCAL_HOST, `$1${computerHost.includes(':') ? `[${computerHost}]` : computerHost}`)
+    const bare = computerHost.replace(/^\[|\]$/g, '')
+    const rewritten = target.replace(LOCAL_HOST, `$1${bare.includes(':') ? `[${bare}]` : bare}`)
     toast(`Opening on ${computerHost}. The server must listen on the network, not only on localhost.`)
     void Linking.openURL(rewritten).catch(() => toast('Could not open the link'))
     return
