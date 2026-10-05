@@ -143,7 +143,9 @@ export async function removeWorktree(
   cwd: string,
   baseDir: string,
   force = false,
-  deleteBranch = false
+  deleteBranch = false,
+  /** Where a forced removal puts the folder (the OS trash), so nothing is lost for good. */
+  trash?: (path: string) => Promise<void>
 ): Promise<GitActionResult> {
   if (!isAppWorktree(cwd, baseDir)) {
     throw new Error('Not a Pi Desktop worktree')
@@ -154,21 +156,31 @@ export async function removeWorktree(
   }
   const mainRepo = dirname(common.out.trim())
   const branch = (await git(cwd, ['branch', '--show-current'])).out.trim()
-  const remove = await git(mainRepo, [
-    'worktree',
-    'remove',
-    ...(force ? ['--force'] : []),
-    cwd
-  ])
-  if (!remove.ok) {
-    return { ok: false, message: lastLine(remove.err || remove.out) }
+  if (force && trash) {
+    // Uncommitted files go to the trash with the folder; git then forgets
+    // the worktree it can no longer find.
+    await trash(cwd)
+    await git(mainRepo, ['worktree', 'prune'])
+  } else {
+    const remove = await git(mainRepo, [
+      'worktree',
+      'remove',
+      ...(force ? ['--force'] : []),
+      cwd
+    ])
+    if (!remove.ok) {
+      return { ok: false, message: lastLine(remove.err || remove.out) }
+    }
   }
   if (deleteBranch && branch) {
+    // Merged branches only (-d): their commits stay reachable. The tip is
+    // named so the branch can be made again.
     const del = await git(mainRepo, ['branch', '-d', branch])
+    const tip = /\(was ([0-9a-f]+)\)/.exec(del.out)?.[1]
     return {
       ok: true,
       message: del.ok
-        ? `Worktree and branch ${branch} removed`
+        ? `Worktree and branch ${branch} removed${tip ? ` (it was at ${tip}: git branch ${branch} ${tip} brings it back)` : ''}`
         : `Worktree removed; ${branch} was kept because it is not merged`
     }
   }

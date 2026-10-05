@@ -91,7 +91,7 @@ export async function removeWorktreeProject(cwd: string, name: string): Promise<
     if (!result.ok) {
       const force = await window.piDesktop.app.confirmDialog({
         title: 'This worktree has uncommitted changes',
-        message: `${result.message}\n\nRemoving it discards those changes.`,
+        message: `${result.message}\n\nRemoving it moves the folder, changes and all, to the Trash.`,
         buttons: ['Discard and Remove', 'Cancel'],
         danger: true
       })

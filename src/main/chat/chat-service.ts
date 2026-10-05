@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { homedir } from 'node:os'
 import { stat } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, isAbsolute, relative } from 'node:path'
 import type {
   ChatBashResult,
   ChatExitPayload,
@@ -226,6 +226,12 @@ async function dirExists(path: string): Promise<boolean> {
  * Pi only writes the session file when the first message lands, so a freshly
  * spawned draft chat does not litter the sessions directory.
  */
+/** `path` is `dir` or a folder inside it. */
+function within(dir: string, path: string): boolean {
+  const rel = relative(dir, path)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
 export class ChatService {
   private readonly chats = new Map<string, ChatRecord>()
   /**
@@ -1046,6 +1052,40 @@ export class ChatService {
         streaming: record.streaming,
         ...(record.pendingUi && record.uiRequest ? { uiRequest: record.uiRequest } : {})
       }))
+  }
+
+  /**
+   * A chat in `dir` (or a folder inside it) is at work: running, running a
+   * shell command, or waiting on the user. Its checkout must not change
+   * under it.
+   */
+  busyIn(dir: string): boolean {
+    return [...this.chats.values()].some(
+      (record) =>
+        within(dir, record.cwd) && (record.streaming || record.bashRunning || record.pendingUi)
+    )
+  }
+
+  /**
+   * Stop every chat and warm spare in `dir`: its folder is about to go away.
+   * Screens keep the transcripts, as with an idle eviction.
+   */
+  async closeIn(dir: string): Promise<void> {
+    const closing: Promise<void>[] = []
+    for (const record of [...this.chats.values()]) {
+      if (within(dir, record.cwd)) {
+        this.chats.delete(record.chatId)
+        record.gate.reject(new Error('Chat closed'))
+        this.revokeToken(record.client)
+        closing.push(this.pool.close(record.chatId))
+      }
+    }
+    for (const cwd of [...this.spares.keys()]) {
+      if (within(dir, cwd)) {
+        closing.push(this.removeSpare(cwd))
+      }
+    }
+    await Promise.all(closing)
   }
 
   /** A paired phone used this chat: counts as viewed for idle eviction. */

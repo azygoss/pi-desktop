@@ -74,7 +74,9 @@ describe('branches', () => {
     await writeFile(join(dir, 'a.txt'), 'local edit\n')
     const result = await switchBranch(dir, { branch: 'other' })
     expect(result.ok).toBe(false)
-    expect(result.message.length).toBeGreaterThan(0)
+    // Git's reason with the file it names, not its closing "Aborting".
+    expect(result.message).toContain('a.txt')
+    expect(result.message).not.toMatch(/Aborting$/)
     expect(run('branch', '--show-current').trim()).toBe('main')
   })
 })

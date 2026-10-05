@@ -260,7 +260,7 @@ export function ProjectsTab() {
         if (!result.ok) {
           const force = await confirm({
             title: 'Remove anyway?',
-            message: `${result.message}\n\nRemove anyway? Uncommitted changes in it are lost.`,
+            message: `${result.message}\n\nRemove anyway? The folder, uncommitted changes and all, goes to the computer's trash.`,
             action: 'Remove anyway',
             danger: true
           })

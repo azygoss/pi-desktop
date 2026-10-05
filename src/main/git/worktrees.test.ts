@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -81,14 +81,31 @@ describe('worktrees', () => {
     await expect(createWorktree(repo, base, { kind: 'new', branch: '-x' })).rejects.toThrow(/Invalid branch/)
 
     // A merged branch goes with its worktree; an unmerged one stays.
-    expect((await removeWorktree(existing.cwd, base, false, true)).message).toBe(
-      'Worktree and branch release removed'
+    expect((await removeWorktree(existing.cwd, base, false, true)).message).toMatch(
+      /^Worktree and branch release removed \(it was at [0-9a-f]+: git branch release [0-9a-f]+ brings it back\)$/
     )
     await writeFile(join(named.cwd, 'b.txt'), 'new\n')
     execFileSync('git', ['-C', named.cwd, 'add', '-A'])
     execFileSync('git', ['-C', named.cwd, '-c', 'user.email=t@example.invalid', '-c', 'user.name=T', 'commit', '-qm', 'work'])
     expect((await removeWorktree(named.cwd, base, false, true)).message).toContain('kept')
     expect(run('branch', '--list', 'feature/login').trim()).toBe('feature/login')
+  })
+
+  it('puts a forced removal in the trash instead of deleting it', async () => {
+    const repo = await repoWithCommit()
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'pi-wt-base-')))
+    const bin = await realpath(await mkdtemp(join(tmpdir(), 'pi-wt-trash-')))
+    const wt = await createWorktree(repo, base)
+    await writeFile(join(wt.cwd, 'draft.txt'), 'unsaved work\n')
+    const trashed: string[] = []
+    const result = await removeWorktree(wt.cwd, base, true, false, async (path) => {
+      trashed.push(path)
+      await rename(path, join(bin, 'wt'))
+    })
+    expect(result.ok).toBe(true)
+    expect(trashed).toEqual([wt.cwd])
+    expect(existsSync(join(bin, 'wt', 'draft.txt'))).toBe(true)
+    expect(execFileSync('git', ['-C', repo, 'worktree', 'list']).toString()).not.toContain(wt.cwd)
   })
 
   it('builds readable slugs', () => {

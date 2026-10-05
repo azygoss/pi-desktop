@@ -44,7 +44,19 @@ export function lastLine(run: GitRun): string {
   return (lines[lines.length - 1] ?? 'git failed').slice(0, 300)
 }
 
-async function topLevel(cwd: string): Promise<string> {
+/**
+ * Why git refused, for a person: its error lines without the hints and
+ * the closing "Aborting", so the files it names stay in view.
+ */
+export function gitReason(run: GitRun): string {
+  const lines = `${run.err}\n${run.out}`
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^hint:/i.test(l) && !/^aborting\.?$/i.test(l))
+  return (lines.join(' ') || 'git failed').slice(0, 400)
+}
+
+export async function topLevel(cwd: string): Promise<string> {
   const top = await git(cwd, ['rev-parse', '--show-toplevel'])
   if (!top.ok || !top.out.trim()) {
     throw new Error('Not a git repository')
@@ -128,7 +140,7 @@ export async function switchBranch(cwd: string, input: unknown): Promise<GitActi
   }
   const run = await git(root, args)
   if (!run.ok) {
-    return { ok: false, message: lastLine(run) }
+    return { ok: false, message: gitReason(run) }
   }
   const now = (await git(root, ['branch', '--show-current'])).out.trim()
   return { ok: true, message: `Switched to ${now || name}` }
@@ -149,7 +161,7 @@ export async function createBranch(cwd: string, input: unknown): Promise<GitActi
     stay ? ['branch', name, ...(from ? [from] : [])] : ['switch', '-c', name, ...(from ? [from] : [])]
   )
   if (!run.ok) {
-    return { ok: false, message: lastLine(run) }
+    return { ok: false, message: gitReason(run) }
   }
   return { ok: true, message: stay ? `Created ${name}` : `Created and switched to ${name}` }
 }

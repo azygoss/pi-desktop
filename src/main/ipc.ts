@@ -43,7 +43,7 @@ import {
 } from './automations/automation-store'
 import { getFailedLog, getPrStatus } from './git/pr-status'
 import { postCommentsToPr } from './git/pr-review'
-import { createBranch, listBranches, switchBranch } from './git/branches'
+import { createBranch, listBranches, switchBranch, topLevel } from './git/branches'
 import { createCheckpoint, restoreCheckpoint } from './git/checkpoints'
 import type { SideChatService } from './chat/side-service'
 import { REVIEW_PROMPT, parseReviewComments } from '../shared/review'
@@ -672,11 +672,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     IPC_CHANNELS.projectsRemoveWorktree,
     async (_e, input: { cwd: string; force?: unknown; deleteBranch?: unknown }) => {
       const cwd = await validateCwd(input?.cwd)
+      // Whoever asks (window or phone), a chat at work there is not cut off;
+      // idle chats there close first, since their folder goes away.
+      if (deps.chat.busyIn(cwd)) {
+        throw new Error('A chat is working in this worktree: stop it first')
+      }
+      await deps.chat.closeIn(cwd)
       const result = await removeWorktree(
         cwd,
         worktreesDir(),
         input?.force === true,
-        input?.deleteBranch === true
+        input?.deleteBranch === true,
+        (path) => shell.trashItem(path)
       )
       if (result.ok) {
         broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
@@ -756,8 +763,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   handle(IPC_CHANNELS.gitBranches, async (_e, input: { cwd: unknown }) =>
     listBranches(await validateCwd(input?.cwd), worktreesDir())
   )
+  // Every chat in a checkout shares its branch: none may be at work there.
+  const assertIdleCheckout = async (cwd: string): Promise<void> => {
+    if (deps.chat.busyIn(await topLevel(cwd))) {
+      throw new Error('A chat is working in this folder: wait for it to finish, or use a worktree')
+    }
+  }
   handle(IPC_CHANNELS.gitSwitch, async (_e, input: { cwd: unknown; branch?: unknown }) => {
     const cwd = await validateCwd(input?.cwd)
+    await assertIdleCheckout(cwd)
     const result = await switchBranch(cwd, input)
     if (result.ok) {
       broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
@@ -766,6 +780,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
   handle(IPC_CHANNELS.gitCreateBranch, async (_e, input: Record<string, unknown>) => {
     const cwd = await validateCwd(input?.['cwd'])
+    if (input?.['switch'] !== false) {
+      await assertIdleCheckout(cwd)
+    }
     const result = await createBranch(cwd, input)
     if (result.ok) {
       broadcastAll(IPC_CHANNELS.gitChanged, { root: cwd })
