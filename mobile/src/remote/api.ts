@@ -107,11 +107,11 @@ export const api = {
       request<ChatOpenResult>('pi-desktop:chat:reload', { chatId, ...LITE }, OPEN_TIMEOUT_MS),
     setCwd: (chatId: string, cwd: string) =>
       request<ChatOpenResult>('pi-desktop:chat:set-cwd', { chatId, cwd, ...LITE }, OPEN_TIMEOUT_MS),
-    /** The newest `limit` messages, leaving out the newest `skip` (paging back). */
-    transcript: (sessionPath: string, limit?: number, skip?: number) =>
+    /** The newest `limit` messages, or the `limit` before branch index `before` (paging back). */
+    transcript: (sessionPath: string, limit?: number, before?: number) =>
       request<ChatTranscriptResult>(
         'pi-desktop:chat:transcript',
-        { sessionPath, limit, ...(skip ? { skip } : {}) },
+        { sessionPath, limit, ...(before !== undefined ? { before } : {}) },
         60_000
       ),
     exportHtml: (sessionPath: string) =>

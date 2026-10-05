@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { readProjectImage } from './read-file'
-import { saveUpload } from './upload'
+import { pruneUploads, saveUpload } from './upload'
 
 let root: string
 
@@ -59,5 +60,21 @@ describe('readProjectImage', () => {
     await expect(readProjectImage(join(root, 'project'), '../logo.png')).rejects.toThrow(
       'outside the project folder'
     )
+  })
+})
+
+describe('pruneUploads', () => {
+  it('drops upload folders older than a week and keeps the rest', async () => {
+    const old = await saveUpload(root, 'old.txt', Buffer.from('a').toString('base64'))
+    const fresh = await saveUpload(root, 'new.txt', Buffer.from('b').toString('base64'))
+    const week = 8 * 24 * 60 * 60 * 1000
+    await utimes(dirname(old.path), new Date(Date.now() - week), new Date(Date.now() - week))
+    await pruneUploads(root)
+    expect(existsSync(old.path)).toBe(false)
+    expect(existsSync(fresh.path)).toBe(true)
+  })
+
+  it('refuses an oversized upload from its length alone', async () => {
+    await expect(saveUpload(root, 'a', 'A'.repeat(28 * 1024 * 1024))).rejects.toThrow('up to 20 MB')
   })
 })

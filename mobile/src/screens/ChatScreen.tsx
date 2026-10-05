@@ -34,7 +34,6 @@ import {
   summarizeChecks,
   thinkingLevelLabel,
   type DisplayMessage,
-  type PrSummary,
   type PullRequest,
   type RepoSummary,
   type ThinkingLevel
@@ -209,7 +208,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   // the moment they finish is announced.
   const focused = useIsFocused()
   const [pr, setPr] = useState<PullRequest | null>(null)
-  const prSeen = useRef<{ sha: string; summary: PrSummary } | null>(null)
+  const prSeen = useRef<{ sha: string; pending: boolean } | null>(null)
   const branch = repo?.branch
   useEffect(() => {
     if (!cwd || !online || !branch || !focused) {
@@ -228,12 +227,15 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
           setPr(next)
           const summary = next ? summarizeChecks(next.checks) : 'none'
           const previous = prSeen.current
-          if (next && previous?.sha === next.headSha && previous.summary === 'pending' && summary !== 'pending') {
+          const settled = !next?.checks.some((c) => c.state === 'pending')
+          if (next && previous?.sha === next.headSha && previous.pending && settled) {
             haptic(summary === 'failing' ? 'warning' : 'success')
             toast(`Pull request #${next.number}: ${summary === 'failing' ? 'checks failed' : 'checks passed'}`)
           }
-          prSeen.current = next ? { sha: next.headSha, summary } : null
-          if (summary === 'pending') {
+          prSeen.current = next ? { sha: next.headSha, pending: !settled } : null
+          // Any check still running (even next to a failed one) keeps the
+          // header following them; a rerun shows up as running again.
+          if (next?.checks.some((c) => c.state === 'pending')) {
             timer = setTimeout(check, 60_000)
           }
         })
@@ -432,7 +434,6 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
           return false
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [chatId, navigation]
   )
 
@@ -487,13 +488,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
     }
   }
 
-  if (!exists) {
-    return (
-      <Screen title="Chat" onBack={() => navigation.goBack()}>
-        <Empty title="This chat is no longer open" action={<Button title="Back to chats" onPress={() => navigation.popToTop()} />} />
-      </Screen>
-    )
-  }
+
 
   const empty = items.length === 0
 
@@ -504,6 +499,15 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       .catch((e) => toast(errorText(e)))
       .finally(() => setLoadingEarlier(false))
   }, [chats, chatId])
+
+  // Still at the top once a page arrived (it fit on screen): fetch the next.
+  // onEndReached only fires when the edge is crossed again.
+  const nearTop = useRef(false)
+  useEffect(() => {
+    if (!loadingEarlier && hasEarlier && nearTop.current) {
+      loadEarlier()
+    }
+  }, [loadingEarlier])
 
   // Something arrived while the user reads further up: mark the jump button.
   const latestKey = items[0]?.key // reversed: newest first
@@ -517,6 +521,15 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       setUnseen(true)
     }
   }, [awayFromEnd, latestKey])
+  // After every hook: a chat can disappear while its screen is mounted
+  // (another computer came into use), and hooks must run in the same order.
+  if (!exists) {
+    return (
+      <Screen title="Chat" onBack={() => navigation.goBack()}>
+        <Empty title="This chat is no longer open" action={<Button title="Back to chats" onPress={() => navigation.popToTop()} />} />
+      </Screen>
+    )
+  }
   return (
     <Screen
       onBack={() => navigation.goBack()}
@@ -599,6 +612,9 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             // conversation should start.
             contentContainerStyle={{ paddingVertical: space.sm, flexGrow: 1, justifyContent: 'flex-end' }}
             onScroll={(e) => {
+              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+              // Inverted: the conversation's top is the far end of the offset.
+              nearTop.current = contentSize.height - (contentOffset.y + layoutMeasurement.height) < 600
               const away = e.nativeEvent.contentOffset.y > 400
               if (away !== awayFromEnd) {
                 setAwayFromEnd(away)

@@ -571,8 +571,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     const dir = await mkdtemp(join(tmpdir(), 'pi-desktop-export-'))
     try {
       const outputPath = join(dir, 'session.html')
-      const result = await deps.chat.exportSession({ sessionPath, outputPath })
-      const html = await readFile(result.path ?? outputPath, 'utf8')
+      await deps.chat.exportSession({ sessionPath, outputPath })
+      // Only the file asked for, never a path pi reports back.
+      const html = await readFile(outputPath, 'utf8')
       return { html }
     } finally {
       // Our own scratch file, never user data.

@@ -105,7 +105,13 @@ function openLink(href: string): void {
   // A path (relative, absolute or file://): open it in the file viewer.
   const path = target.replace(/^file:\/\//i, '').replace(/#.*$/, '')
   if (path && !/^[a-z][a-z0-9+.-]*:/i.test(path) && fileLinkHandler) {
-    fileLinkHandler(decodeURIComponent(path))
+    let decoded = path
+    try {
+      decoded = decodeURIComponent(path)
+    } catch {
+      // A literal "%" (100%done.txt) is not an escape: keep the path as written.
+    }
+    fileLinkHandler(decoded)
     return
   }
   toast('This link cannot be opened on the phone')
