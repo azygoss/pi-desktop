@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { chatToMarkdown, parseSkillPrefix, thinkingLevelLabel, type DisplayMessage, type RepoSummary, type ThinkingLevel } from '../desktop'
 import { Composer, PHONE_COMMANDS } from '../chat/Composer'
+import { setComputerHost, setFileLinkHandler } from '../chat/Markdown'
 import { AssistantRow, BashRow, MetaRow, NoticeRow, UserRow, WorkGroupRow, type RowActions } from '../chat/MessageRows'
 import { ForkSheet, isInteractive, Lightbox, ModelSheet, StatsSheet, TextSheet, TreeSheet, UiRequestCard } from '../chat/sheets'
 import { buildTranscript, type TranscriptItem } from '../chat/transcript'
@@ -204,6 +205,16 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
   const items = useMemo(
     () => buildTranscript(messages ?? [], streaming, models ?? []).reverse(),
     [messages, streaming, models]
+  )
+
+  // Links in replies: project files open in the viewer, localhost goes to the computer.
+  const computerHost = useConnection((s) => s.pairing?.lastHost ?? s.pairing?.hosts[0] ?? null)
+  useFocusEffect(
+    useCallback(() => {
+      setComputerHost(computerHost)
+      setFileLinkHandler(cwd ? (path) => navigation.navigate('File', { cwd, path }) : null)
+      return () => setFileLinkHandler(null)
+    }, [computerHost, cwd, navigation])
   )
 
   const actions = useMemo<RowActions>(
@@ -751,7 +762,13 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
       </Sheet>
 
       <ModelSheet chatId={chatId} visible={modelOpen} onClose={() => setModelOpen(false)} />
-      <StatsSheet stats={stats} visible={statsOpen} onClose={() => setStatsOpen(false)} />
+      <StatsSheet
+        stats={stats}
+        visible={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        sessionPath={sessionPath}
+        onCompact={streaming ? undefined : () => setCompactOpen(true)}
+      />
       <ForkSheet chatId={chatId} visible={forkOpen} onClose={closeFork} />
       <TreeSheet chatId={chatId} visible={treeOpen} onClose={closeTree} />
       <TextSheet

@@ -71,6 +71,7 @@ export function ChatsTab() {
   const meta = useData((s) => s.meta)
   const live = useData((s) => s.live)
   const loaded = useData((s) => s.loaded)
+  const loadError = useData((s) => s.loadError)
   const workspaceDir = useData((s) => s.appInfo?.workspaceDir)
   const online = useConnection((s) => s.phase === 'online')
   // A string, so a streaming chat (whose state changes many times a second)
@@ -327,7 +328,13 @@ export function ChatsTab() {
           )
         }}
         ListEmptyComponent={
-          !loaded ? (
+          !loaded && loadError && online ? (
+            <Empty
+              title="Could not load the chats"
+              detail={loadError}
+              action={<Button title="Try again" onPress={() => void useData.getState().refresh().catch(() => {})} />}
+            />
+          ) : !loaded ? (
             <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center', padding: space.xl }}>
               <Pixel tone={online ? 'working' : 'idle'} />
               <Txt tone="muted">{online ? 'Loading chats…' : 'Waiting for the computer…'}</Txt>

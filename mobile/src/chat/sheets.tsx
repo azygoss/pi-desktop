@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard'
 import { Share2, X } from 'lucide-react-native'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { FlatList, Image, Modal, PixelRatio, ScrollView, SectionList, View } from 'react-native'
@@ -297,12 +298,18 @@ export function UiRequestCard({ chatId, request }: { chatId: string; request: In
 export function StatsSheet({
   stats,
   visible,
-  onClose
+  onClose,
+  sessionPath,
+  onCompact
 }: {
   stats: ChatSessionStats | undefined
   visible: boolean
   onClose(): void
+  sessionPath?: string
+  /** Summarize earlier messages now (offered when context fills up). */
+  onCompact?(): void
 }) {
+  const percent = stats?.contextUsage?.percent ?? null
   const rows: [string, string][] = stats
     ? [
         ['Context', stats.contextUsage?.percent != null ? `${Math.round(stats.contextUsage.percent)}% of ${compactNumber(stats.contextUsage.contextWindow ?? 0)}` : '—'],
@@ -323,6 +330,33 @@ export function StatsSheet({
       ) : (
         <Empty title="No stats yet" detail="They appear once pi has answered." />
       )}
+      {sessionPath ? (
+        <Row
+          title="Session file"
+          detail={sessionPath}
+          onLongPress={() => {
+            void Clipboard.setStringAsync(sessionPath)
+            toast('Path copied')
+          }}
+        />
+      ) : null}
+      {onCompact ? (
+        <View style={{ paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.xs }}>
+          <Button
+            title="Compact now"
+            kind={percent !== null && percent >= 70 ? 'primary' : 'secondary'}
+            onPress={() => {
+              onClose()
+              onCompact()
+            }}
+          />
+          <Txt size="caption" tone="muted">
+            {percent !== null && percent >= 70
+              ? 'Context is filling up: a summary of earlier messages frees room for the rest of the work.'
+              : 'Summarizes earlier messages to free up context.'}
+          </Txt>
+        </View>
+      ) : null}
     </Sheet>
   )
 }

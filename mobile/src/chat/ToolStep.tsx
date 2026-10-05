@@ -34,7 +34,7 @@ import {
   type ToolCategory,
   type ToolRun
 } from '../desktop'
-import { useTick } from '../lib/live-clock'
+import { formatElapsed, useTick } from '../lib/live-clock'
 import { fonts, makeStyles, radius, space, TOUCH, useTheme, type Theme } from '../theme'
 import { IconButton, Mono, Tap, toast, Txt } from '../ui'
 
@@ -352,6 +352,17 @@ function ToolDetail({
   )
 }
 
+/** "0:42" on a step that is still running, on the shared 1 Hz clock. */
+function StepElapsed({ since }: { since: number }) {
+  useTick(true)
+  const ms = Date.now() - since
+  return ms >= MIN_SHOWN_DURATION_MS ? (
+    <Mono size={12} tone="accent">
+      {formatElapsed(ms)}
+    </Mono>
+  ) : null
+}
+
 function stateOf(run: ToolRun | undefined, live: boolean): StepState {
   if (!run) {
     // No run yet: pi is still writing the call (live) or the session was
@@ -420,7 +431,9 @@ export const ToolStep = memo(function ToolStep({
         right={
           <>
             {stat ? <DiffStat added={stat.added} removed={stat.removed} /> : null}
-            {duration ? (
+            {state === 'running' && run?.startedAt !== undefined ? (
+              <StepElapsed since={run.startedAt} />
+            ) : duration ? (
               <Mono size={12} tone="muted">
                 {duration}
               </Mono>
@@ -432,7 +445,7 @@ export const ToolStep = memo(function ToolStep({
         <View style={styles.body}>
           <ToolDetail call={call} run={run} category={category} />
           {path && onOpenFile && (category === 'read' || category === 'edit' || category === 'create') ? (
-            <Tap onPress={() => onOpenFile(path)} style={{ minHeight: 40, justifyContent: 'center' }}>
+            <Tap onPress={() => onOpenFile(path)} style={{ minHeight: TOUCH, justifyContent: 'center' }}>
               <Txt size="small" tone="accent">
                 Open file
               </Txt>

@@ -68,10 +68,47 @@ const useStyles = makeStyles((t: Theme) => ({
 
 type Styles = ReturnType<typeof useStyles>
 
+/** Where a link to a project file goes: set by the chat on screen. */
+let fileLinkHandler: ((path: string) => void) | null = null
+
+export function setFileLinkHandler(handler: ((path: string) => void) | null): void {
+  fileLinkHandler = handler
+}
+
+/** The computer's address, for links to a server pi started on it. */
+let computerHost: string | null = null
+
+export function setComputerHost(host: string | null): void {
+  computerHost = host
+}
+
+const LOCAL_HOST = /^(https?:\/\/)(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?=[:/]|$)/i
+
 function openLink(href: string): void {
-  if (/^https?:\/\//.test(href)) {
-    void Linking.openURL(href).catch(() => toast('Could not open the link'))
+  const target = href.trim()
+  if (LOCAL_HOST.test(target)) {
+    // "localhost" is the computer, not this phone: open it at the computer's
+    // address. Works when the dev server listens on the network (--host).
+    if (!computerHost) {
+      toast('That link points at the computer itself')
+      return
+    }
+    const rewritten = target.replace(LOCAL_HOST, `$1${computerHost.includes(':') ? `[${computerHost}]` : computerHost}`)
+    toast(`Opening on ${computerHost}. The server must listen on the network, not only on localhost.`)
+    void Linking.openURL(rewritten).catch(() => toast('Could not open the link'))
+    return
   }
+  if (/^(https?|mailto|tel):/i.test(target)) {
+    void Linking.openURL(target).catch(() => toast('Could not open the link'))
+    return
+  }
+  // A path (relative, absolute or file://): open it in the file viewer.
+  const path = target.replace(/^file:\/\//i, '').replace(/#.*$/, '')
+  if (path && !/^[a-z][a-z0-9+.-]*:/i.test(path) && fileLinkHandler) {
+    fileLinkHandler(decodeURIComponent(path))
+    return
+  }
+  toast('This link cannot be opened on the phone')
 }
 
 function renderInline(nodes: Inline[], styles: Styles, keyPrefix = ''): ReactNode[] {

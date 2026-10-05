@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
 
 import type { UsageReport, UsageTotals } from '../desktop'
 import { baseName, compactNumber, formatCost } from '../lib/format'
@@ -117,15 +117,18 @@ export function UsageScreen({ navigation }: ScreenProps<'Usage'>) {
   const [report, setReport] = useState<UsageReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [refreshing, setRefreshing] = useState(false)
   const load = useCallback(() => {
     setError(null)
-    api.sessions
+    return api.sessions
       .usage()
       .then(setReport)
       .catch((e: unknown) => setError(errorText(e)))
   }, [])
 
-  useEffect(load, [load])
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const models = useMemo(
     () =>
@@ -179,7 +182,21 @@ export function UsageScreen({ navigation }: ScreenProps<'Usage'>) {
     )
   } else {
     body = (
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true)
+              void load().finally(() => setRefreshing(false))
+            }}
+            tintColor={theme.muted}
+            colors={[theme.accent]}
+            progressBackgroundColor={theme.raised}
+          />
+        }
+      >
         <View style={styles.tiles}>
           <Tile label="cost" value={formatCost(report.total.cost)} />
           <Tile label="requests" value={compactNumber(report.total.requests)} />

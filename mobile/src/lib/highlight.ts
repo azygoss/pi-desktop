@@ -79,13 +79,13 @@ function diffTokens(code: string): Token[] {
   }))
 }
 
-export function highlight(code: string, lang: string | undefined): Token[] {
+export function highlight(code: string, lang: string | undefined, maxChars = MAX_CHARS): Token[] {
   const name = (lang ?? '').toLowerCase()
   if (name === 'diff' || name === 'patch') {
     return diffTokens(code)
   }
   const family = FAMILIES[name]
-  if (!family || code.length > MAX_CHARS) {
+  if (!family || code.length > maxChars) {
     return [{ text: code, kind: 'plain' }]
   }
   const insensitive = name === 'sql'
@@ -161,4 +161,34 @@ export function highlight(code: string, lang: string | undefined): Token[] {
     tokens.push({ text: plain, kind: 'plain' })
   }
   return tokens
+}
+
+/** The highlighter's language for a file name ("Dockerfile", "app.tsx"). */
+export function languageOfPath(path: string): string | undefined {
+  const name = path.split('/').pop()?.toLowerCase() ?? ''
+  if (name === 'dockerfile') {
+    return 'dockerfile'
+  }
+  const ext = name.includes('.') ? name.split('.').pop() : undefined
+  return ext && (FAMILIES[ext] || ext === 'diff' || ext === 'patch') ? ext : undefined
+}
+
+/**
+ * A whole file highlighted at once (so a comment or string spanning lines
+ * stays one), then cut into lines for a virtualized list.
+ */
+export function highlightLines(code: string, lang: string | undefined): Token[][] {
+  const lines: Token[][] = [[]]
+  for (const token of highlight(code, lang, 400_000)) {
+    const parts = token.text.split('\n')
+    parts.forEach((part, index) => {
+      if (index > 0) {
+        lines.push([])
+      }
+      if (part) {
+        lines[lines.length - 1]!.push({ text: part.replace(/\r$/, ''), kind: token.kind })
+      }
+    })
+  }
+  return lines
 }
