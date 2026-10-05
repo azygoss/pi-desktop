@@ -413,23 +413,37 @@ export function DiffPanel({ active }: { active: boolean }) {
     return added + deleted <= COLLAPSE_LINES
   }
 
+  // Broadcasts are heard even while the tab is hidden; the list is read
+  // again each time it shows. A broadcast that lands while a read is in
+  // flight is newer than its answer, which is then dropped.
+  const changes = useRef(0)
+  useEffect(() => {
+    if (!cwd) {
+      return
+    }
+    return window.piDesktop.reviewComments.onChanged((change) => {
+      if (change.cwd === cwd) {
+        changes.current += 1
+        setStored(change)
+      }
+    })
+  }, [cwd])
   useEffect(() => {
     if (!active || !cwd) {
       return
     }
     let live = true
-    const off = window.piDesktop.reviewComments.onChanged((change) => {
-      if (change.cwd === cwd) {
-        setStored(change)
-      }
-    })
+    const seen = changes.current
     window.piDesktop.reviewComments
       .list({ cwd })
-      .then((comments) => live && setStored((prev) => (prev?.cwd === cwd ? prev : { cwd, comments })))
+      .then((comments) => {
+        if (live && changes.current === seen) {
+          setStored({ cwd, comments })
+        }
+      })
       .catch(() => {})
     return () => {
       live = false
-      off()
     }
   }, [active, cwd])
 

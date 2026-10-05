@@ -33,7 +33,7 @@ import { ReviewSheet } from '../chat/sheets'
 import type { ScreenProps } from '../nav'
 import { api, errorText, EVENTS } from '../remote/api'
 import { useChats } from '../state/chats'
-import { onRemote } from '../state/connection'
+import { onOnline, onRemote } from '../state/connection'
 import { makeStyles, radius, space, TOUCH, useTheme } from '../theme'
 import {
   Button,
@@ -392,18 +392,39 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
 
   useEffect(() => {
     let live = true
+    let changes = 0
     const off = onRemote<ReviewCommentsChange>(EVENTS.reviewCommentsChanged, (change) => {
       if (change.cwd === cwd) {
+        changes += 1
         setStored(change.comments)
       }
     })
-    api.reviewComments
-      .list(cwd)
-      .then((list) => live && setStored(list))
-      .catch(() => live && setShared(false))
+    // Read on opening and after every reconnect (changes made meanwhile were
+    // never heard). A broadcast during the read is newer than its answer.
+    const read = (): void => {
+      const seen = changes
+      api.reviewComments.list(cwd).then(
+        (list) => {
+          if (live && changes === seen) {
+            setShared(true)
+            setStored(list)
+          }
+        },
+        (e: unknown) => {
+          // Only a computer without the store keeps them on this screen; a
+          // dropped connection is retried when it comes back.
+          if (live && /not available from a paired device/i.test(errorText(e))) {
+            setShared(false)
+          }
+        }
+      )
+    }
+    read()
+    const offOnline = onOnline(read)
     return () => {
       live = false
       off()
+      offOnline()
     }
   }, [cwd])
 

@@ -10,16 +10,33 @@ const MAX_TEXT = 4000
 const MAX_LINE_TEXT = 1000
 const MAX_PATH = 1000
 const MAX_PROJECTS = 200
+/** Ids or paths one request may name. */
+const MAX_LIST = 500
 
 function cleanPath(value: unknown): string {
   if (typeof value !== 'string') {
     throw new Error('Invalid path')
   }
   const path = value.replace(/\\/g, '/').replace(/^\.\//, '').trim()
-  if (!path || path.length > MAX_PATH || path.startsWith('/') || path.split('/').includes('..')) {
+  if (
+    !path ||
+    path.length > MAX_PATH ||
+    path.startsWith('/') ||
+    path.split('/').includes('..') ||
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f]/.test(path)
+  ) {
     throw new Error('Invalid path')
   }
   return path
+}
+
+/** The strings of a request's id or path list, bounded. */
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > MAX_LIST) {
+    throw new Error('Invalid list')
+  }
+  return value.filter((item): item is string => typeof item === 'string' && item.length <= MAX_PATH)
 }
 
 function cleanLine(value: unknown): number | undefined {
@@ -50,7 +67,8 @@ function isComment(value: unknown): value is ReviewComment {
  */
 export class ReviewCommentStore {
   private cache: Map<string, ReviewComment[]> | null = null
-  private writeChain: Promise<void> = Promise.resolve()
+  /** Changes run one at a time, each from the list the previous one left. */
+  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly file: string,
@@ -81,33 +99,34 @@ export class ReviewCommentStore {
     return this.cache
   }
 
-  private persist(): Promise<void> {
-    const snapshot = JSON.stringify({ version: 1, projects: Object.fromEntries(this.cache ?? []) })
-    this.writeChain = this.writeChain.then(async () => {
-      const tmp = `${this.file}.tmp-${process.pid}`
-      try {
-        await mkdir(dirname(this.file), { recursive: true, mode: 0o700 })
-        await writeFile(tmp, snapshot, { mode: 0o600 })
-        await rename(tmp, this.file)
-      } catch {
-        // Unwritable data directory: the comments still live in memory.
-      }
-    })
-    return this.writeChain
+  /** Run a read-modify-write change after the ones before it. */
+  private serial<T>(change: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(change, change)
+    this.queue = run.catch(() => {})
+    return run
   }
 
+  /**
+   * Write the project's new list, then make it current and announce it. A
+   * failed write throws and leaves the list as it was, so a screen never
+   * shows a comment the computer could not keep.
+   */
   private async commit(cwd: string, comments: ReviewComment[]): Promise<ReviewComment[]> {
-    const cache = await this.load()
-    if (comments.length === 0) {
-      cache.delete(cwd)
-    } else {
-      cache.delete(cwd) // most recently touched last, so the oldest go first
-      cache.set(cwd, comments)
-      while (cache.size > MAX_PROJECTS) {
-        cache.delete(cache.keys().next().value!)
+    const next = new Map(await this.load())
+    next.delete(cwd) // most recently touched last, so the oldest go first
+    if (comments.length > 0) {
+      next.set(cwd, comments)
+      while (next.size > MAX_PROJECTS) {
+        next.delete(next.keys().next().value!)
       }
     }
-    await this.persist()
+    const tmp = `${this.file}.tmp-${process.pid}`
+    await mkdir(dirname(this.file), { recursive: true, mode: 0o700 })
+    await writeFile(tmp, JSON.stringify({ version: 1, projects: Object.fromEntries(next) }), {
+      mode: 0o600
+    })
+    await rename(tmp, this.file)
+    this.cache = next
     this.onChange(cwd, comments)
     return comments
   }
@@ -118,6 +137,13 @@ export class ReviewCommentStore {
 
   /** Add one of your comments. */
   async add(
+    cwd: string,
+    input: { path: unknown; line?: unknown; lineText?: unknown; text: unknown }
+  ): Promise<ReviewComment> {
+    return this.serial(() => this.addNow(cwd, input))
+  }
+
+  private async addNow(
     cwd: string,
     input: { path: unknown; line?: unknown; lineText?: unknown; text: unknown }
   ): Promise<ReviewComment> {
@@ -144,7 +170,14 @@ export class ReviewCommentStore {
   }
 
   /** A review pass's remarks replace pi's earlier ones; yours stay. */
-  async replacePi(cwd: string, remarks: readonly PiReviewComment[]): Promise<ReviewComment[]> {
+  replacePi(cwd: string, remarks: readonly PiReviewComment[]): Promise<ReviewComment[]> {
+    return this.serial(() => this.replacePiNow(cwd, remarks))
+  }
+
+  private async replacePiNow(
+    cwd: string,
+    remarks: readonly PiReviewComment[]
+  ): Promise<ReviewComment[]> {
     const now = Date.now()
     const yours = (await this.list(cwd)).filter((c) => c.author !== 'pi')
     const pi: ReviewComment[] = []
@@ -170,10 +203,12 @@ export class ReviewCommentStore {
   }
 
   async remove(cwd: string, ids: unknown): Promise<ReviewComment[]> {
-    const drop = new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [])
-    const current = await this.list(cwd)
-    const next = current.filter((c) => !drop.has(c.id))
-    return next.length === current.length ? current : this.commit(cwd, next)
+    const drop = new Set(stringList(ids))
+    return this.serial(async () => {
+      const current = await this.list(cwd)
+      const next = current.filter((c) => !drop.has(c.id))
+      return next.length === current.length ? current : this.commit(cwd, next)
+    })
   }
 
   /**
@@ -181,16 +216,11 @@ export class ReviewCommentStore {
    * or all of them (after a commit, or once they went to pi).
    */
   async clear(cwd: string, paths?: unknown): Promise<ReviewComment[]> {
-    const current = await this.list(cwd)
-    const only = Array.isArray(paths)
-      ? new Set(paths.filter((p): p is string => typeof p === 'string'))
-      : null
-    const next = only ? current.filter((c) => !only.has(c.path)) : []
-    return next.length === current.length ? current : this.commit(cwd, next)
-  }
-
-  /** Wait for pending writes (tests). */
-  flush(): Promise<void> {
-    return this.writeChain
+    const only = paths === undefined ? null : new Set(stringList(paths))
+    return this.serial(async () => {
+      const current = await this.list(cwd)
+      const next = only ? current.filter((c) => !only.has(c.path)) : []
+      return next.length === current.length ? current : this.commit(cwd, next)
+    })
   }
 }
