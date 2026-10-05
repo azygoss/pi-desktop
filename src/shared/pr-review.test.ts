@@ -30,7 +30,7 @@ describe('buildPrReview', () => {
     const review = buildPrReview(
       [
         { path: 'src/a.ts', line: 2, lineText: 'TWO', text: 'Why upper case?' },
-        { path: 'src/a.ts', line: 3, lineText: '', text: 'Off by one', author: 'pi' }
+        { path: 'src/a.ts', line: 3, text: 'Off by one', author: 'pi' }
       ],
       files
     )
@@ -55,12 +55,14 @@ describe('buildPrReview', () => {
       [
         { path: 'src/a.ts', line: 2, lineText: 'changed locally', text: 'Stale line' },
         { path: 'src/b.ts', line: 7, lineText: 'const `x`', text: 'Not pushed\nyet' },
-        { path: 'image.png', lineText: '', text: 'Binary', author: 'pi' }
+        { path: 'image.png', text: 'Binary', author: 'pi' },
+        { path: 'src/a.ts', line: 1, lineText: '', text: 'A blank line here, not "one"' }
       ],
       files
     )
     expect(review.comments).toEqual([])
-    expect(review.body).toContain('3 review comments')
+    expect(review.body).toContain('4 review comments')
+    expect(review.body).toContain('- `src/a.ts:1`\n  A blank line here')
     expect(review.body).toContain("- `src/b.ts:7` — `const 'x'`\n  Not pushed\n  yet")
     expect(review.body).toContain('- `src/a.ts:2` — `changed locally`\n  Stale line')
     expect(review.body).toContain('- `image.png` _(pi)_\n  Binary')

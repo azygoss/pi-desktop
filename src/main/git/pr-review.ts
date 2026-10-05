@@ -36,7 +36,7 @@ function validateComments(value: unknown): PrCommentInput[] {
     return {
       path,
       ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}),
-      lineText: typeof c['lineText'] === 'string' ? c['lineText'].slice(0, MAX_LINE_TEXT) : '',
+      ...(typeof c['lineText'] === 'string' ? { lineText: c['lineText'].slice(0, MAX_LINE_TEXT) } : {}),
       text: text.slice(0, MAX_TEXT),
       ...(c['author'] === 'pi' ? { author: 'pi' as const } : {}),
       ...(c['removed'] === true ? { removed: true } : {})
@@ -100,7 +100,8 @@ async function post(
   const [, host, owner, repo] = where
   const api = `repos/${owner}/${repo}/pulls/${pr.number}`
 
-  let env: Record<string, string> | undefined
+  // Every call goes to the PR's own host (GitHub Enterprise included).
+  let env: Record<string, string> = { GH_HOST: host! }
   if (account) {
     const token = await gh(cwd, ['auth', 'token', '--hostname', host!, '--user', account], GH_TIMEOUT_MS)
     if (!token.ok || !token.out.trim()) {
@@ -108,7 +109,10 @@ async function post(
         `${account} is not signed in to gh on this computer: run \`gh auth login\` as ${account}, or clear the account in Settings`
       )
     }
-    env = { GH_TOKEN: token.out.trim(), GH_HOST: host! }
+    // gh reads GH_TOKEN for github.com and *.ghe.com, GH_ENTERPRISE_TOKEN
+    // for an Enterprise Server.
+    const cloud = host === 'github.com' || host!.endsWith('.ghe.com')
+    env = { ...env, [cloud ? 'GH_TOKEN' : 'GH_ENTERPRISE_TOKEN']: token.out.trim() }
   }
 
   // Page by page (100 a page; GitHub lists at most 3000 files). Only the
@@ -117,7 +121,7 @@ async function post(
   const files: PrFile[] = []
   for (let page = 1; page <= 30; page++) {
     const listed = await gh(cwd, ['api', `${api}/files?per_page=100&page=${page}`], GH_TIMEOUT_MS, {
-      ...(env ? { env } : {})
+      env
     })
     if (!listed.ok) {
       throw ghError(listed, 'gh could not list the pull request files')
@@ -131,7 +135,7 @@ async function post(
   const draft = buildPrReview(comments, files)
 
   const posted = await gh(cwd, ['api', '-X', 'POST', `${api}/reviews`, '--input', '-'], GH_TIMEOUT_MS, {
-    ...(env ? { env } : {}),
+    env,
     input: JSON.stringify({
       commit_id: pr.headRefOid,
       event: 'COMMENT',

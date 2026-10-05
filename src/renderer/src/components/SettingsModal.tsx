@@ -13,6 +13,7 @@ import { useAppStore, type SettingsSection } from '../state/app-store'
 import { PiLogo } from './PiLogo'
 import { UsagePage } from './UsagePage'
 import { RemotePage } from './RemotePage'
+import { githubLogin } from '../../../shared/pr-review'
 
 type Section = SettingsSection
 
@@ -143,8 +144,15 @@ export function SettingsModal() {
     }
   }
 
+  // Not saved unless it is a GitHub login: a silently dropped name would
+  // post under gh's own account instead.
+  const commentAccountInvalid =
+    commentAccount.trim() !== '' && githubLogin(commentAccount) === undefined
   function commitCommentAccount(): void {
-    const account = commentAccount.trim().replace(/^@/, '')
+    if (commentAccountInvalid) {
+      return
+    }
+    const account = githubLogin(commentAccount) ?? ''
     if (account !== (appSettings.github.commentAccount ?? '')) {
       void updateAppSettings({ github: { commentAccount: account || undefined } })
     }
@@ -250,10 +258,16 @@ export function SettingsModal() {
                     in with <code>gh auth login</code>); empty uses gh&apos;s own. They are signed
                     pi-bot either way.
                   </div>
+                  {commentAccountInvalid && (
+                    <div className="settings-hint settings-error" role="alert">
+                      Not a GitHub account name: not saved
+                    </div>
+                  )}
                 </div>
                 <input
                   className="settings-input"
                   data-testid="settings-comment-account"
+                  aria-invalid={commentAccountInvalid}
                   value={commentAccount}
                   onChange={(e) => setCommentAccount(e.target.value)}
                   onBlur={commitCommentAccount}

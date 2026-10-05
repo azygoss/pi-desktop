@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { githubLogin } from '../../shared/pr-review'
 import { appUserDataDir } from './app-paths'
 
 /**
@@ -94,11 +95,8 @@ function stringOrUndefined(value: unknown, maxLength = 1024): string | undefined
     : undefined
 }
 
-/** A GitHub login (letters, digits, single dashes, up to 39), or undefined. */
-export function githubAccount(value: unknown): string | undefined {
-  const login = typeof value === 'string' ? value.trim().replace(/^@/, '') : ''
-  return /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(login) ? login : undefined
-}
+/** A GitHub login, or undefined (see githubLogin). */
+export const githubAccount = githubLogin
 
 function normalizeProjects(value: unknown): AppProject[] | undefined {
   if (!Array.isArray(value)) {

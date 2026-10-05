@@ -537,7 +537,8 @@ export function DiffPanel({ active }: { active: boolean }) {
         comments: comments.map((c) => ({
           path: c.path,
           ...(c.line !== undefined ? { line: c.line } : {}),
-          lineText: c.fallback ? '' : c.lineText,
+          // Unknown when it sits on a fallback line; '' is a real blank line.
+          ...(c.fallback ? {} : { lineText: c.lineText }),
           text: c.text,
           ...(c.author ? { author: c.author } : {}),
           ...(c.removed ? { removed: true } : {})

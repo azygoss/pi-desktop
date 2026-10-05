@@ -6,6 +6,12 @@
 /** The name diff comments are signed with on GitHub. */
 export const PR_COMMENT_SIGNATURE = 'pi-bot'
 
+/** A GitHub login (letters, digits, single dashes, up to 39), or undefined. */
+export function githubLogin(value: unknown): string | undefined {
+  const login = typeof value === 'string' ? value.trim().replace(/^@/, '') : ''
+  return /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(login) ? login : undefined
+}
+
 /** Most comments one review takes: as many as a project keeps. */
 export const MAX_PR_COMMENTS = 200
 
@@ -13,8 +19,11 @@ export interface PrCommentInput {
   path: string
   /** Line in the new file, when known. */
   line?: number
-  /** The line's text as the diff showed it ('' when unknown). */
-  lineText: string
+  /**
+   * The line's text as the diff showed it; absent when unknown. A blank
+   * line is '' and must still match the pull request's line.
+   */
+  lineText?: string
   text: string
   author?: 'pi'
   /**
@@ -94,13 +103,14 @@ export function buildPrReview(
       !comment.removed &&
       comment.line !== undefined &&
       lines?.has(comment.line) &&
-      (comment.lineText === '' || lines.get(comment.line) === comment.lineText)
+      (comment.lineText === undefined || lines.get(comment.line) === comment.lineText)
     if (onLine) {
       inline.push({ path: comment.path, line: comment.line!, side: 'RIGHT', body: signed(comment) })
       continue
     }
     const where = comment.line !== undefined ? `${comment.path}:${comment.line}` : comment.path
-    const about = comment.lineText.trim() ? ` — \`${quote(comment.lineText.trim())}\`` : ''
+    const shown = comment.lineText?.trim() ?? ''
+    const about = shown ? ` — \`${quote(shown)}\`` : ''
     const by = `${comment.removed ? ' _(removed line)_' : ''}${comment.author === 'pi' ? ' _(pi)_' : ''}`
     const text = comment.text.trim().split('\n').join('\n  ')
     listed.push(`- \`${where}\`${about}${by}\n  ${text}`)
