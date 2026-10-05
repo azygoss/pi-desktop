@@ -1,6 +1,6 @@
 {
   "name": "pi-remote",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",

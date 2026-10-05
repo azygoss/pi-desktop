@@ -1124,7 +1124,7 @@ function handle(command) {
       if (/Output only a JSON array/.test(String(command.message))) {
         // The diff panel's review pass: a machine-readable list of remarks.
         void scriptedTextReply(
-          '```json\n[{"path":"notes.txt","line":1,"comment":"Synthetic review remark."}]\n```'
+          `\`\`\`json\n[{"path":"notes.txt","line":1,"comment":"Synthetic review remark by ${currentModel.id}."}]\n\`\`\``
         )
       } else if (/\bside question\b/i.test(String(command.message))) {
         void scriptedTextReply('Synthetic side answer.')

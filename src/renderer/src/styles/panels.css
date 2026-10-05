@@ -1602,3 +1602,31 @@
   min-width: 0;
   color: var(--text-2);
 }
+
+/* Review menu: the chat's model, or another one to review with. It hangs
+   from the toolbar's right edge (not the button's) so it stays inside a
+   narrow panel. */
+.diff-toolbar {
+  position: relative;
+}
+.review-chevron {
+  color: var(--muted);
+  margin-left: -2px;
+}
+.review-popover,
+.review-popover.popover-below {
+  bottom: auto;
+  top: calc(100% + 2px);
+  right: 8px;
+  width: min(280px, calc(100% - 16px));
+}
+.review-popover-title {
+  padding: 9px 12px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.review-current {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}

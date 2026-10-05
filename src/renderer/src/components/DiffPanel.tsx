@@ -7,14 +7,13 @@ import {
   GitCommitHorizontal,
   Plus,
   RefreshCw,
-  ScanSearch,
   Send,
   Undo2,
   X
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { RepoDiffResult } from '../../../shared/api'
+import type { RepoDiffResult, SideModelInput } from '../../../shared/api'
 import {
   countChanges,
   diffFileForUntracked,
@@ -22,17 +21,20 @@ import {
   type DiffFile
 } from '../../../shared/diff-parse'
 import type { ToolRun } from '../../../shared/chat-view'
+import type { Model } from '../../../shared/pi-types'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
 import { anchorForLine, reviewPrompt, type ReviewComment } from '../lib/review-comments'
 import { joinPath } from '../lib/paths'
+import { ReviewButton } from './ReviewButton'
 
 const COLLAPSE_LINES = 400
 const REFRESH_DEBOUNCE_MS = 500
 const WRITE_TOOLS = /edit|write|bash|apply/i
 const NO_COMMENTS = new Map<string, ReviewComment[]>()
+const NO_MODELS: Model[] = []
 
 /** Renders one file's hunks with line numbers; files stay collapsed >400 lines. */
 const DiffFileView = memo(function DiffFileView({
@@ -309,6 +311,8 @@ export function DiffPanel({ active }: { active: boolean }) {
   const workspaceDir = useAppStore((s) => s.appInfo?.workspaceDir ?? '')
   const chatId = view.kind === 'chat' ? view.chatId : null
   const chatCwd = useChatStore((s) => (chatId ? s.chats[chatId]?.cwd : undefined))
+  const chatModels = useChatStore((s) => (chatId ? s.chats[chatId]?.models : undefined))
+  const chatModel = useChatStore((s) => (chatId ? s.chats[chatId]?.model : undefined))
   const cwd = chatCwd || workspaceDir
 
   const [result, setResult] = useState<RepoDiffResult | null>(null)
@@ -417,15 +421,12 @@ export function DiffPanel({ active }: { active: boolean }) {
 
   // Ask pi for a review pass (in its own session-less process) and pin its
   // remarks to the diff lines they are about.
-  const review = async (): Promise<void> => {
+  // `model` is the chat's own or another one picked from the Review menu.
+  const review = async (model: SideModelInput | undefined): Promise<void> => {
     if (busy) {
       return
     }
     setBusy('review')
-    const chat = chatId ? useChatStore.getState().chats[chatId] : undefined
-    const model = chat?.model
-      ? { provider: chat.model.provider, modelId: chat.model.id }
-      : undefined
     let remarks
     try {
       remarks = await window.piDesktop.diff.review({ cwd, ...(model ? { model } : {}) })
@@ -563,17 +564,13 @@ export function DiffPanel({ active }: { active: boolean }) {
             </button>
           )}
           {result?.isRepo && files.length > 0 && (
-            <button
-              type="button"
-              className="diff-action"
-              data-testid="review-diff"
-              title="Have pi review these changes"
+            <ReviewButton
+              models={chatModels ?? NO_MODELS}
+              current={chatModel ?? null}
+              busy={busy === 'review'}
               disabled={busy !== null}
-              onClick={() => void review()}
-            >
-              <ScanSearch size={12} />
-              {busy === 'review' ? 'Reviewing…' : 'Review'}
-            </button>
+              onReview={(model) => void review(model)}
+            />
           )}
           {result?.isRepo && files.length > 0 && (
             <button
