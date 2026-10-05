@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { homedir } from 'node:os'
 import { stat } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, isAbsolute, relative } from 'node:path'
 import type {
   ChatBashResult,
   ChatExitPayload,
@@ -226,6 +226,12 @@ async function dirExists(path: string): Promise<boolean> {
  * Pi only writes the session file when the first message lands, so a freshly
  * spawned draft chat does not litter the sessions directory.
  */
+/** `path` is `dir` or a folder inside it. */
+function within(dir: string, path: string): boolean {
+  const rel = relative(dir, path)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
 export class ChatService {
   private readonly chats = new Map<string, ChatRecord>()
   /**
@@ -249,6 +255,8 @@ export class ChatService {
    * same cwd/session the next time the renderer talks to them.
    */
   private readonly evicted = new Map<string, { cwd: string; sessionPath?: string }>()
+  /** Chats whose folder (a worktree) was removed: never revived there. */
+  private readonly retired = new Map<string, string>()
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private readonly eviction: Required<EvictionOptions>
   /** Bridge token of each pi process spawned through spawn(). */
@@ -560,6 +568,7 @@ export class ChatService {
       return this.fetchCatalog(existing.client, chatId, existing.cwd, existing.sessionPath)
     }
     this.evicted.delete(chatId)
+    this.retired.delete(chatId)
     // Concurrent open() for the same chat (e.g. an ensureChat retry while
     // the first open is in flight) piggybacks on it instead of spawning a
     // second pi process.
@@ -1048,6 +1057,47 @@ export class ChatService {
       }))
   }
 
+  /**
+   * A chat in `dir` (or a folder inside it) is at work: running, running a
+   * shell command, or waiting on the user. Its checkout must not change
+   * under it.
+   */
+  busyIn(dir: string): boolean {
+    return [...this.chats.values()].some(
+      (record) =>
+        within(dir, record.cwd) && (record.streaming || record.bashRunning || record.pendingUi)
+    )
+  }
+
+  /**
+   * Stop every chat and warm spare in `dir`: its folder is about to go away.
+   * Screens keep the transcripts, as with an idle eviction.
+   */
+  async closeIn(dir: string): Promise<void> {
+    const closing: Promise<void>[] = []
+    for (const [chatId, entry] of [...this.evicted]) {
+      if (within(dir, entry.cwd)) {
+        this.evicted.delete(chatId)
+        this.retired.set(chatId, entry.cwd)
+      }
+    }
+    for (const record of [...this.chats.values()]) {
+      if (within(dir, record.cwd)) {
+        this.retired.set(record.chatId, record.cwd)
+        this.chats.delete(record.chatId)
+        record.gate.reject(new Error('Chat closed'))
+        this.revokeToken(record.client)
+        closing.push(this.pool.close(record.chatId))
+      }
+    }
+    for (const cwd of [...this.spares.keys()]) {
+      if (within(dir, cwd)) {
+        closing.push(this.removeSpare(cwd))
+      }
+    }
+    await Promise.all(closing)
+  }
+
   /** A paired phone used this chat: counts as viewed for idle eviction. */
   touch(chatId: string): void {
     const record = this.chats.get(chatId)
@@ -1155,6 +1205,9 @@ export class ChatService {
         await this.open({ chatId, cwd: evicted.cwd, sessionPath: evicted.sessionPath })
         record = this.chats.get(chatId)
       }
+    }
+    if (!record && this.retired.has(chatId)) {
+      throw new Error('This chat’s folder was removed (its worktree is gone); start a new chat')
     }
     if (!record) {
       throw new Error(`No running pi process for chat ${chatId}`)

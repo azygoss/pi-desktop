@@ -15,6 +15,7 @@ import type { Automation, AutomationSchedule } from './automations'
 import type { PrStatus } from './pr-status'
 import type { PiReviewComment, ReviewComment, ReviewCommentsChange } from './review'
 import type { PrCommentInput } from './pr-review'
+import type { RepoBranches, WorktreeSource } from './git-branches'
 
 export interface PrReviewPosted {
   url: string
@@ -651,6 +652,22 @@ export interface PiDesktopApi {
      */
     postComments(input: { cwd: string; comments: PrCommentInput[] }): Promise<PrReviewPosted>
   }
+  /** A project repository's branches and worktrees. */
+  git: {
+    /** `query` searches every branch by name (the list is capped otherwise). */
+    branches(input: { cwd: string; query?: string }): Promise<RepoBranches>
+    /** Check out a branch here (a remote "origin/x" gets a tracking branch). */
+    switchBranch(input: { cwd: string; branch: string }): Promise<GitActionResult>
+    /** Create a branch from `from` (HEAD by default); switches to it unless `switch` is false. */
+    createBranch(input: {
+      cwd: string
+      name: string
+      from?: string
+      switch?: boolean
+    }): Promise<GitActionResult>
+    /** A checkout's branch changed (switch, new branch, worktree added or removed). */
+    onChanged(callback: (change: { root: string }) => void): () => void
+  }
   /**
    * A project's diff comments, kept on the computer: every window and paired
    * phone shows the same list. A commit clears it, discarding a file clears
@@ -677,9 +694,15 @@ export interface PiDesktopApi {
     /** Native context menu for a project row; resolves to the action or null. */
     showMenu(input: { cwd: string }): Promise<ProjectMenuAction | null>
     /** Create a git worktree of the project on a new pi/ branch. */
-    createWorktree(input: { cwd: string }): Promise<WorktreeInfo>
+    /** By default a new pi/<slug> branch from HEAD; `source` names it or picks an existing branch. */
+    createWorktree(input: { cwd: string; source?: WorktreeSource }): Promise<WorktreeInfo>
     /** Remove a worktree the app created (force discards its changes). */
-    removeWorktree(input: { cwd: string; force?: boolean }): Promise<GitActionResult>
+    /** `deleteBranch` also deletes its branch when merged. */
+    removeWorktree(input: {
+      cwd: string
+      force?: boolean
+      deleteBranch?: boolean
+    }): Promise<GitActionResult>
   }
   settings: {
     /** Pi's own whitelisted settings (~/.pi/agent/settings.json). */

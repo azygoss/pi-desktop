@@ -2,35 +2,61 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { toast } from '../state/toast-store'
 
-function errorText(e: unknown): string {
+import type { WorktreeSource } from '../../../shared/git-branches'
+
+export function errorText(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).replace(
     /^Error invoking remote method [^:]+: (Error: )?/,
     ''
   )
 }
 
+/** Open a new chat in `cwd`, listed and expanded in the sidebar. */
+export async function newChatIn(cwd: string): Promise<void> {
+  const app = useAppStore.getState()
+  await app.refreshSessions()
+  if (!app.appSettings.expandedProjects.includes(cwd)) {
+    app.toggleProjectExpanded(cwd)
+  }
+  const chatId = crypto.randomUUID()
+  void useChatStore
+    .getState()
+    .ensureChat(chatId, { cwd })
+    .catch(() => {})
+  useAppStore.getState().navigate({ kind: 'chat', chatId })
+}
+
 /**
- * Start a chat in a fresh git worktree of `cwd`: an isolated checkout on its
- * own `pi/…` branch, so it can run next to other chats on the same project
- * without sharing files.
+ * Start a chat in a fresh git worktree of `cwd`: an isolated checkout, so it
+ * can run next to other chats on the same project without sharing files.
+ * By default on a new `pi/…` branch from HEAD; `source` names the branch and
+ * where it starts, or checks out an existing one.
  */
-export async function newChatInWorktree(cwd: string): Promise<void> {
+export async function newChatInWorktree(cwd: string, source?: WorktreeSource): Promise<boolean> {
   try {
-    const worktree = await window.piDesktop.projects.createWorktree({ cwd })
-    const app = useAppStore.getState()
-    await app.refreshSessions()
-    if (!app.appSettings.expandedProjects.includes(worktree.cwd)) {
-      app.toggleProjectExpanded(worktree.cwd)
-    }
-    const chatId = crypto.randomUUID()
-    void useChatStore
-      .getState()
-      .ensureChat(chatId, { cwd: worktree.cwd })
-      .catch(() => {})
-    useAppStore.getState().navigate({ kind: 'chat', chatId })
+    const worktree = await window.piDesktop.projects.createWorktree({
+      cwd,
+      ...(source ? { source } : {})
+    })
+    await newChatIn(worktree.cwd)
     toast(`New worktree on ${worktree.branch}`)
+    return true
   } catch (e) {
     toast(`Could not create a worktree: ${errorText(e)}`)
+    return false
+  }
+}
+
+/**
+ * Open a chat in a worktree that already exists (made by the app, by git
+ * on the command line or by another tool): it becomes a project first.
+ */
+export async function openWorktreeChat(path: string): Promise<void> {
+  try {
+    await window.piDesktop.projects.add({ cwd: path })
+    await newChatIn(path)
+  } catch (e) {
+    toast(`Could not open the worktree: ${errorText(e)}`)
   }
 }
 
@@ -41,13 +67,15 @@ export async function newChatInWorktree(cwd: string): Promise<void> {
 export async function removeWorktreeProject(cwd: string, name: string): Promise<void> {
   const confirm = await window.piDesktop.app.confirmDialog({
     title: `Remove the worktree ${name}?`,
-    message: 'Its folder is deleted. The branch and the chat history are kept.',
-    buttons: ['Remove', 'Cancel'],
+    message:
+      'Its folder is deleted and the chat history is kept. "Remove with Branch" also deletes its branch if it is merged.',
+    buttons: ['Remove', 'Remove with Branch', 'Cancel'],
     danger: true
   })
-  if (confirm !== 0) {
+  if (confirm !== 0 && confirm !== 1) {
     return
   }
+  const deleteBranch = confirm === 1
   const chats = useChatStore.getState()
   const app = useAppStore.getState()
   for (const chat of Object.values(chats.chats)) {
@@ -59,18 +87,18 @@ export async function removeWorktreeProject(cwd: string, name: string): Promise<
     }
   }
   try {
-    let result = await window.piDesktop.projects.removeWorktree({ cwd })
+    let result = await window.piDesktop.projects.removeWorktree({ cwd, deleteBranch })
     if (!result.ok) {
       const force = await window.piDesktop.app.confirmDialog({
         title: 'This worktree has uncommitted changes',
-        message: `${result.message}\n\nRemoving it discards those changes.`,
+        message: `${result.message}\n\nRemoving it moves the folder, changes and all, to the Trash.`,
         buttons: ['Discard and Remove', 'Cancel'],
         danger: true
       })
       if (force !== 0) {
         return
       }
-      result = await window.piDesktop.projects.removeWorktree({ cwd, force: true })
+      result = await window.piDesktop.projects.removeWorktree({ cwd, force: true, deleteBranch })
     }
     toast(result.ok ? result.message : `Could not remove the worktree: ${result.message}`)
     if (result.ok) {

@@ -22,6 +22,7 @@ export {
 export type { DiffLine as PatchLine } from '../../../src/shared/diff-parse'
 export type { PiReviewComment, ReviewCommentsChange } from '../../../src/shared/review'
 export type { PrCommentInput } from '../../../src/shared/pr-review'
+export type { RepoBranches, WorktreeSource } from '../../../src/shared/git-branches'
 export type {
   AppInfo,
   AttachmentReadResult,

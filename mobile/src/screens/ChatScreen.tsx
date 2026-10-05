@@ -47,9 +47,10 @@ import { baseName } from '../lib/format'
 import { shareChatHtml } from '../lib/share'
 import { formatElapsed, useTick } from '../lib/live-clock'
 import type { ScreenProps } from '../nav'
-import { api, errorText } from '../remote/api'
+import { api, errorText, EVENTS } from '../remote/api'
 import { useChats } from '../state/chats'
-import { useConnection } from '../state/connection'
+import { onRemote, useConnection } from '../state/connection'
+import { BranchSheet } from '../chat/BranchSheet'
 import { useData } from '../state/data'
 import { space, TOUCH, useTheme } from '../theme'
 import { Button, confirm, Empty, haptic, IconButton, Mono, Pixel, Screen, Sheet, SheetAction, Tap, toast, Txt } from '../ui'
@@ -184,7 +185,11 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
     }
   }, [])
 
-  // Branch and change counts: on open, and again whenever a run settles.
+  // Branch and change counts: on open, whenever a run settles, and when a
+  // branch changes (here, in the window or on another phone).
+  const [gitTick, setGitTick] = useState(0)
+  useEffect(() => onRemote(EVENTS.gitChanged, () => setGitTick((n) => n + 1)), [])
+  const [branchesOpen, setBranchesOpen] = useState(false)
   useEffect(() => {
     if (!cwd || !online || streaming) {
       return
@@ -201,7 +206,7 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
     return () => {
       cancelled = true
     }
-  }, [cwd, online, streaming])
+  }, [cwd, online, streaming, gitTick])
 
   // The branch's pull request: number and checks in the header. While
   // checks run (and this chat is on screen) they are looked at every minute;
@@ -722,6 +727,15 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
         </View>
       </KeyboardAvoidingView>
 
+      {repo ? (
+        <BranchSheet
+          cwd={cwd}
+          visible={branchesOpen}
+          busy={streaming}
+          navigation={navigation}
+          onClose={() => setBranchesOpen(false)}
+        />
+      ) : null}
       <Sheet visible={menuOpen} onClose={() => setMenuOpen(false)} title={title}>
         {repo ? (
           <SheetAction
@@ -731,6 +745,17 @@ export function ChatScreen({ navigation, route }: ScreenProps<'Chat'>) {
             onPress={() => {
               setMenuOpen(false)
               navigation.navigate('Diff', { cwd, chatId })
+            }}
+          />
+        ) : null}
+        {repo ? (
+          <SheetAction
+            icon={GitBranch}
+            title="Branches and worktrees"
+            detail={`On ${repo.branch ?? 'a detached HEAD'}: switch, create, or open in a worktree`}
+            onPress={() => {
+              setMenuOpen(false)
+              setBranchesOpen(true)
             }}
           />
         ) : null}

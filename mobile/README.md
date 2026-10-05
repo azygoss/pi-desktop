@@ -62,6 +62,9 @@ computer in the app's settings.
   pause or stop it while it runs.
 - **Projects** — start a chat in a project, in a fresh git worktree, in any
   folder on the computer, or without a project.
+- **Branches and worktrees** — from a chat's menu or a project's: switch or
+  create a branch, open a branch in a new worktree chat, go to an existing
+  worktree, remove a worktree with its merged branch.
 - **Automations** — create, edit, enable and run scheduled prompts.
 - **Usage** — tokens and cost over the last 30 days.
 

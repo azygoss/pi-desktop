@@ -17,6 +17,8 @@ import type {
   ImageContent,
   PiReviewComment,
   PrCommentInput,
+  RepoBranches,
+  WorktreeSource,
   PrReviewPosted,
   ReviewComment,
   PiRuntimeInfo,
@@ -74,10 +76,19 @@ export const api = {
   projects: {
     list: () => request<ProjectSummary[]>('pi-desktop:projects:list'),
     add: (cwd: string) => request<void>('pi-desktop:projects:add', { cwd }),
-    createWorktree: (cwd: string) =>
-      request<WorktreeInfo>('pi-desktop:projects:create-worktree', { cwd }),
-    removeWorktree: (cwd: string, force = false) =>
-      request<GitActionResult>('pi-desktop:projects:remove-worktree', { cwd, force })
+    createWorktree: (cwd: string, source?: WorktreeSource) =>
+      request<WorktreeInfo>('pi-desktop:projects:create-worktree', { cwd, ...(source ? { source } : {}) }, 60_000),
+    removeWorktree: (cwd: string, force = false, deleteBranch = false) =>
+      request<GitActionResult>('pi-desktop:projects:remove-worktree', { cwd, force, deleteBranch })
+  },
+  /** A project repository's branches and worktrees. */
+  git: {
+    branches: (cwd: string, query?: string) =>
+      request<RepoBranches>('pi-desktop:git:branches', { cwd, ...(query ? { query } : {}) }, 60_000),
+    switchBranch: (cwd: string, branch: string) =>
+      request<GitActionResult>('pi-desktop:git:switch', { cwd, branch }, 60_000),
+    createBranch: (cwd: string, name: string) =>
+      request<GitActionResult>('pi-desktop:git:create-branch', { cwd, name }, 60_000)
   },
   files: {
     list: (cwd: string) => request<{ files: string[] }>('pi-desktop:files:list', { cwd }),
@@ -230,6 +241,7 @@ export const EVENTS = {
   sessionMetaChanged: 'pi-desktop:session-meta:changed',
   automationsChanged: 'pi-desktop:automations:changed',
   reviewCommentsChanged: 'pi-desktop:review-comments:changed',
+  gitChanged: 'pi-desktop:git:changed',
   cuaActivity: 'pi-desktop:cua:activity'
 } as const
 
