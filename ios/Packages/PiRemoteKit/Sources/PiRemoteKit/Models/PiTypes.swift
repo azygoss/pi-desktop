@@ -433,6 +433,7 @@ public enum PiEvent: Sendable {
     case agentStart
     case agentEnd(messages: [AgentMessage])
     case agentSettled
+    case turnEnd
     case queueUpdate(steering: [String], followUp: [String])
     case messageStart(AgentMessage)
     case messageUpdate(AssistantMessageEvent)
@@ -456,6 +457,7 @@ public enum PiEvent: Sendable {
         case "agent_start": self = .agentStart
         case "agent_end": self = .agentEnd(messages: AgentMessage.list(json["messages"]))
         case "agent_settled": self = .agentSettled
+        case "turn_end": self = .turnEnd
         case "queue_update":
             self = .queueUpdate(
                 steering: (json["steering"]?.arrayValue ?? []).compactMap(\.stringValue),

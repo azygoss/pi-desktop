@@ -24,6 +24,32 @@ private struct MenuTarget: Identifiable {
     var id: String { path }
 }
 
+/// List rows inside one file: ids stay unique across every file in the
+/// LazyVStack, so collapsing one file can never reuse another's rows.
+private struct HunkRow: Identifiable {
+    let id: String
+    let index: Int
+    let hunk: DiffHunk
+
+    init(path: String, index: Int, hunk: DiffHunk) {
+        id = "\(path)\u{0}h\(index)"
+        self.index = index
+        self.hunk = hunk
+    }
+}
+
+private struct PatchLineRow: Identifiable {
+    let id: String
+    let index: Int
+    let line: PatchLine
+
+    init(path: String, hunk: Int, index: Int, line: PatchLine) {
+        id = "\(path)\u{0}h\(hunk)\u{0}l\(index)"
+        self.index = index
+        self.line = line
+    }
+}
+
 /// Working-tree changes of a project: read, comment, review, commit, push.
 struct DiffView: View {
     let cwd: String
@@ -157,11 +183,16 @@ struct DiffView: View {
                 ForEach(entries) { entry in
                     fileHeader(entry)
                     if !collapsed.contains(entry.file.path) {
-                        if entry.file.isBinary {
-                            Text("Binary file").font(.system(size: 14)).foregroundStyle(theme.muted).padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+                        if entry.file.isBinary || entry.file.tooLarge || entry.file.hunks.isEmpty {
+                            Text(entry.file.tooLarge ? "File too large to show" : entry.file.isBinary ? "Binary file" : "No content changes")
+                                .font(.system(size: 14))
+                                .foregroundStyle(theme.muted)
+                                .padding(.horizontal, Space.lg)
+                                .padding(.vertical, Space.md)
+                                .id("\(entry.file.path)\u{0}placeholder")
                         } else {
-                            ForEach(Array(entry.file.hunks.enumerated()), id: \.offset) { hunkIndex, hunk in
-                                Text(hunk.header)
+                            ForEach(entry.file.hunks.enumerated().map { HunkRow(path: entry.file.path, index: $0.offset, hunk: $0.element) }) { hunk in
+                                Text(hunk.hunk.header)
                                     .font(.mono(12))
                                     .foregroundStyle(theme.muted)
                                     .lineLimit(1)
@@ -169,9 +200,9 @@ struct DiffView: View {
                                     .padding(.vertical, Space.xs)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(theme.codeBg)
-                                ForEach(Array(hunk.lines.enumerated()), id: \.offset) { lineIndex, line in
-                                    lineRow(path: entry.file.path, line: line)
-                                    ForEach(notes["\(entry.file.path)\n\(hunkIndex):\(lineIndex)"] ?? []) { comment in
+                                ForEach(hunk.hunk.lines.enumerated().map { PatchLineRow(path: entry.file.path, hunk: hunk.index, index: $0.offset, line: $0.element) }) { line in
+                                    lineRow(path: entry.file.path, line: line.line)
+                                    ForEach(notes["\(entry.file.path)\n\(hunk.index):\(line.index)"] ?? []) { comment in
                                         noteRow(comment)
                                     }
                                 }
@@ -195,7 +226,8 @@ struct DiffView: View {
                 HStack(spacing: Space.sm) {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down").font(.system(size: 13)).foregroundStyle(theme.muted)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.file.path).font(.mono(13, .medium)).foregroundStyle(theme.text).lineLimit(2).truncationMode(.head)
+                        Text(entry.file.status == "renamed" && entry.file.oldPath != nil ? "\(entry.file.oldPath ?? "") → \(entry.file.path)" : entry.file.path)
+                            .font(.mono(13, .medium)).foregroundStyle(theme.text).lineLimit(2).truncationMode(.head)
                         HStack(spacing: Space.sm) {
                             Text(entry.file.status).font(.mono(12)).foregroundStyle(theme.muted)
                             DiffStatText(added: entry.added, removed: entry.deleted)
@@ -370,7 +402,9 @@ struct DiffView: View {
     private func load() async {
         do {
             let next = try await API.diffStatus(cwd)
-            let files = parseUnifiedDiff(next.diffText) + next.untracked.map { diffFileForUntracked(path: $0.path, content: $0.content) }
+            let files = parseUnifiedDiff(next.diffText) + next.untracked.map {
+                diffFileForUntracked(path: $0.path, content: $0.content, binary: $0.binary, tooLarge: $0.tooLarge)
+            }
             let built = files.map { file -> FileEntry in
                 let changes = file.changes
                 return FileEntry(file: file, added: changes.added, deleted: changes.deleted, lineCount: file.hunks.reduce(0) { $0 + $1.lines.count })

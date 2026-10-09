@@ -8,19 +8,27 @@ enum PixelTone {
 }
 
 /// Re-renders its content once a second while on screen (the shared 1 Hz
-/// beat for live indicators: never an animation loop).
+/// beat for live indicators: one timer for every view, never an animation loop).
 struct LiveTick<Content: View>: View {
     var live = true
     @ViewBuilder var content: (Int) -> Content
 
     var body: some View {
         if live {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                content(Int(context.date.timeIntervalSince1970))
-            }
+            LiveTickBody(content: content)
         } else {
             content(0)
         }
+    }
+}
+
+private struct LiveTickBody<Content: View>: View {
+    @ViewBuilder var content: (Int) -> Content
+
+    var body: some View {
+        content(LiveClock.shared.tick)
+            .onAppear { LiveClock.shared.retain() }
+            .onDisappear { LiveClock.shared.release() }
     }
 }
 

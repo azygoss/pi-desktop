@@ -141,6 +141,8 @@ struct PairView: View {
                 await pair(pending)
             }
         }
+        // Editing the pasted link makes an earlier error stale — drop it.
+        .onChange(of: pasted) { _, _ in error = nil }
         .onChange(of: router.pendingPairLink) { _, pending in
             guard let pending, !adding else { return }
             router.pendingPairLink = nil

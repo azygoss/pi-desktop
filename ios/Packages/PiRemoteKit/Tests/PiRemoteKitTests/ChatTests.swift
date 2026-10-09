@@ -36,6 +36,16 @@ final class ChatViewTests: XCTestCase {
         XCTAssertNil(state.runStartedAt)
     }
 
+    func testTurnEndFlagsStatsRefreshWithoutTouchingState() {
+        var state = ChatViewState()
+        let turnEnd = event(#"{"type":"turn_end","message":{"role":"assistant","content":[]},"toolResults":[]}"#)
+        guard case .turnEnd = turnEnd else { return XCTFail() }
+        XCTAssertTrue(state.reduce(turnEnd))
+        XCTAssertEqual(state.status, .idle)
+        XCTAssertTrue(state.messages.isEmpty)
+        XCTAssertFalse(state.reduce(event(#"{"type":"turn_start"}"#)))
+    }
+
     func testOptimisticUserEchoKeepsLocalKeyAndCheckpoint() {
         var state = ChatViewState()
         state.messages.append(.user(UserDisplay(key: "local-1", text: "do it", images: [], checkpoint: "abc")))
@@ -330,5 +340,26 @@ final class HelperTests: XCTestCase {
         let summary = try value.decode(RepoSummary.self)
         XCTAssertNil(summary.branch)
         XCTAssertEqual(summary.files, 2)
+    }
+}
+
+@MainActor
+final class LiveClockTests: XCTestCase {
+    func testRefCountedTimer() {
+        let clock = LiveClock()
+        XCTAssertFalse(clock.isRunning)
+        clock.retain()
+        XCTAssertTrue(clock.isRunning)
+        // A second subscriber keeps it alive through the first release.
+        clock.retain()
+        clock.release()
+        XCTAssertTrue(clock.isRunning)
+        clock.release()
+        XCTAssertFalse(clock.isRunning)
+        // An extra release must not go negative: the next pair still stops.
+        clock.release()
+        clock.retain()
+        clock.release()
+        XCTAssertFalse(clock.isRunning)
     }
 }
