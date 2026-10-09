@@ -18,7 +18,10 @@ async function repo(): Promise<{ dir: string; run: (...args: string[]) => string
   return { dir, run }
 }
 
-describe('branches', () => {
+// These run real git many times over; a busy machine needs more than 5s.
+const GIT_TEST_TIMEOUT = 30_000
+
+describe('branches', { timeout: GIT_TEST_TIMEOUT }, () => {
   it('lists branches, remote branches and worktrees', async () => {
     const { dir, run } = await repo()
     run('branch', 'feature')

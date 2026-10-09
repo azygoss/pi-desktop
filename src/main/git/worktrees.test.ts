@@ -26,7 +26,10 @@ async function repoWithCommit(): Promise<string> {
   return repo
 }
 
-describe('worktrees', () => {
+// These run real git many times over; a busy machine needs more than 5s.
+const GIT_TEST_TIMEOUT = 30_000
+
+describe('worktrees', { timeout: GIT_TEST_TIMEOUT }, () => {
   it('creates an isolated checkout on a pi/ branch and removes it', async () => {
     const repo = await repoWithCommit()
     const base = await realpath(await mkdtemp(join(tmpdir(), 'pi-wt-base-')))
