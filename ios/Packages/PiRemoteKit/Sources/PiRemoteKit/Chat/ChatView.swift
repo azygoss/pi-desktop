@@ -432,6 +432,10 @@ public struct ChatViewState: Sendable {
             queue = nil
             return false
 
+        case .turnEnd:
+            // Each finished LLM turn changes context usage — refresh mid-run.
+            return true
+
         case .queueUpdate(let steering, let followUp):
             queue = steering.isEmpty && followUp.isEmpty ? nil : MessageQueue(steering: steering, followUp: followUp)
             return false
