@@ -429,6 +429,8 @@ export function initChatBridge(): void {
     }
     clearQueuedFlags(draft)
     publish(ready.chatId)
+    // A reopened session shows stale/no ring until stats are fetched once.
+    scheduleStatsRefresh()
   })
 
   window.piDesktop.chat.onStartupHint(({ chatId, hint }) => {
@@ -531,6 +533,8 @@ function applyOpenResult(
   }
   clearQueuedFlags(draft)
   publish(chatId)
+  // An opened session has real context usage the ring should show at once.
+  scheduleStatsRefresh()
 }
 
 /**
@@ -992,6 +996,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       stats: undefined,
       uiRequest: undefined
     })
+    scheduleStatsRefresh()
     draft.status = result.state.isStreaming
       ? 'streaming'
       : view.messages.length > 0
@@ -1083,6 +1088,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       stats: undefined,
       uiRequest: undefined
     })
+    scheduleStatsRefresh()
     current.status = result.state.isStreaming ? 'streaming' : 'idle'
     publish(chatId)
   },

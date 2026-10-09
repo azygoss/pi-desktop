@@ -39,6 +39,8 @@ let openHandler:
   | null = null
 
 const sendCalls: { chatId: string; message: string; mode: string }[] = []
+const statsCalls: string[] = []
+let statsResult: unknown = undefined
 const notifyCalls: { chatId: string; title: string; body: string }[] = []
 
 const fakeApi = {
@@ -52,7 +54,10 @@ const fakeApi = {
     onExit: () => () => {},
     onStartupHint: () => () => {},
     // Stats refresh fires 150ms after a run settles — within a test's waits.
-    getStats: async () => undefined,
+    getStats: async (input: { chatId: string }) => {
+      statsCalls.push(input.chatId)
+      return statsResult
+    },
     open: async (input: { chatId: string }) =>
       openHandler
         ? await openHandler(input)
@@ -504,6 +509,38 @@ describe('retryFromUserMessage', () => {
     await flush()
     await useChatStore.getState().retryFromUserMessage(chatId, 9)
     expect(sendCalls).toEqual([])
+  })
+})
+
+describe('stats refresh on open', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let seq = 0
+
+  beforeEach(async () => {
+    statsCalls.length = 0
+    statsResult = undefined
+    const mod = await import('./chat-store')
+    useChatStore = mod.useChatStore
+  })
+
+  /** The stats timer fires at 150ms — past flush()'s 40ms. */
+  async function statsFlush(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 220))
+  }
+
+  it('fetches stats when a chat opens from an existing session', async () => {
+    statsResult = {
+      sessionFile: '/tmp/synthetic/session.jsonl',
+      contextUsage: { tokens: 500, percent: 55 }
+    }
+    const chatId = `s${++seq}`
+    await useChatStore
+      .getState()
+      .ensureChat(chatId, { sessionPath: '/tmp/synthetic/session.jsonl' })
+    await statsFlush()
+    expect(statsCalls).toContain(chatId)
+    const chat = useChatStore.getState().chats[chatId]!
+    expect(chat.stats?.contextUsage?.percent).toBe(55)
   })
 })
 

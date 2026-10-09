@@ -177,6 +177,10 @@ describe('reducePiEvent', () => {
     const state = createChatViewState()
     expect(reducePiEvent(state, { type: 'agent_end', messages: [] })).toBe(true)
     expect(reducePiEvent(state, { type: 'turn_start' })).toBe(false)
+    // Each finished LLM turn changes context usage — stats refetch mid-run.
+    expect(
+      reducePiEvent(state, { type: 'turn_end', message: {} as never, toolResults: [] })
+    ).toBe(true)
   })
 })
 

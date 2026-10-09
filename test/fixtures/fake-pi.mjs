@@ -290,6 +290,82 @@ async function scriptedBrowserReply(id, promptMessage) {
 }
 
 /**
+ * "midrunNN": two turns — a tool call, then a long pause, then the reply.
+ * statsPct becomes NN right before the first turn_end, so a stats refetch on
+ * turn_end shows the mid-run ring value while the run is still streaming.
+ */
+async function scriptedMidrun(promptMessage, pct) {
+  streaming = true
+  writeLine({ type: 'agent_start' })
+  const userEcho = { role: 'user', content: promptMessage ?? '', timestamp: Date.now() }
+  writeLine({ type: 'message_start', message: userEcho })
+  writeLine({ type: 'message_end', message: userEcho })
+
+  writeLine({ type: 'turn_start' })
+  const toolCall = {
+    type: 'toolCall',
+    id: 'call_midrun_1',
+    name: 'read',
+    arguments: { path: 'src/synthetic.ts' }
+  }
+  const callMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Reading a file first.' }, toolCall],
+    api: 'anthropic-messages',
+    provider: 'anthropic',
+    model: 'synthetic-sonnet',
+    usage: USAGE,
+    stopReason: 'toolUse',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...callMessage, content: [] } })
+  writeLine({ type: 'message_end', message: callMessage })
+
+  writeLine({
+    type: 'tool_execution_start',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    args: toolCall.arguments
+  })
+  await sleep(DELAY_MS)
+  writeLine({
+    type: 'tool_execution_end',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    result: { content: [{ type: 'text', text: 'ok: read' }] },
+    isError: false
+  })
+  const toolResult = {
+    role: 'toolResult',
+    toolCallId: toolCall.id,
+    toolName: toolCall.name,
+    content: [{ type: 'text', text: 'ok: read' }],
+    isError: false,
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: toolResult })
+  writeLine({ type: 'message_end', message: toolResult })
+  statsPct = pct
+  writeLine({ type: 'turn_end', message: callMessage, toolResults: [toolResult] })
+
+  await sleep(3000)
+
+  writeLine({ type: 'turn_start' })
+  const finalMessage = {
+    ...callMessage,
+    content: [{ type: 'text', text: 'Read it; the mid-run stats are in.' }],
+    stopReason: 'stop',
+    timestamp: Date.now()
+  }
+  writeLine({ type: 'message_start', message: { ...finalMessage, content: [] } })
+  writeLine({ type: 'message_end', message: finalMessage })
+  writeLine({ type: 'turn_end', message: finalMessage, toolResults: [] })
+  writeLine({ type: 'agent_end', messages: [finalMessage], willRetry: false })
+  streaming = false
+  writeLine({ type: 'agent_settled' })
+}
+
+/**
  * "show image <path>": calls show_image as the pi extension would — the real
  * implementation from resources/pi-extension — then answers in text.
  */
@@ -1121,7 +1197,11 @@ function handle(command) {
       if (ctxMatch) {
         statsPct = Number(ctxMatch[1])
       }
-      if (/Output only a JSON array/.test(String(command.message))) {
+      const midrunMatch = /\bmidrun(\d+)\b/i.exec(String(command.message))
+      if (midrunMatch) {
+        // Two turns with a pause: context stats land mid-run.
+        void scriptedMidrun(command.message, Number(midrunMatch[1]))
+      } else if (/Output only a JSON array/.test(String(command.message))) {
         // The diff panel's review pass: a machine-readable list of remarks.
         void scriptedTextReply(
           `\`\`\`json\n[{"path":"notes.txt","line":1,"comment":"Synthetic review remark by ${currentModel.id}."}]\n\`\`\``

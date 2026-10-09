@@ -672,6 +672,10 @@ export function reducePiEvent(state: ChatViewState, event: PiEvent): boolean {
       }
       return false
 
+    case 'turn_end':
+      // Each finished LLM turn changes context usage — refresh mid-run.
+      return true
+
     default:
       return false
   }
