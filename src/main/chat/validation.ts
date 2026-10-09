@@ -25,6 +25,10 @@ export function validateMessage(value: unknown): string {
   return value
 }
 
+/** User-facing validateCwd failures for a deleted or non-directory folder. */
+export const CWD_MISSING_MESSAGE = 'This folder no longer exists on the computer'
+export const CWD_NOT_A_DIRECTORY_MESSAGE = 'This path is not a folder'
+
 /** cwd must be an absolute path to an existing directory; defaults to home. */
 export async function validateCwd(value: unknown): Promise<string> {
   if (value === undefined || value === null || value === '') {
@@ -37,13 +41,16 @@ export async function validateCwd(value: unknown): Promise<string> {
   try {
     const s = await stat(resolved)
     if (!s.isDirectory()) {
-      throw new Error('Invalid cwd: not a directory')
+      throw new Error(CWD_NOT_A_DIRECTORY_MESSAGE)
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Invalid cwd')) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith('Invalid cwd') || error.message === CWD_NOT_A_DIRECTORY_MESSAGE)
+    ) {
       throw error
     }
-    throw new Error('Invalid cwd: directory does not exist', { cause: error })
+    throw new Error(CWD_MISSING_MESSAGE, { cause: error })
   }
   return resolved
 }

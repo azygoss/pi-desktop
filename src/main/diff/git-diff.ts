@@ -10,6 +10,10 @@ const MAX_BUFFER = 32 * 1024 * 1024
 const MAX_UNTRACKED_BYTES = 200 * 1024
 const MAX_UNTRACKED_FILES = 20
 
+// Non-ASCII paths must come back as UTF-8, not C-quoted, so the renderer
+// shows the real file names and parses ---/+++ headers correctly.
+const QUOTEPATH_OFF = ['-c', 'core.quotepath=false']
+
 function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolvePromise) => {
     execFile(
@@ -39,7 +43,7 @@ export async function getRepoDiff(cwd: string): Promise<RepoDiffResult> {
 
   const [hasHead, status, branch, root] = await Promise.all([
     git(cwd, ['rev-parse', '--verify', 'HEAD']),
-    git(cwd, ['status', '--porcelain=v1', '-z']),
+    git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     git(cwd, ['branch', '--show-current']),
     git(cwd, ['rev-parse', '--show-toplevel'])
   ])
@@ -48,12 +52,14 @@ export async function getRepoDiff(cwd: string): Promise<RepoDiffResult> {
 
   let diffText: string
   if (hasHead.ok) {
-    diffText = (await git(cwd, ['diff', 'HEAD', '--no-color', '--no-ext-diff'])).out
+    diffText = (
+      await git(cwd, [...QUOTEPATH_OFF, 'diff', 'HEAD', '--no-color', '--no-ext-diff'])
+    ).out
   } else {
     // No commits yet: combine staged + unstaged diffs.
     const [staged, unstaged] = await Promise.all([
-      git(cwd, ['diff', '--cached', '--no-color', '--no-ext-diff']),
-      git(cwd, ['diff', '--no-color', '--no-ext-diff'])
+      git(cwd, [...QUOTEPATH_OFF, 'diff', '--cached', '--no-color', '--no-ext-diff']),
+      git(cwd, [...QUOTEPATH_OFF, 'diff', '--no-color', '--no-ext-diff'])
     ])
     diffText = staged.out + unstaged.out
   }
@@ -63,16 +69,23 @@ export async function getRepoDiff(cwd: string): Promise<RepoDiffResult> {
     .map((e) => e.path)
     .slice(0, MAX_UNTRACKED_FILES)
 
-  const untracked: { path: string; content: string }[] = []
+  const untracked: { path: string; content: string; binary?: true; tooLarge?: true }[] = []
   for (const path of untrackedPaths) {
     try {
       const full = join(repoRoot, path)
       const info = await stat(full)
-      if (!info.isFile() || info.size > MAX_UNTRACKED_BYTES) {
+      if (!info.isFile()) {
+        continue
+      }
+      // Binary and oversized files get a row too, flagged so the panel can
+      // say why there is nothing to show instead of dropping them silently.
+      if (info.size > MAX_UNTRACKED_BYTES) {
+        untracked.push({ path, content: '', tooLarge: true })
         continue
       }
       const buffer = await readFile(full)
       if (looksBinary(buffer)) {
+        untracked.push({ path, content: '', binary: true })
         continue
       }
       untracked.push({ path, content: buffer.toString('utf8') })
@@ -107,9 +120,9 @@ export async function getRepoSummary(cwd: string): Promise<RepoSummary> {
     return { isRepo: false, files: 0, added: 0, removed: 0 }
   }
   const [status, branch, stat] = await Promise.all([
-    git(cwd, ['status', '--porcelain=v1', '-z']),
+    git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
     git(cwd, ['branch', '--show-current']),
-    git(cwd, ['diff', 'HEAD', '--shortstat', '--no-ext-diff'])
+    git(cwd, [...QUOTEPATH_OFF, 'diff', 'HEAD', '--shortstat', '--no-ext-diff'])
   ])
   const lines = parseShortstat(stat.ok ? stat.out : '')
   return {

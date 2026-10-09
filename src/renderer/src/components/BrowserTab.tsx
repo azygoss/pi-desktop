@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import type { LocalServer } from '../../../shared/api'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { usePanelStore, type PanelTab } from '../state/panel-store'
 import { toast } from '../state/toast-store'
 import { LiveDot } from './LiveIndicators'
@@ -74,7 +75,7 @@ export function BrowserTab({ tab, active }: { tab: BrowserTabData; active: boole
       return
     }
     void window.piDesktop.browser.navigate({ id: tab.id, url: value }).catch((e) => {
-      toast(e instanceof Error ? e.message : 'Could not open that URL')
+      toast(e instanceof Error ? ipcErrorMessage(e) : 'Could not open that URL')
     })
   }
 

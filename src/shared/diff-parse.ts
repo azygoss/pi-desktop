@@ -25,12 +25,115 @@ export interface DiffFile {
   status: DiffFileStatus
   hunks: DiffHunk[]
   isBinary?: boolean
+  /** Untracked file too large to inline; rendered with a label only. */
+  tooLarge?: boolean
 }
 
 const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
 function stripPrefix(p: string): string {
   return p.replace(/^[ab]\//, '')
+}
+
+const QUOTED_ESCAPES: Record<string, number> = {
+  a: 0x07,
+  b: 0x08,
+  f: 0x0c,
+  n: 0x0a,
+  r: 0x0d,
+  t: 0x09,
+  v: 0x0b,
+  '"': 0x22,
+  '\\': 0x5c
+}
+
+/**
+ * Undo git's C-style quoting of paths containing non-ASCII or unusual
+ * bytes (`"a/yeni dosya \360\237\232\200.txt"` when core.quotepath is on,
+ * `"a/q\"ğ.txt"` when it is off): unescape the simple escapes and 3-digit
+ * octal byte escapes, keep unescaped characters as raw UTF-8, then decode
+ * via %XX + decodeURIComponent — no TextDecoder (this module also runs on
+ * React Native). Returns `s` unchanged when it is not quoted or the
+ * result is not valid UTF-8.
+ */
+export function unquoteGitPath(s: string): string {
+  if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) {
+    return s
+  }
+  const body = s.slice(1, -1)
+  const encoded: string[] = []
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!
+    if (ch !== '\\') {
+      // A code point, raw UTF-8 — keep surrogate pairs together.
+      const code = body.codePointAt(i)!
+      if (code > 0xffff) {
+        i++
+      }
+      encoded.push(encodeURIComponent(String.fromCodePoint(code)))
+      continue
+    }
+    const next = body[i + 1]
+    if (next === undefined) {
+      return s
+    }
+    if (next >= '0' && next <= '7') {
+      let octal = ''
+      while (i + 1 < body.length && octal.length < 3 && /[0-7]/.test(body[i + 1]!)) {
+        octal += body[++i]
+      }
+      encoded.push(`%${parseInt(octal, 8).toString(16).padStart(2, '0')}`)
+      continue
+    }
+    i++
+    const simple = QUOTED_ESCAPES[next]
+    if (simple !== undefined) {
+      encoded.push(`%${simple.toString(16).padStart(2, '0')}`)
+    } else {
+      // Unknown escape: treat the escaped char as its literal self.
+      encoded.push(encodeURIComponent(next))
+    }
+  }
+  try {
+    return decodeURIComponent(encoded.join(''))
+  } catch {
+    // Not valid UTF-8 — keep the quoted form as-is.
+    return s
+  }
+}
+
+/** One `diff --git` side token: C-quoted string or text up to a space. */
+function readHeaderToken(text: string): { token: string; rest: string } | undefined {
+  if (text.startsWith('"')) {
+    for (let i = 1; i < text.length; i++) {
+      if (text[i] === '\\') {
+        i++
+      } else if (text[i] === '"') {
+        return { token: text.slice(0, i + 1), rest: text.slice(i + 1) }
+      }
+    }
+    return undefined
+  }
+  const space = text.indexOf(' ')
+  return space === -1
+    ? { token: text, rest: '' }
+    : { token: text.slice(0, space), rest: text.slice(space) }
+}
+
+/** The b/ path of a `diff --git` line; C-quoted sides are unquoted. */
+function headerNewPath(line: string): string {
+  const tail = line.slice('diff --git '.length)
+  if (!tail.includes('"')) {
+    // Unquoted header — keep the previous parse, which tolerated spaces in
+    // the a/ side by letting the b/ side take the last " b/" boundary.
+    return /^a\/(.+?) b\/(.+?)$/.exec(tail)?.[2] ?? ''
+  }
+  const a = readHeaderToken(tail)
+  const b = a ? readHeaderToken(a.rest.trimStart()) : undefined
+  if (!b) {
+    return ''
+  }
+  return stripPrefix(unquoteGitPath(b.token))
 }
 
 /** Parse unified `git diff` output into per-file hunks. */
@@ -42,13 +145,26 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
   let newNo = 0
   let oldPath: string | undefined
   let newPath: string | undefined
+  /** ---/+++ paths carry a/ b/ prefixes; `rename from`/`to` do not. */
+  let oldPrefixed = false
+  let newPrefixed = false
   /** Fallback display path parsed from the `diff --git` line itself. */
   let headerPath = ''
 
   const flush = (): void => {
     if (file) {
-      const np = newPath && newPath !== '/dev/null' ? stripPrefix(newPath) : undefined
-      const op = oldPath && oldPath !== '/dev/null' ? stripPrefix(oldPath) : undefined
+      const np =
+        newPath && newPath !== '/dev/null'
+          ? newPrefixed
+            ? stripPrefix(newPath)
+            : newPath
+          : undefined
+      const op =
+        oldPath && oldPath !== '/dev/null'
+          ? oldPrefixed
+            ? stripPrefix(oldPath)
+            : oldPath
+          : undefined
       file.path = np ?? op ?? headerPath
       file.oldPath = op && op !== file.path ? op : undefined
       if (file.status === 'modified' && file.oldPath) {
@@ -60,6 +176,8 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
     hunk = null
     oldPath = undefined
     newPath = undefined
+    oldPrefixed = false
+    newPrefixed = false
     headerPath = ''
   }
 
@@ -67,9 +185,8 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
     if (line.startsWith('diff --git ')) {
       flush()
       // `diff --git a/old b/new` — the b/ path is the display fallback for
-      // files without ---/+++ lines (e.g. binary).
-      const header = /^diff --git "?a\/(.+?)"? "?b\/(.+?)"?$/.exec(line)
-      headerPath = header?.[2] ?? ''
+      // files without ---/+++ lines (e.g. binary, pure renames).
+      headerPath = headerNewPath(line)
       file = { path: headerPath, status: 'modified', hunks: [] }
       continue
     }
@@ -88,15 +205,28 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
       file.isBinary = true
       continue
     }
+    // Pure renames (100% similarity) carry only rename from/to lines.
+    if (line.startsWith('rename from ')) {
+      oldPath = unquoteGitPath(line.slice('rename from '.length).trim())
+      oldPrefixed = false
+      continue
+    }
+    if (line.startsWith('rename to ')) {
+      newPath = unquoteGitPath(line.slice('rename to '.length).trim())
+      newPrefixed = false
+      continue
+    }
     if (line.startsWith('--- ')) {
-      oldPath = line.slice(4).trim()
+      oldPath = unquoteGitPath(line.slice(4).trim())
+      oldPrefixed = true
       if (oldPath === '/dev/null') {
         file.status = 'added'
       }
       continue
     }
     if (line.startsWith('+++ ')) {
-      newPath = line.slice(4).trim()
+      newPath = unquoteGitPath(line.slice(4).trim())
+      newPrefixed = true
       if (newPath === '/dev/null') {
         file.status = 'deleted'
       }
@@ -148,8 +278,22 @@ export function parsePorcelainStatus(text: string): { status: string; path: stri
   return entries
 }
 
-/** Build a synthetic all-added DiffFile for an untracked file's contents. */
-export function diffFileForUntracked(path: string, content: string): DiffFile {
+/**
+ * Build a synthetic all-added DiffFile for an untracked file's contents.
+ * Binary and oversized files have no content to show — `flags` marks them
+ * so the panel can say so instead of rendering an empty diff.
+ */
+export function diffFileForUntracked(
+  path: string,
+  content: string,
+  flags?: { binary?: boolean; tooLarge?: boolean }
+): DiffFile {
+  if (flags?.binary) {
+    return { path, status: 'added', hunks: [], isBinary: true }
+  }
+  if (flags?.tooLarge) {
+    return { path, status: 'added', hunks: [], tooLarge: true }
+  }
   const lines = content.split('\n')
   // A trailing newline produces a final empty line — drop it.
   if (lines.length > 0 && lines[lines.length - 1] === '') {

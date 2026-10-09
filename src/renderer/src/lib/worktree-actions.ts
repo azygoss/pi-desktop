@@ -3,13 +3,9 @@ import { useChatStore } from '../state/chat-store'
 import { toast } from '../state/toast-store'
 
 import type { WorktreeSource } from '../../../shared/git-branches'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
-export function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+export const errorText = ipcErrorMessage
 
 /** Open a new chat in `cwd`, listed and expanded in the sidebar. */
 export async function newChatIn(cwd: string): Promise<void> {

@@ -1771,10 +1771,12 @@ export function ChatView({ chatId }: { chatId: string }) {
                   type="button"
                   className="ui-btn"
                   onClick={() =>
-                    void useChatStore
-                      .getState()
-                      .ensureChat(chatId, { cwd: chat.cwd, sessionPath: chat.sessionPath })
-                      .catch(() => {})
+                    void (chat.failedPrompt
+                      ? useChatStore.getState().retryFailedPrompt(chatId)
+                      : useChatStore
+                          .getState()
+                          .ensureChat(chatId, { cwd: chat.cwd, sessionPath: chat.sessionPath })
+                    ).catch(() => {})
                   }
                 >
                   <RotateCcw size={12} /> Retry

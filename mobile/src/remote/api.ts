@@ -40,6 +40,7 @@ import type {
   WorktreeInfo
 } from '../desktop'
 import { request } from '../state/connection'
+import { ipcErrorMessage } from '../../../src/shared/ipc-error'
 
 /** Catalog results without the message list (the phone pages transcripts). */
 const LITE = { lite: true }
@@ -247,9 +248,4 @@ export const EVENTS = {
 
 export type { AgentMessage }
 
-export function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+export const errorText = ipcErrorMessage

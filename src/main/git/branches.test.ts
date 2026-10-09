@@ -70,7 +70,9 @@ describe('branches', () => {
     expect((await switchBranch(dir, { branch: 'origin/fix' })).message).toBe('Switched to fix')
     expect(run('rev-parse', '--abbrev-ref', 'fix@{upstream}').trim()).toBe('origin/fix')
     await expect(switchBranch(dir, { branch: 'ghost' })).rejects.toThrow(/No branch named/)
-    await expect(switchBranch(dir, { branch: '--orphan' })).rejects.toThrow(/Invalid branch/)
+    await expect(switchBranch(dir, { branch: '--orphan' })).rejects.toThrow(
+      /can't start with '-'/
+    )
   })
 
   it('refuses a switch that would lose changes, with git’s reason', async () => {

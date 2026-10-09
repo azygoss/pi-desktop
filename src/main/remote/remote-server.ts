@@ -167,6 +167,8 @@ export class RemoteServer {
   private lastError: string | undefined
   /** Phones with no connection left, and when they count as gone. */
   private readonly goneTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Fire-and-forget markSeen writes, drained on stop so none lands after it. */
+  private readonly pendingSeen = new Set<Promise<unknown>>()
   /** Serializes start/stop so a quick off-on cannot leave two servers. */
   private transition: Promise<void> = Promise.resolve()
 
@@ -264,6 +266,8 @@ export class RemoteServer {
     if (server) {
       await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()))
     }
+    // Let disconnect lastSeenAt writes land before stop resolves.
+    await Promise.allSettled([...this.pendingSeen])
     this.deps.onChanged?.()
   }
 
@@ -462,9 +466,17 @@ export class RemoteServer {
     if (wasReady) {
       if (connection.deviceId) {
         this.watchGone(connection.deviceId)
+        this.markSeenSoon(connection.deviceId)
       }
       this.deps.onChanged?.()
     }
+  }
+
+  /** Stamp lastSeenAt without blocking; tracked so stop() can drain it. */
+  private markSeenSoon(deviceId: string): void {
+    const pending = this.deps.store.markSeen(deviceId).catch(() => {})
+    this.pendingSeen.add(pending)
+    void pending.finally(() => this.pendingSeen.delete(pending))
   }
 
   /** Start the clock on a phone with no connection left. */
@@ -620,7 +632,7 @@ export class RemoteServer {
         publicKey: connection.clientKey
       })
     } else {
-      void this.deps.store.markSeen(device.id).catch(() => {})
+      this.markSeenSoon(device.id)
     }
     if (connection.timer) {
       clearTimeout(connection.timer)

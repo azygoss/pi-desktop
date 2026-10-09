@@ -2,6 +2,7 @@ import { FolderOpen, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { FileReadResult } from '../../../shared/api'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { CodeBlock } from './CodeBlock'
 
 /** Above this size the file renders plain: highlighting it would stall. */
@@ -51,9 +52,7 @@ export function FileView({ cwd, path, active }: { cwd: string; path: string; act
         setError(null)
       })
       .catch((e: unknown) => {
-        setError(
-          (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method [^:]+: (Error: )?/, '')
-        )
+        setError(ipcErrorMessage(e))
       })
   }, [cwd, path])
 

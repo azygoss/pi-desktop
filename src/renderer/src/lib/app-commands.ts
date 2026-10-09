@@ -4,6 +4,7 @@ import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { openInBrowser, openPiTerminal, usePanelStore } from '../state/panel-store'
 import { toast } from '../state/toast-store'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
 export type ChatModal = 'session' | 'tree' | 'fork' | 'hotkeys'
 
@@ -292,5 +293,5 @@ async function exportChat(chat: ChatState | null, args: string): Promise<void> {
 }
 
 function errText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
+  return ipcErrorMessage(e)
 }

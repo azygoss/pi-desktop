@@ -544,6 +544,17 @@ describe('ChatService', () => {
     }
   })
 
+  it('warmCwd on a deleted folder resolves quietly and spawns nothing', async () => {
+    const { service, pool } = makeService()
+    try {
+      await service.warmCwd({ cwd: '/definitely/not/here-xyz' })
+      expect(service.hasWarmSpare('/definitely/not/here-xyz')).toBe(false)
+      expect(warmClient(pool)).toBeUndefined()
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
   it('adopts a project warm spare warmed via warmCwd', async () => {
     const { service, pool } = makeService()
     try {

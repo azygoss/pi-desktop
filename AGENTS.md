@@ -50,6 +50,11 @@ open-source Electron desktop app for the [pi](https://pi.dev) coding agent harne
 - `mobile/` - Pi Remote, the Android app (Expo / React Native) with its own `package.json`
   and npm lockfile; it imports the pure modules in `src/shared/` and
   `src/renderer/src/lib/`, so keep those free of DOM and Node APIs
+- `ios/` - Pi Remote for iOS, a native SwiftUI app with the same features as `mobile/`.
+  `ios/Packages/PiRemoteKit` holds Swift ports of the link's crypto and protocol and of the
+  shared modules the phone renders chats with; when `src/shared/`, `src/renderer/src/lib/`
+  or the remote protocol change behavior, port the change there too. The Xcode project is
+  generated from `ios/project.yml` with XcodeGen (see `ios/README.md`)
 - `scripts/` - helper build scripts and the `energy.mjs` / `perf.mjs` harnesses
 - `test/e2e/` - Playwright-driven Electron tests; `test/fixtures/fake-pi.mjs` is a scripted,
   synthetic stand-in for `pi --mode rpc`; `fake-gh.mjs` stands in for the GitHub CLI
@@ -69,6 +74,11 @@ pnpm build:host   # build pi-remote (out/host/pi-remote.mjs)
 pnpm pack:host    # pack pi-remote as an npm tarball in release/
 pnpm dist:dir     # unpacked .app
 node scripts/energy.mjs   # CPU + wakeups per phase (run `pnpm build` first)
+
+# iOS app (macOS with Xcode 16+ and XcodeGen)
+swift test --package-path ios/Packages/PiRemoteKit
+(cd ios && xcodegen generate && xcodebuild -project PiRemote.xcodeproj -scheme PiRemote \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build)
 ```
 
 Run `pnpm typecheck && pnpm lint && pnpm test` before every commit. Run `pnpm test:e2e`
