@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { useAppStore } from './app-store'
 import { toast } from './toast-store'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { dropComposerDraft } from '../lib/composer-drafts'
 import { takeCheckpoint } from '../lib/checkpoint-actions'
 import { titleFromUserText } from '../../../shared/skill-prefix'
@@ -59,6 +60,8 @@ export interface ChatState extends ChatViewState {
   unread?: boolean
   /** Latest computer-use activity (start or end) for the strip. */
   cuaActivity?: { app?: string; summary: string; phase: 'start' | 'end'; at: number }
+  /** A prompt that failed to reach pi — the error row's Retry resends it. */
+  failedPrompt?: { key: string; text: string; images?: ImageContent[] }
   /** True from the first start until 4s after the last end / turn end. */
   cuaActive?: boolean
   /** Service-wide pause state, mirrored from paused/resumed broadcasts. */
@@ -101,6 +104,8 @@ interface ChatStoreState {
   retryFromUserMessage(chatId: string, userIndex: number): Promise<void>
   /** Fork at a specific entry id (e.g. picked in the /fork or /tree modal). */
   forkAtEntry(chatId: string, entryId: string): Promise<string | undefined>
+  /** Resend the last prompt that failed before reaching pi. */
+  retryFailedPrompt(chatId: string): Promise<void>
   /** Restart the chat's pi process on the same session and refresh state. */
   reloadChat(chatId: string): Promise<void>
   /** Clone the current session branch; the chat continues on the new session. */
@@ -508,6 +513,7 @@ function applyOpenResult(
     draft.status = 'idle'
   }
   draft.error = undefined
+  draft.failedPrompt = undefined
   draft.stderrTail = undefined
   draft.startupHint = undefined
   draft.model = result.state.model
@@ -580,6 +586,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Retry after a failed start or a dead process: keep transcript/title.
       existing.status = 'starting'
       existing.error = undefined
+      existing.failedPrompt = undefined
       existing.stderrTail = undefined
       existing.piReady = false
       existing.startedAt = Date.now()
@@ -589,7 +596,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         .catch((error: unknown) => {
           // 'Chat closed' means a newer open (project switch, reload) or a
           // real close superseded this one — it owns the draft state now.
-          const message = error instanceof Error ? error.message : String(error)
+          const message = ipcErrorMessage(error)
           if (message !== 'Chat closed' && drafts.has(chatId)) {
             existing.status = 'error'
             existing.error = message
@@ -675,7 +682,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       })
     } catch (error) {
       const current = drafts.get(chatId)
-      const message = error instanceof Error ? error.message : String(error)
+      const message = ipcErrorMessage(error)
       // A superseded open reports 'Chat closed'; the replacement open (e.g.
       // a project switch via setCwd) owns the draft's status.
       if (current && message !== 'Chat closed') {
@@ -748,7 +755,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       try {
         await window.piDesktop.chat.send({ chatId, message, images, mode })
       } catch (error) {
-        toast(error instanceof Error ? error.message : 'Could not queue the message')
+        toast(ipcErrorMessage(error, 'Could not queue the message'))
         throw error
       }
       return
@@ -769,6 +776,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         .trim()
         .slice(0, 80)
     }
+    // A fresh send supersedes any earlier failed prompt.
+    draft.failedPrompt = undefined
     // A fresh prompt starts the run clock (steer/follow-up keep the current one).
     if (draft.status !== 'streaming') {
       draft.runStartedAt = Date.now()
@@ -794,11 +803,32 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       await window.piDesktop.chat.send({ chatId, message, images, mode })
     } catch (error) {
-      draft.error = error instanceof Error ? error.message : String(error)
+      draft.error = ipcErrorMessage(error)
       draft.status = 'error'
+      // A failed prompt can be resent from the error row's Retry button.
+      if (mode === 'prompt') {
+        draft.failedPrompt = { key: display.key, text: message, images }
+      }
       publish(chatId)
       throw error
     }
+  },
+
+  async retryFailedPrompt(chatId) {
+    const draft = drafts.get(chatId)
+    const failed = draft?.failedPrompt
+    if (!draft || !failed) {
+      return
+    }
+    // The optimistic user bubble goes away; the resent prompt re-adds it.
+    const index = draft.messages.findIndex((m) => m.key === failed.key)
+    if (index !== -1) {
+      draft.messages.splice(index, 1)
+    }
+    draft.error = undefined
+    draft.failedPrompt = undefined
+    publish(chatId)
+    await get().send(chatId, failed.text, failed.images, 'prompt')
   },
 
   async abort(chatId) {
@@ -848,7 +878,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       })
     } catch (error) {
       settle({
-        output: error instanceof Error ? error.message : String(error),
+        output: ipcErrorMessage(error),
         exitCode: 1
       })
     }
@@ -919,6 +949,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     draft.piReady = false
     draft.startedAt = Date.now()
     draft.error = undefined
+    draft.failedPrompt = undefined
     draft.stderrTail = undefined
     draft.startupHint = undefined
     publish(chatId)
@@ -933,7 +964,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       }
       draft.cwd = previousCwd
       draft.status = 'error'
-      draft.error = error instanceof Error ? error.message : String(error)
+      draft.error = ipcErrorMessage(error)
       publish(chatId)
       return
     }
@@ -950,6 +981,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       models: result.models,
       commands: result.commands,
       error: undefined,
+      failedPrompt: undefined,
       stats: undefined,
       uiRequest: undefined
     })
@@ -989,6 +1021,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       models: result.models,
       commands: result.commands,
       error: undefined,
+      failedPrompt: undefined,
       stats: undefined,
       uiRequest: undefined
     })
@@ -1080,6 +1113,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       models: result.models,
       commands: result.commands,
       error: undefined,
+      failedPrompt: undefined,
       stats: undefined,
       uiRequest: undefined
     })

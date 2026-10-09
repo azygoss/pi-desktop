@@ -411,6 +411,27 @@ describe('Pi Desktop e2e', () => {
       .toBe(true)
   })
 
+  it('retries a failed prompt once and renders the reply', async () => {
+    // Fresh chat: the previous test leaves its own bubble on screen.
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-greeting')
+    await page.locator('.composer-input').fill('fail once please')
+    await page.keyboard.press('Enter')
+    // The fake pi rejects the first send: the error row shows the message
+    // with a Retry affordance, and the user bubble stays single.
+    await visible(page, '.msg-notice-error', 30_000)
+    expect(await page.locator('.msg-notice-error').textContent()).toContain('synthetic failure')
+    expect(await page.locator('.msg-user-row').count()).toBe(1)
+    await page.locator('.msg-notice-error >> text=Retry').click()
+    // Second send succeeds; the retry must not duplicate the user echo.
+    await visible(page, '.markdown', 30_000)
+    expect(await page.locator('.msg-notice-error').count()).toBe(0)
+    expect(await page.locator('.msg-user-row').count()).toBe(1)
+    await waitForSettled()
+    await page.keyboard.press('Meta+n')
+    await visible(page, '.home-greeting')
+  })
+
   it('shows an image pi put in front of the user under the folded step', async () => {
     // A 1×1 PNG: show_image (the real extension code) reads it, the step
     // stays folded and the image appears under it with its caption.
