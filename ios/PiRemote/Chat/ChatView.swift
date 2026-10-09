@@ -264,24 +264,40 @@ private struct ChatScreen: View {
             .onTapGesture { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         } else {
             let retry = retryTarget(items)
+            let split = items.lastIndex { if case .user = $0 { return true } else { return false } } ?? 0
+            let settled = items[..<split]
+            let tail = items[split...]
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if chat.hasEarlier {
-                            Button(loadingEarlier ? "Loading earlier messages…" : "Load earlier messages") { loadEarlier() }
-                                .buttonStyle(SecondaryButtonStyle())
-                                .disabled(loadingEarlier)
-                                .frame(maxWidth: .infinity)
-                                .padding(Space.lg)
-                                // Scrolling up to it pages in older messages.
-                                .onAppear { if !loadingEarlier { loadEarlier() } }
+                    VStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if chat.hasEarlier {
+                                Button(loadingEarlier ? "Loading earlier messages…" : "Load earlier messages") { loadEarlier() }
+                                    .buttonStyle(SecondaryButtonStyle())
+                                    .disabled(loadingEarlier)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(Space.lg)
+                                    // Scrolling up to it pages in older messages.
+                                    .onAppear { if !loadingEarlier { loadEarlier() } }
+                            }
+                            ForEach(settled) { item in
+                                row(item, retry: retry).id(item.id)
+                            }
                         }
-                        ForEach(items) { item in
-                            row(item, retry: retry).id(item.id)
+                        // The live turn stays out of the lazy stack: a streaming row that keeps
+                        // resizing and re-keying at the end of a LazyVStack can lock the main
+                        // thread in a layout loop.
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(tail) { item in
+                                row(item, retry: retry).id(item.id)
+                            }
                         }
-                        Color.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true }
-                            .onDisappear { atBottom = false }
+                        // Lazy so onAppear/onDisappear track whether the end is on screen.
+                        LazyVStack(spacing: 0) {
+                            Color.clear.frame(height: 1).id("bottom")
+                                .onAppear { atBottom = true }
+                                .onDisappear { atBottom = false }
+                        }
                     }
                     .padding(.vertical, Space.sm)
                 }
