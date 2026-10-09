@@ -831,6 +831,7 @@ export const useChats = create<ChatStoreState>((_set, get) => ({
         current.cwd = cwd
         current.sessionPath = result.sessionPath ?? undefined
         publish(chatId)
+        void refreshStats(chatId)
       }
     } catch (error) {
       const current = drafts.get(chatId)

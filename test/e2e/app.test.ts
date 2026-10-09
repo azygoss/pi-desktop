@@ -1031,6 +1031,18 @@ describe('Pi Desktop e2e', () => {
     await page.locator('.composer').screenshot({
       path: join(WAVE1_SHOTS, 'ctx-ring-80.png')
     })
+    // A long run updates the ring after each finished turn, not just at
+    // agent_end: `midrunNN` emits a tool turn, sets stats to NN, then pauses.
+    await page.locator('.composer-input').fill('midrun55 please')
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(() => page.locator('.ctx-ring').getAttribute('aria-label'), {
+        timeout: 2_500
+      })
+      .toBe('55% of context used')
+    // The run is still in flight — the send button is a stop button.
+    expect(await page.locator('.send-btn').first().getAttribute('title')).toBe('Stop')
+    await waitForSettled()
   })
 
   it('retries the last assistant reply via fork on a saved session', async () => {
