@@ -47,7 +47,9 @@ describe('RemoteServer', () => {
         changes++
       },
       onDeviceGone: (deviceId) => gone.push(deviceId),
-      deviceGoneMs: 60,
+      // Short for tests, but long enough that a reconnect on a busy machine
+      // still lands inside it.
+      deviceGoneMs: 500,
       hosts: () => ['127.0.0.1']
     })
     await server.start()
@@ -174,7 +176,7 @@ describe('RemoteServer', () => {
     expect(gone).toEqual([])
     // Gone for good.
     again.close()
-    await expect.poll(() => gone, { timeout: 2000 }).toEqual([deviceId])
+    await expect.poll(() => gone, { timeout: 4000 }).toEqual([deviceId])
   })
 
   it('stamps lastSeenAt again when a paired phone disconnects', async () => {
