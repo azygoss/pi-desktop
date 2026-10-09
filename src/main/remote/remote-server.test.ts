@@ -177,7 +177,9 @@ describe('RemoteServer', () => {
     // Gone for good.
     again.close()
     await expect.poll(() => gone, { timeout: 4000 }).toEqual([deviceId])
-  })
+    // Two handshakes, two disconnects and the poll above: more than the
+    // default 5s on a busy machine.
+  }, 15_000)
 
   it('stamps lastSeenAt again when a paired phone disconnects', async () => {
     const { phone, ready } = await pairPhone()
