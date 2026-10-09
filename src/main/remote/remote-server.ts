@@ -462,6 +462,7 @@ export class RemoteServer {
     if (wasReady) {
       if (connection.deviceId) {
         this.watchGone(connection.deviceId)
+        void this.deps.store.markSeen(connection.deviceId).catch(() => {})
       }
       this.deps.onChanged?.()
     }
