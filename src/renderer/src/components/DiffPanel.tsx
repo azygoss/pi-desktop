@@ -34,6 +34,7 @@ import {
   type ReviewComment
 } from '../lib/review-comments'
 import { joinPath } from '../lib/paths'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { ReviewButton } from './ReviewButton'
 
 const COLLAPSE_LINES = 400
@@ -132,6 +133,11 @@ const DiffFileView = memo(function DiffFileView({
       {expanded &&
         (file.isBinary ? (
           <div className="diff-binary">Binary file</div>
+        ) : file.tooLarge ? (
+          <div className="diff-binary">File too large to show</div>
+        ) : file.hunks.length === 0 ? (
+          // Pure renames and other metadata-only changes have nothing to show.
+          <div className="diff-binary">No content changes</div>
         ) : (
           <div className="diff-hunks">
             {file.hunks.map((hunk, i) => (
@@ -342,7 +348,7 @@ export function DiffPanel({ active }: { active: boolean }) {
       setResult(next)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(ipcErrorMessage(e))
     }
   }, [cwd])
 
@@ -390,7 +396,7 @@ export function DiffPanel({ active }: { active: boolean }) {
     const known = new Set(parsed.map((f) => f.path))
     const extra = result.untracked
       .filter((u) => !known.has(u.path))
-      .map((u) => diffFileForUntracked(u.path, u.content))
+      .map((u) => diffFileForUntracked(u.path, u.content, u))
     return [...parsed, ...extra]
   }, [result])
 
@@ -478,7 +484,7 @@ export function DiffPanel({ active }: { active: boolean }) {
       remarks = await window.piDesktop.diff.review({ cwd, ...(model ? { model } : {}) })
     } catch (e) {
       setBusy(null)
-      toast(`Review failed: ${e instanceof Error ? e.message : String(e)}`)
+      toast(`Review failed: ${ipcErrorMessage(e)}`)
       return
     }
     setBusy(null)
@@ -553,11 +559,7 @@ export function DiffPanel({ active }: { active: boolean }) {
         { action: { label: 'Open', run: () => void window.piDesktop.app.openExternal(posted.url) } }
       )
     } catch (e) {
-      const message = (e instanceof Error ? e.message : String(e)).replace(
-        /^Error invoking remote method [^:]+: (Error: )?/,
-        ''
-      )
-      toast(`Could not post: ${message}`)
+      toast(`Could not post: ${ipcErrorMessage(e)}`)
     } finally {
       setBusy(null)
     }
@@ -578,7 +580,7 @@ export function DiffPanel({ active }: { active: boolean }) {
     }
     const outcome = await window.piDesktop.diff
       .discard({ cwd, path: file.path })
-      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+      .catch((e: unknown) => ({ ok: false, message: ipcErrorMessage(e) }))
     if (!outcome.ok) {
       toast(`Discard failed: ${outcome.message}`)
     }
@@ -593,7 +595,7 @@ export function DiffPanel({ active }: { active: boolean }) {
     setBusy('commit')
     const outcome = await window.piDesktop.diff
       .commit({ cwd, message })
-      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+      .catch((e: unknown) => ({ ok: false, message: ipcErrorMessage(e) }))
     setBusy(null)
     toast(outcome.ok ? outcome.message : `Commit failed: ${outcome.message}`)
     if (outcome.ok) {
@@ -610,7 +612,7 @@ export function DiffPanel({ active }: { active: boolean }) {
     setBusy('push')
     const outcome = await window.piDesktop.diff
       .push({ cwd })
-      .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
+      .catch((e: unknown) => ({ ok: false, message: ipcErrorMessage(e) }))
     setBusy(null)
     toast(outcome.ok ? outcome.message : `Push failed: ${outcome.message}`)
   }
@@ -752,7 +754,7 @@ export function DiffPanel({ active }: { active: boolean }) {
               void window.piDesktop.reviewComments
                 .add({ cwd, path: file.path, ...(line !== undefined ? { line } : {}), lineText, text })
                 .catch((e: unknown) =>
-                  toast(`Could not add the comment: ${e instanceof Error ? e.message : String(e)}`)
+                  toast(`Could not add the comment: ${ipcErrorMessage(e)}`)
                 )
             }
             onRemoveComment={(id) =>
