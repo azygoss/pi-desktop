@@ -1,4 +1,5 @@
 import type { Automation } from '../../../shared/automations'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { useAppStore } from '../state/app-store'
 import { useChatStore } from '../state/chat-store'
 import { toast } from '../state/toast-store'
@@ -24,7 +25,7 @@ export async function runAutomation(automation: Automation): Promise<void> {
     chats.setChatTitle(chatId, automation.name)
     await chats.send(chatId, automation.prompt, undefined, 'prompt')
   } catch (e) {
-    toast(`Automation "${automation.name}" could not start: ${e instanceof Error ? e.message : String(e)}`)
+    toast(`Automation "${automation.name}" could not start: ${ipcErrorMessage(e)}`)
     return
   }
   chats.setChatTitle(chatId, automation.name)

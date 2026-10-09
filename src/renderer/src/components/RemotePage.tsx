@@ -6,15 +6,11 @@ import type { RemotePairingCode, RemoteStatusInfo } from '../../../shared/api'
 import { useAppStore } from '../state/app-store'
 import { toast } from '../state/toast-store'
 import { relativeTime } from './Sidebar'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
 const QUIET_ZONE = 3
 
-function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+const errorText = ipcErrorMessage
 
 function lastSeen(at: number): string {
   const age = relativeTime(new Date(at).toISOString())

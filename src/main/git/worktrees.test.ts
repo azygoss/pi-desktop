@@ -77,8 +77,12 @@ describe('worktrees', () => {
     // A branch can be checked out in one worktree only: git says so.
     await expect(createWorktree(repo, base, { kind: 'existing', branch: 'release' })).rejects.toThrow()
     await expect(createWorktree(repo, base, { kind: 'new', branch: 'feature/login' })).rejects.toThrow(/already exists/)
-    await expect(createWorktree(repo, base, { kind: 'new', branch: 'bad name' })).rejects.toThrow(/Invalid branch/)
-    await expect(createWorktree(repo, base, { kind: 'new', branch: '-x' })).rejects.toThrow(/Invalid branch/)
+    await expect(createWorktree(repo, base, { kind: 'new', branch: 'bad name' })).rejects.toThrow(
+      /can't contain spaces/
+    )
+    await expect(createWorktree(repo, base, { kind: 'new', branch: '-x' })).rejects.toThrow(
+      /can't start with '-'/
+    )
 
     // A merged branch goes with its worktree; an unmerged one stays.
     expect((await removeWorktree(existing.cwd, base, false, true)).message).toMatch(

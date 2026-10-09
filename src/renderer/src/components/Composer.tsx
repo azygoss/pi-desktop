@@ -23,6 +23,7 @@ import clsx from 'clsx'
 
 import type { ChatSendMode, CuaPermissions } from '../../../shared/api'
 import type { ImageContent, ThinkingLevel } from '../../../shared/pi-types'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 import { executeAppCommand } from '../lib/app-commands'
 import { contextRingVisible } from '../lib/context-ring'
 import { fuzzyFilter } from '../lib/fuzzy'
@@ -583,7 +584,7 @@ export function Composer({ chat, isChat, placeholder, autoFocus, onSend, onShell
       })
     } catch (e) {
       stopDictationUI()
-      toast(e instanceof Error ? e.message : 'Dictation failed to start')
+      toast(e instanceof Error ? ipcErrorMessage(e) : 'Dictation failed to start')
     }
   }
 
