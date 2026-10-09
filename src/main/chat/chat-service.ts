@@ -29,6 +29,8 @@ import { updateCatalogCache } from '../config/catalog-cache'
 import {
   requireString,
   validateChatId,
+  CWD_MISSING_MESSAGE,
+  CWD_NOT_A_DIRECTORY_MESSAGE,
   validateCwd,
   validateImages,
   validateMessage,
@@ -367,7 +369,18 @@ export class ChatService {
    * Best-effort: unknown dirs and missing runtimes are ignored silently.
    */
   async warmCwd(input: { cwd: string }): Promise<void> {
-    const cwd = await validateCwd(input.cwd)
+    let cwd: string
+    try {
+      cwd = await validateCwd(input.cwd)
+    } catch (error) {
+      // Best-effort hover intent: a deleted or replaced folder is ignored
+      // silently; other validation errors still surface.
+      const message = error instanceof Error ? error.message : ''
+      if (message === CWD_MISSING_MESSAGE || message === CWD_NOT_A_DIRECTORY_MESSAGE) {
+        return
+      }
+      throw error
+    }
     if (cwd === workspaceDir()) {
       await ensureWorkspaceDir()
       await this.ensureSpare(cwd, true)
