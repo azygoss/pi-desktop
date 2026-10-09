@@ -776,8 +776,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         .trim()
         .slice(0, 80)
     }
-    // A fresh send supersedes any earlier failed prompt.
+    // A fresh send supersedes any earlier failed prompt and clears its error.
     draft.failedPrompt = undefined
+    draft.error = undefined
     // A fresh prompt starts the run clock (steer/follow-up keep the current one).
     if (draft.status !== 'streaming') {
       draft.runStartedAt = Date.now()

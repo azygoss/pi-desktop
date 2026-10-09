@@ -430,6 +430,17 @@ describe('Pi Desktop e2e', () => {
     expect(await page.locator('.msg-notice-error').count()).toBe(0)
     expect(await page.locator('.msg-user-row').count()).toBe(1)
     await waitForSettled()
+    // A different prompt sent after a failure must clear the error row too.
+    await page.locator('.composer-input').fill('fail please')
+    await page.keyboard.press('Enter')
+    await visible(page, '.msg-notice-error', 30_000)
+    await page.locator('.composer-input').fill('hello')
+    await page.keyboard.press('Enter')
+    // The reply streams in and the stale error row is gone.
+    await expect
+      .poll(async () => page.locator('.markdown').count(), { timeout: 30_000 })
+      .toBe(2)
+    expect(await page.locator('.msg-notice-error').count()).toBe(0)
     await page.keyboard.press('Meta+n')
     await visible(page, '.home-greeting')
   })

@@ -560,6 +560,30 @@ describe('retryFailedPrompt', () => {
     expect(sendCalls[1]!.message).toBe('fail me')
   })
 
+  it('clears a stale error when a fresh prompt is sent', async () => {
+    const chatId = `f${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    sendHandler = async (input) => {
+      if (input.message === 'fail me') {
+        throw new Error('synthetic failure')
+      }
+    }
+    await expect(
+      useChatStore.getState().send(chatId, 'fail me', undefined, 'prompt')
+    ).rejects.toThrow('synthetic failure')
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.error).toBe('synthetic failure')
+
+    await useChatStore.getState().send(chatId, 'hello', undefined, 'prompt')
+    await flush()
+    const chat = useChatStore.getState().chats[chatId]!
+    expect(chat.error).toBeUndefined()
+    expect(chat.failedPrompt).toBeUndefined()
+    expect(chat.messages.filter((m) => m.kind === 'user')).toHaveLength(2)
+  })
+
   it('does nothing when no prompt failed', async () => {
     const chatId = `f${++seq}`
     await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
