@@ -2,7 +2,8 @@
 
 `pi-remote` is Pi Desktop's remote-control host without the desktop app. Run
 it on a VPS, a home server or any Linux or macOS machine, pair the
-[Pi Remote](https://github.com/azygoss/pi-desktop/tree/main/mobile) Android app with it, and use pi there the
+[Pi Remote](https://github.com/azygoss/pi-desktop/tree/main/mobile) Android app (or
+[Pi Remote for iOS](https://github.com/azygoss/pi-desktop/tree/main/ios)) with it, and use pi there the
 way you would through Pi Desktop: chats with live streaming, sessions and
 projects, diffs, commits and pushes, pull requests, side chats, automations
 and usage.

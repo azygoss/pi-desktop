@@ -22,3 +22,17 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: swift test --package-path ios/Packages/PiRemoteKit
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: ios
+      - run: >
+          xcodebuild -project PiRemote.xcodeproj -scheme PiRemote
+          -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        working-directory: ios

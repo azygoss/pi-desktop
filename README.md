@@ -96,8 +96,8 @@ compatible with the pi TUI (`pi -r`, `pi --session`) and vice versa.
   tree, screenshots, clicks, typing). A strip above the composer shows what
   it is doing; pause or stop it anytime (⌃⌥⌘P).
 - **Remote control** — pair your phone with a QR code (Settings → Remote
-  control) and drive the app from Pi Remote, the Android companion in
-  [`mobile/`](mobile/README.md): follow and steer chats, answer pi's
+  control) and drive the app from Pi Remote, the companion app for Android
+  ([`mobile/`](mobile/README.md)) and iOS ([`ios/`](ios/README.md)): follow and steer chats, answer pi's
   questions, review and commit. The phone connects straight to your computer
   over your network, end-to-end encrypted, with no account or relay
   ([how it works](docs/remote.md)). On a server, `pi-remote` hosts the same

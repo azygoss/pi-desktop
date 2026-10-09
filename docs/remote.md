@@ -1,8 +1,10 @@
 # Remote control
 
-Pi Desktop can be driven from the Pi Remote app on a phone (`mobile/`). This
-page describes how the two talk; the code is in `src/main/remote/`,
-`src/shared/remote/` and `mobile/src/remote/`.
+Pi Desktop can be driven from the Pi Remote app on a phone (`mobile/` for
+Android, `ios/` for iOS). This page describes how the two talk; the code is
+in `src/main/remote/`, `src/shared/remote/`, `mobile/src/remote/` and, as a
+Swift port, `ios/Packages/PiRemoteKit` (crypto and protocol) with
+`ios/PiRemote/Remote/` (the connection).
 
 ## Shape
 
@@ -31,7 +33,7 @@ page describes how the two talk; the code is in `src/main/remote/`,
 The computer has a long-term X25519 key pair (`remote.json` in the app's data
 directory; the secret key is encrypted with the OS keychain through
 Electron's `safeStorage`). The phone has its own, kept in the Android
-Keystore.
+Keystore or the iOS Keychain (this device only, never synced).
 
 "Show pairing code" creates a one-time token (16 random bytes, five minutes)
 and shows a QR code of

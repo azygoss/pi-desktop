@@ -1,0 +1,91 @@
+# XcodeGen spec for Pi Remote (iOS). Generate the Xcode project with
+#   xcodegen generate
+# The generated PiRemote.xcodeproj is not committed (see README.md).
+name: PiRemote
+options:
+  bundleIdPrefix: io.github.azygoss
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    MARKETING_VERSION: "0.4.0"
+    CURRENT_PROJECT_VERSION: "5"
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+packages:
+  PiRemoteKit:
+    path: Packages/PiRemoteKit
+targets:
+  PiRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: PiRemote
+    dependencies:
+      - package: PiRemoteKit
+    info:
+      path: PiRemote/Info.plist
+      properties:
+        CFBundleDisplayName: Pi Remote
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          UIImageName: LaunchMark
+          UIImageRespectsSafeAreaInsets: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSupportsIndirectInputEvents: true
+        UIAppFonts:
+          - IBMPlexMono_400Regular.ttf
+          - IBMPlexMono_500Medium.ttf
+          - IBMPlexMono_600SemiBold.ttf
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.azygoss.piremote
+            CFBundleURLSchemes:
+              - pidesktop
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - io.github.azygoss.piremote.refresh
+        NSCameraUsageDescription: Pi Remote uses the camera to scan the pairing code shown by Pi Desktop, and to take photos you attach to a message.
+        NSPhotoLibraryUsageDescription: Pi Remote attaches the photos you pick to your message.
+        NSPhotoLibraryAddUsageDescription: Pi Remote saves images you choose to keep to your photo library.
+        NSLocalNetworkUsageDescription: Pi Remote connects directly to Pi Desktop on your computer over your network.
+        # The link to the computer is a plain WebSocket to a LAN or VPN
+        # address, end-to-end encrypted by the app itself (docs/remote.md).
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.azygoss.piremote
+        PRODUCT_NAME: PiRemote
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+schemes:
+  PiRemote:
+    build:
+      targets:
+        PiRemote: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    archive:
+      config: Release
