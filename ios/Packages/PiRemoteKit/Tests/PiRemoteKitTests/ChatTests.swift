@@ -36,6 +36,16 @@ final class ChatViewTests: XCTestCase {
         XCTAssertNil(state.runStartedAt)
     }
 
+    func testTurnEndFlagsStatsRefreshWithoutTouchingState() {
+        var state = ChatViewState()
+        let turnEnd = event(#"{"type":"turn_end","message":{"role":"assistant","content":[]},"toolResults":[]}"#)
+        guard case .turnEnd = turnEnd else { return XCTFail() }
+        XCTAssertTrue(state.reduce(turnEnd))
+        XCTAssertEqual(state.status, .idle)
+        XCTAssertTrue(state.messages.isEmpty)
+        XCTAssertFalse(state.reduce(event(#"{"type":"turn_start"}"#)))
+    }
+
     func testOptimisticUserEchoKeepsLocalKeyAndCheckpoint() {
         var state = ChatViewState()
         state.messages.append(.user(UserDisplay(key: "local-1", text: "do it", images: [], checkpoint: "abc")))
