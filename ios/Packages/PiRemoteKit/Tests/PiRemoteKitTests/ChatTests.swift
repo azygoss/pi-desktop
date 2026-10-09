@@ -342,3 +342,24 @@ final class HelperTests: XCTestCase {
         XCTAssertEqual(summary.files, 2)
     }
 }
+
+@MainActor
+final class LiveClockTests: XCTestCase {
+    func testRefCountedTimer() {
+        let clock = LiveClock()
+        XCTAssertFalse(clock.isRunning)
+        clock.retain()
+        XCTAssertTrue(clock.isRunning)
+        // A second subscriber keeps it alive through the first release.
+        clock.retain()
+        clock.release()
+        XCTAssertTrue(clock.isRunning)
+        clock.release()
+        XCTAssertFalse(clock.isRunning)
+        // An extra release must not go negative: the next pair still stops.
+        clock.release()
+        clock.retain()
+        clock.release()
+        XCTAssertFalse(clock.isRunning)
+    }
+}
