@@ -7,9 +7,8 @@ enum PixelTone {
     case working, attention, error, unread, ok, idle
 }
 
-/// Re-renders its content once a second while on screen, from a shared
-/// clock — per-view TimelineViews inside lazy transcript rows could lock
-/// the main thread in a layout loop.
+/// Re-renders its content once a second while on screen (the shared 1 Hz
+/// beat for live indicators: one timer for every view, never an animation loop).
 struct LiveTick<Content: View>: View {
     var live = true
     @ViewBuilder var content: (Int) -> Content
