@@ -37,6 +37,14 @@ let setCwdHandler:
 let openHandler:
   | ((input: { chatId: string }) => Promise<unknown>)
   | null = null
+let sendHandler:
+  | ((input: {
+      chatId: string
+      message: string
+      images?: unknown[]
+      mode: string
+    }) => Promise<unknown>)
+  | null = null
 
 const sendCalls: { chatId: string; message: string; mode: string }[] = []
 const notifyCalls: { chatId: string; title: string; body: string }[] = []
@@ -100,6 +108,9 @@ const fakeApi = {
       mode: string
     }) => {
       sendCalls.push(input)
+      if (sendHandler) {
+        await sendHandler(input)
+      }
     },
     getForkMessages: async () => ({
       messages: [{ entryId: 'e0' }, { entryId: 'e1' }]
@@ -161,6 +172,7 @@ describe('chat-store model switching', () => {
 
   beforeEach(async () => {
     setModelResult = null
+    sendHandler = null
     const mod = await import('./chat-store')
     useChatStore = mod.useChatStore
     chatId = `c${++seq}` // drafts persist between tests; use a fresh chat
@@ -503,6 +515,80 @@ describe('retryFromUserMessage', () => {
     await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
     await flush()
     await useChatStore.getState().retryFromUserMessage(chatId, 9)
+    expect(sendCalls).toEqual([])
+  })
+})
+
+describe('retryFailedPrompt', () => {
+  let useChatStore: typeof import('./chat-store').useChatStore
+  let seq = 0
+
+  beforeEach(async () => {
+    sendCalls.length = 0
+    sendHandler = null
+    const mod = await import('./chat-store')
+    useChatStore = mod.useChatStore
+  })
+
+  it('records the failed prompt and resends it once on retry', async () => {
+    const chatId = `f${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    sendHandler = async () => {
+      throw new Error('synthetic failure')
+    }
+    // send() records the failure on the draft and rethrows for callers.
+    await expect(
+      useChatStore.getState().send(chatId, 'fail me', undefined, 'prompt')
+    ).rejects.toThrow('synthetic failure')
+    await flush()
+    let chat = useChatStore.getState().chats[chatId]!
+    expect(chat.error).toBe('synthetic failure')
+    expect(chat.failedPrompt?.text).toBe('fail me')
+    expect(chat.messages).toHaveLength(1)
+
+    sendHandler = null
+    await useChatStore.getState().retryFailedPrompt(chatId)
+    await flush()
+    chat = useChatStore.getState().chats[chatId]!
+    expect(chat.error).toBeUndefined()
+    expect(chat.failedPrompt).toBeUndefined()
+    // Still exactly one user message: the failed echo was replaced.
+    expect(chat.messages.filter((m) => m.kind === 'user')).toHaveLength(1)
+    expect(sendCalls).toHaveLength(2)
+    expect(sendCalls[1]!.message).toBe('fail me')
+  })
+
+  it('clears a stale error when a fresh prompt is sent', async () => {
+    const chatId = `f${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+
+    sendHandler = async (input) => {
+      if (input.message === 'fail me') {
+        throw new Error('synthetic failure')
+      }
+    }
+    await expect(
+      useChatStore.getState().send(chatId, 'fail me', undefined, 'prompt')
+    ).rejects.toThrow('synthetic failure')
+    await flush()
+    expect(useChatStore.getState().chats[chatId]!.error).toBe('synthetic failure')
+
+    await useChatStore.getState().send(chatId, 'hello', undefined, 'prompt')
+    await flush()
+    const chat = useChatStore.getState().chats[chatId]!
+    expect(chat.error).toBeUndefined()
+    expect(chat.failedPrompt).toBeUndefined()
+    expect(chat.messages.filter((m) => m.kind === 'user')).toHaveLength(2)
+  })
+
+  it('does nothing when no prompt failed', async () => {
+    const chatId = `f${++seq}`
+    await useChatStore.getState().ensureChat(chatId, { cwd: '/tmp/synthetic' })
+    await flush()
+    await useChatStore.getState().retryFailedPrompt(chatId)
     expect(sendCalls).toEqual([])
   })
 })

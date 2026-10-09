@@ -71,9 +71,18 @@ export async function topLevel(cwd: string): Promise<string> {
  */
 export async function validBranchName(cwd: string, value: unknown): Promise<string> {
   const name = typeof value === 'string' ? value.trim() : ''
+  if (!name) {
+    throw new Error('Enter a branch name')
+  }
+  if (name.length > 200) {
+    throw new Error('Branch name is too long')
+  }
+  if (name.startsWith('-')) {
+    throw new Error("Branch names can't start with '-'")
+  }
   // eslint-disable-next-line no-control-regex
-  if (!name || name.length > 200 || name.startsWith('-') || /[\s\u0000-\u001f]/.test(name)) {
-    throw new Error('Invalid branch name')
+  if (/[\s\u0000-\u001f]/.test(name)) {
+    throw new Error("Branch names can't contain spaces or control characters")
   }
   const check = await git(cwd, ['check-ref-format', '--branch', name])
   if (!check.ok) {

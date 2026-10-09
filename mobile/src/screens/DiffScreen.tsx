@@ -69,7 +69,7 @@ type DiffRow =
       deleted: number
       collapsed: boolean
     }
-  | { kind: 'binary'; key: string }
+  | { kind: 'binary'; key: string; label: string }
   | { kind: 'hunk'; key: string; header: string }
   | { kind: 'line'; key: string; path: string; anchor: string; line: PatchLine }
   | { kind: 'note'; key: string; comment: PinnedComment }
@@ -367,7 +367,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       }
       const built = buildEntries([
         ...parseUnifiedDiff(next.diffText),
-        ...next.untracked.map((u) => diffFileForUntracked(u.path, u.content))
+        ...next.untracked.map((u) => diffFileForUntracked(u.path, u.content, u))
       ])
       const large = built.filter(
         (entry) => !seen.current.has(entry.file.path) && entry.lineCount > COLLAPSE_LINES
@@ -471,8 +471,16 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       if (isCollapsed) {
         continue
       }
-      if (file.isBinary) {
-        out.push({ kind: 'binary', key: `b:${file.path}` })
+      if (file.isBinary || file.tooLarge || file.hunks.length === 0) {
+        out.push({
+          kind: 'binary',
+          key: `b:${file.path}`,
+          label: file.tooLarge
+            ? 'File too large to show'
+            : file.isBinary
+              ? 'Binary file'
+              : 'No content changes'
+        })
         continue
       }
       for (const row of entry.body) {
@@ -810,7 +818,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
           return (
             <View style={styles.binary}>
               <Txt size="small" tone="muted">
-                Binary file
+                {item.label}
               </Txt>
             </View>
           )

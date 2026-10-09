@@ -11,15 +11,11 @@ import { toolCallSummary } from '../lib/tool-summary'
 import { useChatStore } from '../state/chat-store'
 import { usePanelStore } from '../state/panel-store'
 import { LiveDot } from './LiveIndicators'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
 const LazyMarkdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })))
 
-function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+const errorText = ipcErrorMessage
 
 function SideMessage({ message, cwd }: { message: DisplayMessage; cwd: string }) {
   if (message.kind === 'user') {

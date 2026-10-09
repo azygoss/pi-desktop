@@ -128,6 +128,8 @@ const USAGE = {
 let streaming = false
 /** Counts completed prompt runs — stats stay zeroed until the first one. */
 let promptsRun = 0
+/** A "fail once please" prompt fails once, then answers normally. */
+let failedOnce = false
 
 const BRIDGE_URL = process.env['PI_DESKTOP_BRIDGE_URL']
 const BRIDGE_TOKEN = process.env['PI_DESKTOP_BRIDGE_TOKEN']
@@ -1106,6 +1108,19 @@ function handle(command) {
     case 'follow_up': {
       // A prompt-level failure exercises the sidebar error dot.
       if (/\bfail please\b/i.test(String(command.message))) {
+        writeLine({
+          id,
+          type: 'response',
+          command: command.type,
+          success: false,
+          error: 'synthetic failure'
+        })
+        break
+      }
+      // Fails the first matching prompt, then answers normally — covers the
+      // error row's Retry resending the same prompt.
+      if (/\bfail once please\b/i.test(String(command.message)) && !failedOnce) {
+        failedOnce = true
         writeLine({
           id,
           type: 'response',

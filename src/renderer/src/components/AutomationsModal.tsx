@@ -14,6 +14,7 @@ import { useAppStore } from '../state/app-store'
 import { toast } from '../state/toast-store'
 import { ModalShell } from './CommandModals'
 import { openSession } from './Sidebar'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
 const INTERVALS: { minutes: number; label: string }[] = [
   { minutes: 15, label: '15 minutes' },
@@ -31,12 +32,7 @@ const whenFormat = new Intl.DateTimeFormat('en-US', {
   hourCycle: 'h23'
 })
 
-function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+const errorText = ipcErrorMessage
 
 const BLANK: AutomationInput = {
   name: '',

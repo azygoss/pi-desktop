@@ -1,14 +1,10 @@
 import { toast } from '../state/toast-store'
+import { ipcErrorMessage } from '../../../shared/ipc-error'
 
 /** A slow snapshot must not hold a prompt back for long. */
 const CHECKPOINT_TIMEOUT_MS = 4000
 
-function errorText(e: unknown): string {
-  return (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method [^:]+: (Error: )?/,
-    ''
-  )
-}
+const errorText = ipcErrorMessage
 
 /** Snapshot the project's files before a prompt; null when there is nothing to snapshot. */
 export function takeCheckpoint(cwd: string): Promise<string | null> {

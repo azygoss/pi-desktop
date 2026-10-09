@@ -444,8 +444,12 @@ export interface RepoDiffResult {
   root?: string
   /** Raw `git diff` output (unified format). */
   diffText: string
-  /** Untracked text files (≤200KB each), rendered as all-added files. */
-  untracked: { path: string; content: string }[]
+  /**
+   * Untracked files (up to MAX_UNTRACKED_FILES), rendered as all-added
+   * files. Text content is inlined; binary and >200KB files come back with
+   * empty content and the matching flag so the panel can label them.
+   */
+  untracked: { path: string; content: string; binary?: true; tooLarge?: true }[]
 }
 
 /** A session whose conversation text matches a search. */

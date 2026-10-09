@@ -177,6 +177,16 @@ describe('RemoteServer', () => {
     await expect.poll(() => gone, { timeout: 2000 }).toEqual([deviceId])
   })
 
+  it('stamps lastSeenAt again when a paired phone disconnects', async () => {
+    const { phone, ready } = await pairPhone()
+    const deviceId = ready!.deviceId
+    const before = Date.now()
+    phone.close()
+    await expect
+      .poll(() => store.devices.find((d) => d.id === deviceId)?.lastSeenAt ?? 0, { timeout: 2000 })
+      .toBeGreaterThanOrEqual(before)
+  })
+
   it('does not replace an identity it cannot unlock', async () => {
     const file = join(dir, 'locked.json')
     const locked = new RemoteStore(file, {

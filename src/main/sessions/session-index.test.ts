@@ -182,6 +182,51 @@ describe('listSessions', () => {
     })
   })
 
+  it('titles a whitespace-only first user message as Untitled', async () => {
+    await writeSession('p', 's.jsonl', [
+      HEADER,
+      {
+        type: 'message',
+        id: 'a1',
+        parentId: null,
+        message: { role: 'user', content: '   ' }
+      }
+    ])
+    const sessions = await listSessions(env)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.title).toBe('Untitled')
+  })
+
+  it('ignores a whitespace-only session_info name', async () => {
+    await writeSession('p', 's.jsonl', [
+      HEADER,
+      {
+        type: 'message',
+        id: 'a1',
+        parentId: null,
+        message: { role: 'user', content: 'real title' }
+      },
+      { type: 'session_info', id: 'i1', parentId: 'a1', name: '  ' }
+    ])
+    const sessions = await listSessions(env)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.title).toBe('real title')
+    expect(sessions[0]!.name).toBeUndefined()
+  })
+
+  it('does not list files without a session header', async () => {
+    const dir = join(sessionsDir, 'p')
+    await mkdir(dir, { recursive: true })
+    // Empty file and garbage-only file: neither carries a header.
+    await writeFile(join(dir, 'empty.jsonl'), '')
+    await writeFile(join(dir, 'garbage.jsonl'), 'not json\n{"type":"message","id":"m1"}\n')
+    await writeSession('p', 'valid.jsonl', [HEADER])
+    const sessions = await listSessions(env)
+    expect(sessions.map((s) => s.id)).toEqual(['sess-0001'])
+    // A second scan agrees (no cached ghosts either).
+    expect((await listSessions(env)).map((s) => s.id)).toEqual(['sess-0001'])
+  })
+
   it('exposes parentSessionPath from the header', async () => {
     await writeSession('p', 's.jsonl', [
       { ...HEADER, parentSession: '/Users/example/.pi/agent/sessions/p/parent.jsonl' }

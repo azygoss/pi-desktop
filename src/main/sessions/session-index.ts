@@ -26,7 +26,7 @@ const PERSIST_DEBOUNCE_MS = 800
 const PERSIST_MAX_ENTRIES = 5000
 // Bump when the summary shape or title derivation changes so stale cached
 // titles get recomputed instead of served.
-const PERSIST_VERSION = 3
+const PERSIST_VERSION = 4
 
 let persistedLoaded = false
 let persistTimer: ReturnType<typeof setTimeout> | null = null
@@ -129,6 +129,8 @@ interface ParsedSession {
   id: string
   cwd: string
   created: string
+  /** True once a `{"type":"session"}` header line was seen. */
+  hasHeader: boolean
   name?: string
   parentSessionPath?: string
   messageCount: number
@@ -168,6 +170,7 @@ function applyLine(parsed: ParsedSession, line: string): void {
   switch (entry['type']) {
     case 'session': {
       // Header line: id/timestamp/cwd(/parentSession), version may be absent in v1.
+      parsed.hasHeader = true
       if (typeof entry['id'] === 'string') {
         parsed.id = entry['id']
       }
@@ -183,7 +186,8 @@ function applyLine(parsed: ParsedSession, line: string): void {
       break
     }
     case 'session_info': {
-      if (typeof entry['name'] === 'string' && entry['name'].length > 0) {
+      // A whitespace-only name is treated like an absent one.
+      if (typeof entry['name'] === 'string' && collapseWhitespace(entry['name']).length > 0) {
         parsed.name = entry['name']
       }
       break
@@ -211,6 +215,7 @@ function parseSessionFile(filePath: string): Promise<ParsedSession> {
       id: basename(filePath, '.jsonl'),
       cwd: '',
       created: '',
+      hasHeader: false,
       messageCount: 0
     }
     const reader = createJsonlReader((line) => applyLine(parsed, line))
@@ -238,12 +243,16 @@ async function summarizeFile(filePath: string): Promise<SessionSummary | null> {
   }
 
   const parsed = await parseSessionFile(filePath)
+  // A file without a session header (empty, garbage, truncated) is not a
+  // session — don't list it as a project-less "Untitled" chat.
+  if (!parsed.hasHeader) {
+    return null
+  }
   // Skill invocations expand to <skill> XML in the first user message; use
   // the typed remainder (or /skill:name) so titles never show raw markup.
-  const titleSource = parsed.name ?? titleFromUserText(parsed.firstUserText)
-  const title = titleSource
-    ? truncateText(collapseWhitespace(titleSource), TITLE_MAX_LENGTH)
-    : 'Untitled'
+  // Whitespace-only sources fall back to 'Untitled' rather than a blank row.
+  const titleSource = collapseWhitespace(parsed.name ?? titleFromUserText(parsed.firstUserText) ?? '')
+  const title = titleSource ? truncateText(titleSource, TITLE_MAX_LENGTH) : 'Untitled'
 
   const summary: SessionSummary = {
     id: parsed.id,
