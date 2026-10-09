@@ -226,6 +226,8 @@ public struct RepoDiffResult: Sendable {
     public struct Untracked: Sendable {
         public var path: String
         public var content: String
+        public var binary: Bool
+        public var tooLarge: Bool
     }
 
     public var isRepo: Bool
@@ -241,7 +243,12 @@ public struct RepoDiffResult: Sendable {
         diffText = json["diffText"]?.stringValue ?? ""
         untracked = (json["untracked"]?.arrayValue ?? []).compactMap { item in
             guard let path = item["path"]?.stringValue else { return nil }
-            return Untracked(path: path, content: item["content"]?.stringValue ?? "")
+            return Untracked(
+                path: path,
+                content: item["content"]?.stringValue ?? "",
+                binary: item["binary"]?.isTrue ?? false,
+                tooLarge: item["tooLarge"]?.isTrue ?? false
+            )
         }
     }
 }
