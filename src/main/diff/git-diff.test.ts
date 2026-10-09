@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { parseUnifiedDiff } from '../../shared/diff-parse'
 import { getRepoDiff, parseShortstat } from './git-diff'
 
 const dirs: string[] = []
@@ -75,5 +76,17 @@ describe('getRepoDiff untracked entries', () => {
     // With core.quotepath=false the path is not C-quoted.
     expect(diffText).toContain(`b/${name}`)
     expect(diffText).not.toContain('\\360')
+  })
+
+  it('resolves a tracked path containing a quote and UTF-8', async () => {
+    const dir = await repo()
+    const name = 'q"ğ.txt'
+    await writeFile(join(dir, name), 'v1\n')
+    git(dir, ['add', '--', name])
+    git(dir, ['-c', 'user.email=t@example.invalid', '-c', 'user.name=T', 'commit', '-m', 'add'])
+    await writeFile(join(dir, name), 'v2\n')
+    const { diffText } = await getRepoDiff(dir)
+    const files = parseUnifiedDiff(diffText)
+    expect(files.map((f) => f.path)).toContain(name)
   })
 })

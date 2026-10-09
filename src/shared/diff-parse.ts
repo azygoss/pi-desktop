@@ -49,25 +49,28 @@ const QUOTED_ESCAPES: Record<string, number> = {
 
 /**
  * Undo git's C-style quoting of paths containing non-ASCII or unusual
- * bytes (`"a/yeni dosya \360\237\232\200.txt"` when core.quotepath is on):
- * unescape the simple escapes and 3-digit octal byte escapes, then decode
- * the bytes as UTF-8 — byte by byte via %XX + decodeURIComponent, no
- * TextDecoder (this module also runs on React Native). Returns `s`
- * unchanged when it is not quoted or the bytes are not valid UTF-8.
+ * bytes (`"a/yeni dosya \360\237\232\200.txt"` when core.quotepath is on,
+ * `"a/q\"ğ.txt"` when it is off): unescape the simple escapes and 3-digit
+ * octal byte escapes, keep unescaped characters as raw UTF-8, then decode
+ * via %XX + decodeURIComponent — no TextDecoder (this module also runs on
+ * React Native). Returns `s` unchanged when it is not quoted or the
+ * result is not valid UTF-8.
  */
 export function unquoteGitPath(s: string): string {
   if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) {
     return s
   }
   const body = s.slice(1, -1)
-  const bytes: number[] = []
+  const encoded: string[] = []
   for (let i = 0; i < body.length; i++) {
     const ch = body[i]!
     if (ch !== '\\') {
-      if (ch.codePointAt(0)! > 0xff) {
-        return s
+      // A code point, raw UTF-8 — keep surrogate pairs together.
+      const code = body.codePointAt(i)!
+      if (code > 0xffff) {
+        i++
       }
-      bytes.push(ch.charCodeAt(0))
+      encoded.push(encodeURIComponent(String.fromCodePoint(code)))
       continue
     }
     const next = body[i + 1]
@@ -79,21 +82,20 @@ export function unquoteGitPath(s: string): string {
       while (i + 1 < body.length && octal.length < 3 && /[0-7]/.test(body[i + 1]!)) {
         octal += body[++i]
       }
-      bytes.push(parseInt(octal, 8))
+      encoded.push(`%${parseInt(octal, 8).toString(16).padStart(2, '0')}`)
       continue
     }
     i++
     const simple = QUOTED_ESCAPES[next]
     if (simple !== undefined) {
-      bytes.push(simple)
-    } else if (next.codePointAt(0)! <= 0xff) {
-      bytes.push(next.charCodeAt(0))
+      encoded.push(`%${simple.toString(16).padStart(2, '0')}`)
     } else {
-      return s
+      // Unknown escape: treat the escaped char as its literal self.
+      encoded.push(encodeURIComponent(next))
     }
   }
   try {
-    return decodeURIComponent(bytes.map((b) => `%${b.toString(16).padStart(2, '0')}`).join(''))
+    return decodeURIComponent(encoded.join(''))
   } catch {
     // Not valid UTF-8 — keep the quoted form as-is.
     return s

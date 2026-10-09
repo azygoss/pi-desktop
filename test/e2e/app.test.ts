@@ -420,7 +420,9 @@ describe('Pi Desktop e2e', () => {
     // The fake pi rejects the first send: the error row shows the message
     // with a Retry affordance, and the user bubble stays single.
     await visible(page, '.msg-notice-error', 30_000)
-    expect(await page.locator('.msg-notice-error').textContent()).toContain('synthetic failure')
+    const notice = await page.locator('.msg-notice-error').textContent()
+    expect(notice).toContain('synthetic failure')
+    expect(notice).not.toContain('Error invoking remote method')
     expect(await page.locator('.msg-user-row').count()).toBe(1)
     await page.locator('.msg-notice-error >> text=Retry').click()
     // Second send succeeds; the retry must not duplicate the user echo.

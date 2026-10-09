@@ -113,6 +113,19 @@ Binary files "a/t\\304\\237rk.png" and "b/t\\304\\237rk.png" differ
     expect(files[0]).toMatchObject({ path: 'tğrk.png', status: 'modified', isBinary: true })
   })
 
+  it('parses a quotepath-off C-quoted path with an escaped quote', () => {
+    const files = parseUnifiedDiff(`diff --git "a/q\\"ğ.txt" "b/q\\"ğ.txt"
+index 111..222 100644
+--- "a/q\\"ğ.txt"
++++ "b/q\\"ğ.txt"
+@@ -1 +1 @@
+-x
++y
+`)
+    expect(files).toHaveLength(1)
+    expect(files[0]).toMatchObject({ path: 'q"ğ.txt', status: 'modified' })
+  })
+
   it('unquotes rename from/to lines', () => {
     const files = parseUnifiedDiff(`diff --git "a/\\304\\237eski.ts" "b/\\304\\237yeni.ts"
 similarity index 100%
@@ -140,6 +153,14 @@ describe('unquoteGitPath', () => {
 
   it('keeps the raw string on undecodable bytes', () => {
     expect(unquoteGitPath('"\\377\\377"')).toBe('"\\377\\377"')
+  })
+
+  it('decodes escaped quotes with raw UTF-8 neighbours', () => {
+    expect(unquoteGitPath('"a/q\\"ğü 🚀.txt"')).toBe('a/q"ğü 🚀.txt')
+  })
+
+  it('mixes octal byte escapes and raw UTF-8', () => {
+    expect(unquoteGitPath('"a/\\360\\237\\232\\200 ğ.txt"')).toBe('a/🚀 ğ.txt')
   })
 })
 

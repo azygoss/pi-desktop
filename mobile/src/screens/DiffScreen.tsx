@@ -69,7 +69,7 @@ type DiffRow =
       deleted: number
       collapsed: boolean
     }
-  | { kind: 'binary'; key: string; tooLarge?: boolean }
+  | { kind: 'binary'; key: string; label: string }
   | { kind: 'hunk'; key: string; header: string }
   | { kind: 'line'; key: string; path: string; anchor: string; line: PatchLine }
   | { kind: 'note'; key: string; comment: PinnedComment }
@@ -471,11 +471,15 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
       if (isCollapsed) {
         continue
       }
-      if (file.isBinary || file.tooLarge) {
+      if (file.isBinary || file.tooLarge || file.hunks.length === 0) {
         out.push({
           kind: 'binary',
           key: `b:${file.path}`,
-          ...(file.tooLarge ? { tooLarge: true } : {})
+          label: file.tooLarge
+            ? 'File too large to show'
+            : file.isBinary
+              ? 'Binary file'
+              : 'No content changes'
         })
         continue
       }
@@ -814,7 +818,7 @@ export function DiffScreen({ navigation, route }: ScreenProps<'Diff'>) {
           return (
             <View style={styles.binary}>
               <Txt size="small" tone="muted">
-                {item.tooLarge ? 'File too large to show' : 'Binary file'}
+                {item.label}
               </Txt>
             </View>
           )
