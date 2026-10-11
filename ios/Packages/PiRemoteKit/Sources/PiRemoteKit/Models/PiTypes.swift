@@ -355,6 +355,11 @@ public enum AssistantMessageEvent: Sendable {
             return
         }
         let index = json["contentIndex"]?.intValue ?? 0
+        // Blocks are padded up to the index: refuse one no message could have.
+        guard (0..<256).contains(index) else {
+            self = .unknown
+            return
+        }
         let delta = json["delta"]?.stringValue ?? ""
         let content = json["content"]?.stringValue ?? ""
         switch json["type"]?.stringValue {

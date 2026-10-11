@@ -52,22 +52,13 @@ private let silenceLimit: Double = 50
 /// The desktop's own frame limit.
 private let maxMessageBytes = 48 * 1024 * 1024
 
-/// Run `operation`, failing with `message` after `seconds`.
-private func withTimeout<T: Sendable>(
-    _ seconds: Double,
-    message: String,
-    _ operation: @escaping @Sendable () async throws -> T
-) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw RemoteMessageError(message)
-        }
-        defer { group.cancelAll() }
-        guard let first = try await group.next() else { throw RemoteDisconnectedError() }
-        return first
-    }
+/// Set once a handshake's time is up, so the error it ends with can say so.
+private final class Deadline: @unchecked Sendable {
+    private let lock = NSLock()
+    private var passed = false
+
+    var hasPassed: Bool { lock.withLock { passed } }
+    func pass() { lock.withLock { passed = true } }
 }
 
 /**
@@ -193,9 +184,19 @@ final class RemoteClient {
         socket.maximumMessageSize = maxMessageBytes
         socket.resume()
         let ephemeral = RemoteCrypto.generateKeyPair()
+        // The socket's own calls ignore task cancellation, so the time limit
+        // cancels the socket itself: a host that drops packets would
+        // otherwise hold the dial for the system's TCP timeout (over a minute).
+        let deadline = Deadline()
+        let watchdog = Task {
+            try await Task.sleep(nanoseconds: UInt64((openTimeout + handshakeTimeout) * 1_000_000_000))
+            deadline.pass()
+            socket.cancel(with: .goingAway, reason: nil)
+        }
+        defer { watchdog.cancel() }
         do {
             return try await withTaskCancellationHandler {
-                try await withTimeout(openTimeout + handshakeTimeout, message: "The computer did not answer") {
+                do {
                     let hello: JSONValue = [
                         "v": .int(RemoteProtocol.version),
                         "c": .string(Base64URL.encode(identity.publicKey)),
@@ -256,6 +257,9 @@ final class RemoteClient {
                             continue
                         }
                     }
+                } catch {
+                    if deadline.hasPassed { throw RemoteMessageError("The computer did not answer") }
+                    throw error
                 }
             } onCancel: {
                 socket.cancel(with: .goingAway, reason: nil)
@@ -281,12 +285,12 @@ final class RemoteClient {
                 } catch {
                     break
                 }
-                guard case .data(let data) = message,
-                    let plain = channel.open([UInt8](data)),
-                    let frame = FrameCodec.decodeServer(plain)
-                else {
+                guard case .data(let data) = message, let plain = channel.open([UInt8](data)) else {
                     break // a frame that does not open: the stream cannot be trusted
                 }
+                // An authentic frame this version cannot read is skipped, not
+                // fatal: closing would only fetch it again after reconnecting.
+                guard let frame = FrameCodec.decodeServer(plain) else { continue }
                 await self?.receive(frame)
             }
             await self?.close()
@@ -339,18 +343,32 @@ final class RemoteClient {
         guard connected else { throw RemoteDisconnectedError() }
         let id = nextId
         nextId += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            let timer = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                guard !Task.isCancelled, let self, let entry = self.pending.removeValue(forKey: id) else { return }
-                entry.continuation.resume(throwing: RemoteMessageError("The computer took too long to answer"))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                let timer = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    guard !Task.isCancelled, let self, let entry = self.pending.removeValue(forKey: id) else { return }
+                    entry.continuation.resume(throwing: RemoteMessageError("The computer took too long to answer"))
+                }
+                pending[id] = (continuation, timer)
+                var frame: [String: JSONValue] = ["t": "req", "id": .int(id), "ch": .string(channelName)]
+                if let arg { frame["a"] = arg }
+                if !send(.object(frame)), let entry = pending.removeValue(forKey: id) {
+                    entry.timer.cancel()
+                    entry.continuation.resume(throwing: RemoteDisconnectedError())
+                }
             }
-            pending[id] = (continuation, timer)
-            var frame: [String: JSONValue] = ["t": "req", "id": .int(id), "ch": .string(channelName)]
-            if let arg { frame["a"] = arg }
-            if !send(.object(frame)), let entry = pending.removeValue(forKey: id) {
+        } onCancel: {
+            // The caller stopped waiting (a timed-out race, an expiring background
+            // refresh): give up on the answer now. A late reply finds no entry.
+            Task { @MainActor [weak self] in
+                guard let entry = self?.pending.removeValue(forKey: id) else { return }
                 entry.timer.cancel()
-                entry.continuation.resume(throwing: RemoteDisconnectedError())
+                entry.continuation.resume(throwing: CancellationError())
             }
         }
     }

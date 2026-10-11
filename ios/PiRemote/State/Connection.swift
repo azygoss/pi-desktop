@@ -154,8 +154,11 @@ final class Connection {
      * the computer accepts.
      */
     private func connect(token: String? = nil, candidate: StoredPairing? = nil) async throws {
-        if connecting {
+        // `inflight` is set before the first suspension, so two calls in the same
+        // turn (a socket closing as the app comes back) share one dial.
+        if let inflight {
             if candidate != nil { throw RemoteMessageError("Already connecting. Try again in a moment.") }
+            _ = await inflight.result
             return
         }
         let task = Task { try await self.dial(token: token, candidate: candidate) }
@@ -206,13 +209,15 @@ final class Connection {
             }
             // The computer reports its addresses on every connection: keep them.
             var known: [String] = []
-            for host in [result.host] + (result.server.hosts ?? []) + pairing.hosts where !known.contains(host) {
+            for host in [result.host] + (result.server.hosts ?? []) + pairing.hosts
+            where !known.contains(host) && PairingPayload.isHost(host) {
                 known.append(host)
             }
             known = Array(known.prefix(16))
             var updated = pairing
             updated.hosts = known
-            updated.name = result.server.name
+            let name = result.server.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            updated.name = name.isEmpty ? pairing.name : String(name.prefix(80))
             updated.lastHost = result.host
             updated.kind = result.server.kind ?? "desktop"
             if candidate == nil && updated != pairing {
@@ -267,8 +272,12 @@ final class Connection {
     /// Load the stored pairings and connect. Once, at launch.
     func start() {
         guard phase == .loading else { return }
-        identity = PairingStorage.loadIdentity()
-        let stored = PairingStorage.loadComputers()
+        // A background refresh can launch the app without it ever being active.
+        appActive = UIApplication.shared.applicationState != .background
+        // The Keychain is closed until the first unlock after a restart: stay
+        // loading and try again when the app comes to the front.
+        guard let identity = PairingStorage.loadIdentity(), let stored = PairingStorage.loadComputers() else { return }
+        self.identity = identity
         computers = stored.list
         guard let active = stored.list.first(where: { $0.key == stored.active }) else {
             phase = .unpaired
@@ -283,6 +292,7 @@ final class Connection {
     func pair(_ text: String) async throws {
         guard let payload = PairingPayload.parse(text) else { throw RemoteMessageError("That is not a Pi Desktop pairing code") }
         if identity == nil { identity = PairingStorage.loadIdentity() }
+        guard identity != nil else { throw RemoteMessageError("This iPhone's keychain is locked. Unlock it and try again.") }
         let known = computers.contains { $0.key == payload.key }
         if !known && computers.count >= PairingStorage.maxComputers {
             throw RemoteMessageError("Pi Remote keeps up to \(PairingStorage.maxComputers) computers. Remove one in Settings first.")
@@ -364,8 +374,14 @@ final class Connection {
     func addHost(_ host: String) throws {
         var clean = host.trimmingCharacters(in: .whitespacesAndNewlines)
         clean = clean.replacingOccurrences(of: "^wss?://", with: "", options: .regularExpression)
-        clean = clean.replacingOccurrences(of: "[:/].*$", with: "", options: .regularExpression)
-        guard var updated = pairing, clean.range(of: "^[A-Za-z0-9.-]{1,255}$", options: .regularExpression) != nil else {
+        if clean.hasPrefix("["), let end = clean.firstIndex(of: "]") {
+            clean = String(clean[clean.index(after: clean.startIndex)..<end]) // [IPv6]:port
+        } else if clean.filter({ $0 == ":" }).count >= 2 {
+            clean = clean.replacingOccurrences(of: "/.*$", with: "", options: .regularExpression) // bare IPv6
+        } else {
+            clean = clean.replacingOccurrences(of: "[:/].*$", with: "", options: .regularExpression) // name or IPv4[:port]
+        }
+        guard var updated = pairing, !clean.isEmpty, PairingPayload.isHost(clean) else {
             throw RemoteMessageError("That is not an address")
         }
         updated.hosts = [clean] + updated.hosts.filter { $0 != clean }
@@ -386,7 +402,8 @@ final class Connection {
         while Date() < deadline {
             if phase == .online, client?.connected == true { return true }
             if phase == .unpaired { return false }
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            // Cancelled (the refresh's time is up): stop at once, not at the deadline.
+            do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return false }
         }
         return phase == .online
     }
@@ -395,6 +412,7 @@ final class Connection {
 
     func appBecameActive() {
         appActive = true
+        if phase == .loading { start() }
         guard pairing != nil else { return }
         if phase == .online, let client, client.connected {
             // A dead socket can still look open; a request that times out closes it.

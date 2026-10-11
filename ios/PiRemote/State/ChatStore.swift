@@ -23,7 +23,10 @@ final class ChatModel: Identifiable {
     nonisolated let chatId: String
     nonisolated var id: String { chatId }
 
-    var view = ChatViewState()
+    var view = ChatViewState() { didSet { revision &+= 1 } }
+    /// Bumps on every change to `view`, streamed deltas included: what the
+    /// transcript follows to keep the end of a growing reply on screen.
+    private(set) var revision = 0
     var sessionPath: String?
     var cwd: String
     var title: String
@@ -120,6 +123,14 @@ final class ChatStore {
     }
 
     // MARK: Subscriptions and memory
+
+    /// Let go of a chat this phone holds (not of the chat on the computer).
+    private func drop(_ chatId: String) {
+        chats[chatId] = nil
+        pendingEvents[chatId] = nil
+        openOrder.removeAll { $0 == chatId }
+        Connection.shared.subscribeChats(Array(openOrder.prefix(Self.maxSubscribed)))
+    }
 
     private func touchSubscription(_ chatId: String) {
         openOrder.removeAll { $0 == chatId }
@@ -266,8 +277,15 @@ final class ChatStore {
         let built = ChatViewState.build(transcript.messages)
         if authoritative {
             pendingEvents[chatId] = nil
-            chat.view.messages = built.messages
-            chat.view.toolRuns = built.toolRuns
+            // Still running: the reply and the tool steps in progress are not in
+            // the file yet. Keep them until message_end brings the real thing.
+            if chat.streaming, case .assistant(let last)? = chat.view.messages.last, last.streaming {
+                chat.view.messages = built.messages + [.assistant(last)]
+            } else {
+                chat.view.messages = built.messages
+            }
+            let running = chat.streaming ? chat.view.toolRuns.filter { $0.value.status == .running } : [:]
+            chat.view.toolRuns = built.toolRuns.merging(running) { $1 }
         } else {
             // A message pi is streaming right now is not in the file yet: keep it.
             if case .assistant(let last)? = chat.view.messages.last, last.streaming {
@@ -358,6 +376,15 @@ final class ChatStore {
             current.model = catalog.model ?? current.model
             current.thinkingLevel = catalog.thinkingLevel ?? current.thinkingLevel
         }
+        if !live, let sessionPath, let owner = try? await API.chatId(forSession: sessionPath), owner != chatId {
+            // The computer runs this session under another chat now; a second pi
+            // on the same file would interleave their writes.
+            if let current = chats[chatId] {
+                current.status = .error
+                current.error = "This chat is already open on the computer. Go back and open it again from the list."
+            }
+            return
+        }
         let result: ChatOpenResult
         do {
             if live {
@@ -442,17 +469,26 @@ final class ChatStore {
     /// Open (or join) the chat for a session file; resolves to its chat id.
     func openSession(_ sessionPath: String) async throws -> String {
         if let chat = chats.values.first(where: { $0.sessionPath == sessionPath }) {
-            touchSubscription(chat.chatId)
             if chat.status == .error || chat.status == .exited {
+                // Started on the computer since (its window, another phone): join that one.
+                if let owner = try? await API.chatId(forSession: sessionPath), owner != chat.chatId {
+                    drop(chat.chatId)
+                    return joinLive(owner, cwd: chat.cwd, sessionPath: sessionPath)
+                }
+                touchSubscription(chat.chatId)
                 Task { await bringUp(chat.chatId, sessionPath: sessionPath) }
+                return chat.chatId
             }
+            touchSubscription(chat.chatId)
             return chat.chatId
         }
         // A second tap while the first is still asking the computer.
         if let pending = opening[sessionPath] { return try await pending.value }
         let task = Task<String, Error> {
             // The computer (or its window) may already run this session: join it.
-            let liveId = try? await API.chatId(forSession: sessionPath)
+            // Not knowing is no answer: opening it under a new id while it runs
+            // would start a second pi writing to the same session file.
+            let liveId = try await API.chatId(forSession: sessionPath)
             let chatId = liveId ?? UUID().uuidString.lowercased()
             if chats[chatId] == nil {
                 createChat(chatId, cwd: nil, sessionPath: sessionPath)
