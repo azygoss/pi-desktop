@@ -47,7 +47,7 @@ private struct CuaStrip: View {
                 }
                 .accessibilityLabel("Stop computer use")
             }
-            .font(.system(size: 14))
+            .uiFont(14)
             .foregroundStyle(theme.text2)
             .padding(.leading, Space.md)
             .background(RoundedRectangle(cornerRadius: Radius.md).fill(theme.accentSoft))
@@ -96,6 +96,8 @@ private struct ChatScreen: View {
     @State private var lightbox: LightboxItem?
     @State private var loadingEarlier = false
     @State private var atBottom = true
+    /// Keep the end in view as the transcript grows; off once the user scrolls up.
+    @State private var following = true
     @State private var showStderr = false
     @State private var bag = SubscriptionBag()
 
@@ -119,6 +121,9 @@ private struct ChatScreen: View {
         VStack(spacing: 0) {
             transcript(items)
             bottom
+                // A readable column on iPad, like the transcript above it.
+                .frame(maxWidth: readableWidth)
+                .frame(maxWidth: .infinity)
         }
         .background(theme.bg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -132,7 +137,12 @@ private struct ChatScreen: View {
             if let request = chat.uiRequest, !request.isInteractive { store.respondUi(chat.chatId, id: request.id) }
         }
         .onDisappear { if store.visibleChatId == chat.chatId { store.setVisible(nil) } }
-        .task { bag.add(connection.on(RemoteEvent.gitChanged) { _ in gitTick += 1 }) }
+        .task {
+            bag.add(connection.on(RemoteEvent.gitChanged) { _ in
+                gitTick += 1
+                ProjectFiles.invalidate() // files pi added or removed show up in @ mentions
+            })
+        }
         .onDisappear { bag.cancelAll() }
         // Branch and change counts: on open, when a run settles, when a branch changes.
         .task(id: "\(cwd)|\(connection.isOnline)|\(chat.streaming)|\(gitTick)") { await loadRepo() }
@@ -156,7 +166,7 @@ private struct ChatScreen: View {
             if repo != nil { router.push(.diff(cwd: cwd, chatId: chat.chatId)) }
         } label: {
             VStack(spacing: 0) {
-                Text(chat.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text).lineLimit(1)
+                Text(chat.title).uiFont(16, weight: .semibold).foregroundStyle(theme.text).lineLimit(1)
                 if chat.streaming, let started = chat.view.runStartedAt {
                     LiveTick { _ in
                         Text("Working \(formatElapsed(nowMs() - started))").font(.mono(12)).foregroundStyle(theme.accent).lineLimit(1)
@@ -295,21 +305,42 @@ private struct ChatScreen: View {
                         // Lazy so onAppear/onDisappear track whether the end is on screen.
                         LazyVStack(spacing: 0) {
                             Color.clear.frame(height: 1).id("bottom")
-                                .onAppear { atBottom = true }
-                                .onDisappear { atBottom = false }
+                                .onAppear {
+                                    atBottom = true
+                                    following = true
+                                }
+                                .onDisappear {
+                                    atBottom = false
+                                    // A growing reply pushes the end off screen on its own;
+                                    // only a still transcript means the user moved away.
+                                    if !chat.streaming { following = false }
+                                }
                         }
                     }
                     .padding(.vertical, Space.sm)
+                    .frame(maxWidth: readableWidth)
+                    .frame(maxWidth: .infinity)
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { drag in
+                            // Pulling the content down reads back: stop following.
+                            if drag.translation.height > 0 { following = false }
+                        }
+                        .onEnded { _ in
+                            if atBottom { following = true }
+                        }
+                )
                 .overlay(alignment: .bottomTrailing) {
-                    if !atBottom {
+                    if !following && !atBottom {
                         Button {
+                            following = true
                             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                         } label: {
                             Image(systemName: "arrow.down")
-                                .font(.system(size: 16, weight: .semibold))
+                                .uiFont(16, weight: .semibold)
                                 .foregroundStyle(theme.text2)
                                 .frame(width: touchTarget, height: touchTarget)
                                 .background(Circle().fill(theme.raised))
@@ -320,8 +351,13 @@ private struct ChatScreen: View {
                     }
                 }
                 .onChange(of: items.last?.id) { _, _ in
-                    // New content while reading the end: follow it.
-                    if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
+                    // A prompt just sent brings the end back into view.
+                    if case .user? = items.last { following = true }
+                    if following { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .onChange(of: chat.revision) { _, _ in
+                    // Streamed text grows the last row without a new item: keep up with it.
+                    if following { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
         }
@@ -378,7 +414,7 @@ private struct ChatScreen: View {
                         .foregroundStyle(theme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if connection.phase != .connecting {
-                        Button("Retry") { connection.retry() }.font(.system(size: 14)).frame(minHeight: touchTarget)
+                        Button("Retry") { connection.retry() }.uiFont(14).frame(minHeight: touchTarget)
                     }
                 }
                 .padding(.horizontal, Space.lg)
@@ -386,7 +422,7 @@ private struct ChatScreen: View {
             }
             if chat.status == .starting && connection.isOnline {
                 LiveTick { _ in
-                    let seconds = chat.startedAt.map { Int((nowMs() - $0) / 1000) } ?? 0
+                    let seconds = chat.startedAt.map { wholeNumber((nowMs() - $0) / 1000) } ?? 0
                     LoadingLine(text: "Starting pi\(seconds >= 2 ? " · \(seconds)s" : "")\(chat.startupHint.map { " · \($0)" } ?? "")")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -395,7 +431,7 @@ private struct ChatScreen: View {
             }
             if let error = chat.error {
                 VStack(alignment: .leading, spacing: Space.sm) {
-                    Text(error).font(.system(size: 14)).foregroundStyle(theme.danger).textSelection(.enabled)
+                    Text(error).uiFont(14).foregroundStyle(theme.danger).textSelection(.enabled)
                     if showStderr, let tail = chat.stderrTail {
                         Text(tail.joined(separator: "\n")).font(.mono(12)).foregroundStyle(theme.text2).textSelection(.enabled)
                     }

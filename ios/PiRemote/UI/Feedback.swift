@@ -73,7 +73,7 @@ private struct ToastOverlay: View {
             if let item = center.current {
                 HStack(spacing: 8) {
                     Text(item.text)
-                        .font(.system(size: 14))
+                        .uiFont(14)
                         .foregroundStyle(Color(hex: 0xECECEE))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 12)
@@ -83,7 +83,7 @@ private struct ToastOverlay: View {
                             center.dismiss()
                         } label: {
                             Text(action.label)
-                                .font(.system(size: 14, weight: .semibold))
+                                .uiFont(14, weight: .semibold)
                                 .foregroundStyle(Color(hex: 0x7CC0E6))
                                 .frame(minWidth: 44, minHeight: 44)
                         }
@@ -148,8 +148,29 @@ enum Dialogs {
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first { !($0 is PassThroughWindow) }
         var top = window?.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
+        // A sheet that is closing does not count: what shows next goes over what stays.
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed { top = presented }
         return top
+    }
+
+    /**
+     * Present over the topmost screen. A sheet closed by the same tap is still
+     * animating out, and UIKit drops a presentation over a controller that is
+     * busy; wait for it (up to two seconds) instead of losing the dialog and
+     * leaving its caller waiting. `failed` runs when nothing could show it.
+     */
+    private static func present(_ controller: UIViewController, failed: @escaping () -> Void) {
+        Task { @MainActor in
+            for _ in 0..<40 {
+                guard let top = topViewController() else { break }
+                if top.presentedViewController == nil, !top.isBeingPresented, !top.isBeingDismissed {
+                    top.present(controller, animated: true)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            failed()
+        }
     }
 
     /// A native confirm; true when the action button is chosen.
@@ -158,11 +179,7 @@ enum Dialogs {
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in continuation.resume(returning: false) })
             alert.addAction(UIAlertAction(title: action, style: danger ? .destructive : .default) { _ in continuation.resume(returning: true) })
-            guard let top = topViewController() else {
-                continuation.resume(returning: false)
-                return
-            }
-            top.present(alert, animated: true)
+            present(alert) { continuation.resume(returning: false) }
         }
     }
 
@@ -181,11 +198,7 @@ enum Dialogs {
                 let value = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 continuation.resume(returning: value.isEmpty ? nil : value)
             })
-            guard let top = topViewController() else {
-                continuation.resume(returning: nil)
-                return
-            }
-            top.present(alert, animated: true)
+            present(alert) { continuation.resume(returning: nil) }
         }
     }
 
@@ -193,9 +206,11 @@ enum Dialogs {
     static func share(_ items: [Any]) {
         guard let top = topViewController() else { return }
         let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        // On iPad the sheet is a popover: centered, without an arrow pointing at nothing.
         sheet.popoverPresentationController?.sourceView = top.view
         sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
-        top.present(sheet, animated: true)
+        sheet.popoverPresentationController?.permittedArrowDirections = []
+        present(sheet) {}
     }
 }
 

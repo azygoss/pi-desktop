@@ -31,7 +31,15 @@ struct StoredComputers: Codable {
 enum Keychain {
     private static let service = "io.github.azygoss.piremote"
 
-    static func read(_ account: String) -> Data? {
+    enum Lookup {
+        case found(Data)
+        case missing
+        /// The Keychain did not answer (locked before the first unlock, say):
+        /// not the same as an item that is not there.
+        case unavailable
+    }
+
+    static func lookup(_ account: String) -> Lookup {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -40,8 +48,16 @@ enum Keychain {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
+        switch SecItemCopyMatching(query as CFDictionary, &result) {
+        case errSecSuccess: return (result as? Data).map(Lookup.found) ?? .missing
+        case errSecItemNotFound: return .missing
+        default: return .unavailable
+        }
+    }
+
+    static func read(_ account: String) -> Data? {
+        if case .found(let data) = lookup(account) { return data }
+        return nil
     }
 
     @discardableResult
@@ -77,24 +93,38 @@ enum PairingStorage {
     /// Enough for a desk, a laptop and a few servers.
     static let maxComputers = 8
 
-    /// This phone's long-term key pair, created on first launch.
-    static func loadIdentity() -> RemoteCrypto.KeyPair {
-        if let data = Keychain.read(identityKey),
-            let text = String(data: data, encoding: .utf8),
-            let secret = Base64URL.decode(text),
-            let pair = try? RemoteCrypto.keyPair(fromSecret: secret)
-        {
-            return pair
+    /// This phone's long-term key pair, created on first launch. Nil while the
+    /// Keychain cannot be read: a new identity then would make every paired
+    /// computer refuse this phone, and the pairings would be dropped.
+    static func loadIdentity() -> RemoteCrypto.KeyPair? {
+        switch Keychain.lookup(identityKey) {
+        case .unavailable:
+            return nil
+        case .found(let data):
+            if let text = String(data: data, encoding: .utf8),
+                let secret = Base64URL.decode(text),
+                let pair = try? RemoteCrypto.keyPair(fromSecret: secret)
+            {
+                return pair
+            }
+        case .missing:
+            break
         }
-        // Unreadable or missing: a fresh identity (pairing is redone).
+        // Missing or damaged: a fresh identity (pairing is redone).
         let pair = RemoteCrypto.generateKeyPair()
         Keychain.write(identityKey, Data(Base64URL.encode(pair.secretKey).utf8))
         return pair
     }
 
-    static func loadComputers() -> StoredComputers {
-        guard let data = Keychain.read(computersKey),
-            let stored = try? JSONDecoder().decode(StoredComputers.self, from: data)
+    /// Nil while the Keychain cannot be read (see `loadIdentity`).
+    static func loadComputers() -> StoredComputers? {
+        let data: Data
+        switch Keychain.lookup(computersKey) {
+        case .unavailable: return nil
+        case .missing: return StoredComputers(list: [], active: nil)
+        case .found(let found): data = found
+        }
+        guard let stored = try? JSONDecoder().decode(StoredComputers.self, from: data)
         else { return StoredComputers(list: [], active: nil) }
         let list = Array(stored.list.filter { !$0.hosts.isEmpty }.prefix(maxComputers))
         let active = list.contains { $0.key == stored.active } ? stored.active : list.first?.key

@@ -39,7 +39,7 @@ struct SettingsTab: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Usage").foregroundStyle(theme.text)
-                                Text("Tokens and cost over the last 30 days").font(.system(size: 13)).foregroundStyle(theme.muted)
+                                Text("Tokens and cost over the last 30 days").uiFont(13).foregroundStyle(theme.muted)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(theme.muted)
@@ -52,17 +52,47 @@ struct SettingsTab: View {
                 computerUseCard
                 Card(label: "About") {
                     Readout(label: "Pi Remote", value: appVersion)
+                    ForEach(aboutLinks, id: \.title) { link in
+                        ThemedDivider()
+                        Link(destination: link.url) {
+                            HStack {
+                                Text(link.title).foregroundStyle(theme.text)
+                                Spacer()
+                                Image(systemName: "arrow.up.right").foregroundStyle(theme.muted)
+                            }
+                            .padding(.horizontal, Space.lg)
+                            .padding(.vertical, Space.md)
+                            .frame(minHeight: touchTarget)
+                        }
+                        .buttonStyle(RowButtonStyle())
+                    }
                 }
+                Text("Pi Remote is a community project, not affiliated with or endorsed by pi or Earendil.")
+                    .font(.footnote)
+                    .foregroundStyle(theme.muted)
+                    .padding(.horizontal, Space.xs)
             }
             .padding(Space.lg)
             .padding(.bottom, Space.xl)
+            // A readable column on iPad.
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
         .background(theme.bg)
         .task {
-            await load()
+            // Subscribe first: a tab left while `load` runs must not leave a listener behind.
             bag.add(connection.onOnline { Task { await load() } })
+            await load()
         }
         .onDisappear { bag.cancelAll() }
+    }
+
+    private var aboutLinks: [(title: String, url: URL)] {
+        [
+            ("Privacy policy", "https://github.com/azygoss/pi-desktop/blob/main/docs/privacy.md"),
+            ("Help and support", "https://github.com/azygoss/pi-desktop/issues"),
+            ("Source code", "https://github.com/azygoss/pi-desktop")
+        ].compactMap { title, address in URL(string: address).map { (title, $0) } }
     }
 
     private func load() async {
@@ -92,7 +122,7 @@ struct SettingsTab: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(computer.name).foregroundStyle(theme.text).lineLimit(1)
                             Text("\(computer.isServer ? "pi-remote" : "Pi Desktop") · \(computer.address):\(computer.port)")
-                                .font(.system(size: 13))
+                                .uiFont(13)
                                 .foregroundStyle(theme.muted)
                                 .lineLimit(1)
                         }
@@ -100,8 +130,9 @@ struct SettingsTab: View {
                         if inUse {
                             HStack(spacing: Space.sm) {
                                 Pixel(tone: status.tone)
-                                Text(status.text).font(.system(size: 13)).foregroundStyle(theme.text2)
+                                Text(status.text).uiFont(13).foregroundStyle(theme.text2).lineLimit(1)
                             }
+                            .fixedSize()
                         }
                     }
                     .padding(.horizontal, Space.lg)
@@ -115,7 +146,7 @@ struct SettingsTab: View {
             ThemedDivider()
             VStack(alignment: .leading, spacing: Space.sm) {
                 if connection.computers.count > 1 {
-                    Text("Tap a computer to use it. Touch and hold to forget it.").font(.system(size: 13)).foregroundStyle(theme.muted)
+                    Text("Tap a computer to use it. Touch and hold to forget it.").uiFont(13).foregroundStyle(theme.muted)
                 }
                 Button {
                     router.addComputer = .init(link: nil)
@@ -134,16 +165,16 @@ struct SettingsTab: View {
         Card(label: "In use") {
             VStack(alignment: .leading, spacing: Space.sm) {
                 Text(connection.server?.name ?? connection.pairing?.name ?? "Computer")
-                    .font(.system(size: 16, weight: .semibold))
+                    .uiFont(16, weight: .semibold)
                     .foregroundStyle(theme.text)
                     .lineLimit(1)
                 HStack(spacing: Space.sm) {
                     Pixel(tone: status.tone)
-                    Text(status.text).font(.system(size: 14)).foregroundStyle(theme.text2)
+                    Text(status.text).uiFont(14).foregroundStyle(theme.text2)
                 }
                 if connection.phase == .offline {
                     if let error = connection.error {
-                        Text(error).font(.system(size: 14)).foregroundStyle(theme.danger)
+                        Text(error).uiFont(14).foregroundStyle(theme.danger)
                     }
                     Button("Retry") { connection.retry() }.buttonStyle(SecondaryButtonStyle())
                 }
@@ -159,7 +190,7 @@ struct SettingsTab: View {
             Readout(label: "pi runtime", value: runtime.map { "\($0.kind) \($0.version ?? "unknown version")" } ?? "—")
             ThemedDivider()
             VStack(alignment: .leading, spacing: Space.sm) {
-                Text("End-to-end encrypted between this phone and the computer.").font(.system(size: 14)).foregroundStyle(theme.muted)
+                Text("End-to-end encrypted between this phone and the computer.").uiFont(14).foregroundStyle(theme.muted)
                 Button {
                     Task { await addAddress() }
                 } label: {
@@ -181,7 +212,7 @@ struct SettingsTab: View {
     private var appearanceCard: some View {
         Card(label: "Appearance") {
             VStack(alignment: .leading, spacing: Space.sm) {
-                Text("Theme").font(.system(size: 14)).foregroundStyle(theme.text2)
+                Text("Theme").uiFont(14).foregroundStyle(theme.text2)
                 Picker("Theme", selection: $prefs.theme) {
                     ForEach(ThemePref.allCases, id: \.self) { option in Text(option.label).tag(option) }
                 }
@@ -221,7 +252,7 @@ struct SettingsTab: View {
                     Text(
                         "When you leave the app while pi works, it stays connected as long as iOS allows and tells you when a chat is done. iOS also wakes it now and then to check on longer runs."
                     )
-                    .font(.system(size: 13))
+                    .uiFont(13)
                     .foregroundStyle(theme.muted)
                 }
             }
@@ -240,14 +271,14 @@ struct SettingsTab: View {
                     Readout(label: "Screen Recording", value: cua.screenRecording ? "granted" : "not granted")
                     ThemedDivider()
                     Text("Permissions are changed on the computer, in Pi Desktop's settings.")
-                        .font(.system(size: 14))
+                        .uiFont(14)
                         .foregroundStyle(theme.muted)
                         .padding(.horizontal, Space.lg)
                         .padding(.vertical, Space.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("Not available on this computer")
-                        .font(.system(size: 14))
+                        .uiFont(14)
                         .foregroundStyle(theme.text2)
                         .padding(Space.lg)
                         .frame(maxWidth: .infinity, alignment: .leading)

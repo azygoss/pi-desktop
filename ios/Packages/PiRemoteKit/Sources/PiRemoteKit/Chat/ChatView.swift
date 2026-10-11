@@ -229,7 +229,7 @@ public struct ChatViewState: Sendable {
     }
 
     static func compactTokens(_ n: Double) -> String {
-        n < 1000 ? "\(Int(n))" : "\(Int((n / 1000).rounded()))k"
+        n < 1000 ? "\(wholeNumber(n))" : "\(wholeNumber((n / 1000).rounded()))k"
     }
 
     /// "Context compacted · 150k → 32k tokens"

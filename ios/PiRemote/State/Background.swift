@@ -68,6 +68,7 @@ final class Background: NSObject {
         content.sound = .default
         content.threadIdentifier = chatId
         var info: [String: String] = ["chatId": chatId]
+        if let computer = Connection.shared.pairing?.key { info["computer"] = computer }
         if let sessionPath { info["session"] = sessionPath }
         content.userInfo = info
         let request = UNNotificationRequest(identifier: "chat-\(chatId)", content: content, trigger: nil)
@@ -119,7 +120,8 @@ final class Background: NSObject {
     private func beginBackgroundTask() {
         guard backgroundTask == .invalid else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "pi is working") { [weak self] in
-            Task { @MainActor in self?.endBackgroundTask() }
+            // iOS calls this on the main thread and wants the task ended before it returns.
+            MainActor.assumeIsolated { self?.endBackgroundTask() }
         }
         Connection.shared.backgroundLink = backgroundTask != .invalid
     }
@@ -149,6 +151,11 @@ final class Background: NSObject {
     func appBecameActive() {
         endBackgroundTask()
         cancelAlerts()
+        // Turned off in iOS Settings: stop holding background time for alerts iOS drops.
+        Task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            if settings.authorizationStatus == .denied, Prefs.shared.notifications == true { disable() }
+        }
     }
 
     private func sync() {
@@ -176,18 +183,24 @@ final class Background: NSObject {
                 task.setTaskCompleted(success: false)
                 return
             }
-            Task { @MainActor in
-                let work = Task { await Background.shared.runRefresh() }
-                refresh.expirationHandler = { work.cancel() }
-                let success = await work.value
-                refresh.setTaskCompleted(success: success)
+            // Completed exactly once: by the work, or at once when iOS takes the time back.
+            let finish = CompleteOnce { refresh.setTaskCompleted(success: $0) }
+            let work = Task { @MainActor in await Background.shared.runRefresh() }
+            refresh.expirationHandler = {
+                work.cancel()
+                finish(false)
             }
+            Task { finish(await work.value) }
         }
     }
 
     /// One background refresh: reconnect, compare, announce, reschedule.
     private func runRefresh() async -> Bool {
         guard enabled else { return true }
+        // Ask for the next one first: a refresh that cannot reach the computer
+        // (the phone is away from it) must not end the chain.
+        let pending = (UserDefaults.standard.array(forKey: Self.workingKey) as? [[String: String]]) ?? []
+        if !pending.isEmpty { scheduleRefresh() }
         Connection.shared.start()
         Connection.shared.backgroundLink = true
         defer { Connection.shared.backgroundLink = UIApplication.shared.applicationState == .active || backgroundTask != .invalid }
@@ -271,8 +284,30 @@ extension Background: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         guard let chatId = info["chatId"] as? String else { return }
         let session = info["session"] as? String
+        let computer = info["computer"] as? String
         await MainActor.run {
+            // About another computer than the one in use: its ids mean nothing here.
+            if let computer, computer != Connection.shared.pairing?.key { return }
             Router.shared.openChatLink(chatId: chatId, sessionPath: session)
         }
+    }
+}
+
+/// Runs its completion once, whichever thread gets there first.
+private final class CompleteOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    private let completion: (Bool) -> Void
+
+    init(_ completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+    }
+
+    func callAsFunction(_ success: Bool) {
+        let first = lock.withLock {
+            defer { done = true }
+            return !done
+        }
+        if first { completion(success) }
     }
 }

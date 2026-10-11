@@ -32,7 +32,7 @@ private struct StepTile: View {
     var body: some View {
         LiveTick(live: state == .running) { tick in
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .uiFont(11, weight: .medium)
                 .foregroundStyle(state == .running ? theme.accent : state == .error ? theme.danger : theme.muted)
                 .frame(width: 24, height: 24)
                 .background(RoundedRectangle(cornerRadius: Radius.sm).fill(theme.surface))
@@ -63,7 +63,7 @@ struct StepRow<Trailing: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 trailing
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .uiFont(11, weight: .semibold)
                     .foregroundStyle(theme.muted)
                     .rotationEffect(.degrees(open ? 90 : 0))
             }
@@ -210,7 +210,7 @@ private struct ToolDetail: View {
                     Button {
                         copyToClipboard(output)
                     } label: {
-                        Image(systemName: "doc.on.doc").font(.system(size: 12)).foregroundStyle(theme.muted).frame(width: 40, height: 36)
+                        Image(systemName: "doc.on.doc").uiFont(12).foregroundStyle(theme.muted).frame(width: 40, height: 36)
                     }
                     .accessibilityLabel("Copy output")
                 }
@@ -334,7 +334,7 @@ struct ToolStepView: View {
                     ToolDetail(call: call, run: run, category: category)
                     if let path, let onOpenFile, category == .read || category == .edit || category == .create {
                         Button("Open file") { onOpenFile(path) }
-                            .font(.system(size: 14))
+                            .uiFont(14)
                             .foregroundStyle(theme.accent)
                             .frame(minHeight: touchTarget)
                     }
@@ -366,7 +366,7 @@ struct ThinkingStepView: View {
             }
             if open {
                 Text(block.thinking.trimmed.isEmpty ? "…" : block.thinking.trimmed)
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.text2)
                     .lineSpacing(3)
                     .textSelection(.enabled)

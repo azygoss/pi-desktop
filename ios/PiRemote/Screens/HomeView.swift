@@ -31,10 +31,18 @@ struct HomeView: View {
             header
             if connection.phase == .offline {
                 HStack(spacing: Space.md) {
-                    Text("Cannot reach the computer. Trying again…")
-                        .font(.system(size: 14))
-                        .foregroundStyle(theme.text2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cannot reach the computer. Trying again…")
+                            .font(.subheadline)
+                            .foregroundStyle(theme.text2)
+                        // iOS blocks the link without a word when Local Network access is off.
+                        Button("Check Local Network access in Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(theme.accent)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Retry") { connection.retry() }.buttonStyle(SecondaryButtonStyle())
                 }
                 .padding(.horizontal, Space.lg)
@@ -89,11 +97,11 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: Space.xs) {
                         Text(connection.server?.name ?? connection.pairing?.name ?? "Computer")
-                            .font(.system(size: 17, weight: .semibold))
+                            .uiFont(17, weight: .semibold)
                             .foregroundStyle(theme.text)
                             .lineLimit(1)
                         if connection.computers.count > 1 {
-                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 12)).foregroundStyle(theme.muted)
+                            Image(systemName: "chevron.up.chevron.down").uiFont(12).foregroundStyle(theme.muted)
                         }
                     }
                     Text(phaseText).font(.mono(12)).foregroundStyle(theme.muted)
@@ -101,7 +109,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, minHeight: touchTarget, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .accessibilityLabel("\(connection.pairing?.name ?? "Computer"), \(phaseText). Computers")
+            .accessibilityLabel("\(connection.server?.name ?? connection.pairing?.name ?? "Computer"), \(phaseText). Computers")
         }
         .padding(.horizontal, Space.lg)
         .frame(minHeight: 52)
@@ -128,7 +136,10 @@ struct SearchField: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(theme.muted)
+                        .frame(width: touchTarget, height: touchTarget)
+                        .contentShape(Rectangle())
                 }
+                .padding(.vertical, -Space.md)
                 .accessibilityLabel("Clear search")
             }
         }

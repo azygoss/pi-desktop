@@ -163,7 +163,7 @@ struct ChatsTab: View {
                 newChatOpen = true
             } label: {
                 Label("New chat", systemImage: "plus")
-                    .font(.system(size: 15, weight: .semibold))
+                    .uiFont(15, weight: .semibold)
                     .foregroundStyle(theme.onAccent)
                     .padding(.horizontal, Space.lg)
                     .frame(height: 52)
@@ -197,11 +197,13 @@ struct ChatsTab: View {
             .buttonStyle(RowButtonStyle())
             .contextMenu { sessionMenu(session) }
             .swipeActions(edge: .trailing) {
-                Button(role: .destructive) {
+                // Not role: .destructive, which slides the row away before the confirm.
+                Button {
                     Task { await remove(session) }
                 } label: {
                     Label("Trash", systemImage: "trash")
                 }
+                .tint(theme.danger)
                 Button {
                     archive(session)
                 } label: {
@@ -223,7 +225,7 @@ struct ChatsTab: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.title.isEmpty ? "Untitled chat" : session.title).foregroundStyle(theme.text).lineLimit(1)
-                    Text(hit.snippet).font(.system(size: 13)).foregroundStyle(theme.muted).lineLimit(2)
+                    Text(hit.snippet).uiFont(13).foregroundStyle(theme.muted).lineLimit(2)
                     Text("\(hit.matches) \(hit.matches == 1 ? "match" : "matches") · \(baseName(session.cwd))")
                         .font(.mono(12))
                         .foregroundStyle(theme.muted)
@@ -281,9 +283,9 @@ struct ChatsTab: View {
 
     private var notificationPrompt: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Text("Know when pi is done").font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Know when pi is done").uiFont(16, weight: .semibold).foregroundStyle(theme.text)
             Text("Get a notification when a chat finishes or pi needs you, also with the app in the background.")
-                .font(.system(size: 14))
+                .uiFont(14)
                 .foregroundStyle(theme.text2)
             HStack(spacing: Space.sm) {
                 Button {
@@ -334,12 +336,12 @@ struct ChatsTab: View {
         VStack(alignment: .leading, spacing: Space.xs) {
             if !showAll && total > initialLimit {
                 Button("Show older chats (\(total - initialLimit) more)") { showAll = true }
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .frame(minHeight: touchTarget)
             }
             if archivedCount > 0 || showArchived {
                 Button(showArchived ? "Back to chats" : "Archived chats (\(archivedCount))") { showArchived.toggle() }
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .frame(minHeight: touchTarget)
             }
         }
@@ -357,7 +359,10 @@ struct ChatsTab: View {
         }
         try? await Task.sleep(nanoseconds: 300_000_000)
         guard !Task.isCancelled else { return }
-        if let result = try? await API.search(needle), !Task.isCancelled { hits = result }
+        let result = try? await API.search(needle)
+        guard !Task.isCancelled else { return }
+        // A failed search shows no hits rather than the last query's.
+        hits = result ?? []
     }
 
     private func archive(_ session: SessionSummary) {

@@ -3,6 +3,9 @@ import PiRemoteKit
 import SwiftUI
 import UIKit
 
+/// Where to get Pi Desktop and read about Pi Remote.
+let projectURL = URL(string: "https://github.com/azygoss/pi-desktop")
+
 private let pairingSteps = [
     "Open Pi Desktop on your computer",
     "Go to Settings → Remote control",
@@ -37,7 +40,7 @@ struct PairView: View {
                         Button {
                             dismiss()
                         } label: {
-                            Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
+                            Image(systemName: "xmark").uiFont(17, weight: .semibold)
                                 .frame(width: touchTarget, height: touchTarget)
                         }
                         .accessibilityLabel("Close")
@@ -47,7 +50,7 @@ struct PairView: View {
                 PiMark()
                 VStack(alignment: .leading, spacing: Space.sm) {
                     Text(adding ? "Pair another computer" : "Pair with your computer")
-                        .font(.system(size: 22, weight: .semibold))
+                        .uiFont(22, weight: .semibold)
                         .foregroundStyle(theme.text)
                         .accessibilityAddTraits(.isHeader)
                     if adding {
@@ -66,6 +69,14 @@ struct PairView: View {
                             Text(step).foregroundStyle(theme.text)
                         }
                     }
+                    if let projectURL {
+                        Link(destination: projectURL) {
+                            Label("Get Pi Desktop", systemImage: "arrow.up.right.square")
+                                .font(.subheadline.weight(.medium))
+                                .frame(minHeight: touchTarget)
+                        }
+                        .tint(theme.accent)
+                    }
                 }
                 if let busy {
                     HStack(spacing: Space.sm) {
@@ -82,7 +93,7 @@ struct PairView: View {
                 }
                 if let shown = error ?? connection.error {
                     Text(shown)
-                        .font(.system(size: 14))
+                        .uiFont(14)
                         .foregroundStyle(theme.danger)
                         .padding(.leading, Space.md)
                         .padding(.vertical, Space.xs)
@@ -91,7 +102,7 @@ struct PairView: View {
                 }
                 VStack(alignment: .leading, spacing: Space.sm) {
                     Text("No camera? Choose \"Copy pairing link\" on the computer, send it to this phone and paste it here.")
-                        .font(.system(size: 14))
+                        .uiFont(14)
                         .foregroundStyle(theme.muted)
                     TextField("pidesktop://pair?…", text: $pasted)
                         .textInputAutocapitalization(.never)
@@ -99,12 +110,15 @@ struct PairView: View {
                         .fieldStyle()
                         .accessibilityLabel("Pairing link")
                     HStack(spacing: Space.sm) {
-                        Button {
-                            pasted = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        } label: {
-                            Label("Paste", systemImage: "doc.on.clipboard").frame(maxWidth: .infinity)
+                        // The system paste button reads the clipboard without the "Allow Paste" prompt.
+                        PasteButton(payloadType: String.self) { strings in
+                            pasted = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                         }
-                        .buttonStyle(SecondaryButtonStyle())
+                        .buttonBorderShape(.roundedRectangle(radius: Radius.md))
+                        .tint(theme.raised)
+                        .foregroundStyle(theme.text)
+                        .labelStyle(.titleAndIcon)
+                        .frame(maxWidth: .infinity)
                         Button {
                             Task { await pair(pasted) }
                         } label: {
@@ -115,30 +129,35 @@ struct PairView: View {
                     }
                 }
                 Text("Both devices need to reach each other: the same Wi-Fi, or a VPN such as Tailscale.")
-                    .font(.system(size: 13))
+                    .uiFont(13)
                     .foregroundStyle(theme.muted)
             }
             .padding(Space.xl)
             .padding(.top, adding ? 0 : Space.xxl)
+            // A readable column on iPad.
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
         .background(theme.bg.ignoresSafeArea())
         .fullScreenCover(isPresented: $scanning) {
             QRScannerScreen { code in
-                guard !handled, PairingPayload.parse(code) != nil else { return }
+                guard PairingPayload.parse(code) != nil else { return false }
+                guard !handled else { return true }
                 handled = true
                 scanning = false
                 Task { await pair(code) }
+                return true
             }
         }
         .task {
             // The system camera (or a tapped link) can open the app with the
-            // pairing link itself: pair straight away.
+            // pairing link itself. A link can come from anywhere, so ask first.
             if adding, let link {
-                await pair(link)
+                await pairFromLink(link)
             } else if let pending = router.pendingPairLink {
                 router.pendingPairLink = nil
-                await pair(pending)
+                await pairFromLink(pending)
             }
         }
         // Editing the pasted link makes an earlier error stale — drop it.
@@ -146,8 +165,27 @@ struct PairView: View {
         .onChange(of: router.pendingPairLink) { _, pending in
             guard let pending, !adding else { return }
             router.pendingPairLink = nil
-            Task { await pair(pending) }
+            Task { await pairFromLink(pending) }
         }
+    }
+
+    /// A link opened the app: say which computer it pairs with before trusting it.
+    /// Whoever runs that computer sees the prompts, files and photos sent to it.
+    private func pairFromLink(_ text: String) async {
+        guard let payload = PairingPayload.parse(text) else {
+            error = "That link is not a Pi Desktop pairing code."
+            return
+        }
+        let confirmed = await Dialogs.confirm(
+            title: "Pair with \(payload.name)?",
+            message: "This link pairs Pi Remote with \(payload.name) at \(payload.hosts.first ?? "an unknown address"). Continue only if it comes from your own computer: everything you send in Pi Remote goes to it.",
+            action: "Pair"
+        )
+        guard confirmed else {
+            if adding { dismiss() }
+            return
+        }
+        await pair(text)
     }
 
     private func startScan() async {
@@ -160,9 +198,17 @@ struct PairView: View {
                 error = "Camera access is needed to scan the code. You can also paste the pairing link below."
                 return
             }
+        case .restricted:
+            error = "The camera is not available on this iPhone. Paste the pairing link below instead."
+            return
         default:
             error = "Camera access is off for Pi Remote. Turn it on in Settings, or paste the pairing link below."
-            if let url = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(url) }
+            let open = await Dialogs.confirm(
+                title: "Camera access is off",
+                message: "Turn on Camera for Pi Remote in Settings to scan pairing codes.",
+                action: "Open Settings"
+            )
+            if open, let url = URL(string: UIApplication.openSettingsURLString) { await UIApplication.shared.open(url) }
             return
         }
         handled = false
@@ -197,20 +243,27 @@ struct PairView: View {
 // MARK: - Scanner
 
 private struct QRScannerScreen: View {
-    let onCode: (String) -> Void
+    /// True when the code is a pairing code.
+    let onCode: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
+    @State private var unavailable = false
+    @State private var wrongCode = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            QRScanner(onCode: onCode).ignoresSafeArea()
+            QRScanner(
+                onCode: { code in if !onCode(code) { wrongCode = true } },
+                onUnavailable: { unavailable = true }
+            )
+            .ignoresSafeArea()
             VStack {
                 HStack {
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .semibold))
+                            .uiFont(17, weight: .semibold)
                             .foregroundStyle(.white)
                             .frame(width: touchTarget, height: touchTarget)
                             .background(Circle().fill(Color.black.opacity(0.5)))
@@ -220,8 +273,13 @@ private struct QRScannerScreen: View {
                 }
                 .padding(Space.sm)
                 Spacer()
-                Text("Point the camera at the pairing code")
-                    .font(.system(size: 14))
+                Text(
+                    unavailable
+                        ? "The camera could not start. Close this and paste the pairing link instead."
+                        : wrongCode ? "That code is not a Pi Desktop pairing code" : "Point the camera at the pairing code"
+                )
+                .multilineTextAlignment(.center)
+                    .uiFont(14)
                     .foregroundStyle(Color(hex: 0xECECEE))
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.md)
@@ -235,31 +293,44 @@ private struct QRScannerScreen: View {
 /// The camera with a QR code reader (AVFoundation metadata output).
 private struct QRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
+    let onUnavailable: () -> Void
 
     func makeUIViewController(context: Context) -> ScannerController {
         let controller = ScannerController()
         controller.onCode = onCode
+        controller.onUnavailable = onUnavailable
         return controller
     }
 
     func updateUIViewController(_ controller: ScannerController, context: Context) {
         controller.onCode = onCode
+        controller.onUnavailable = onUnavailable
     }
 
     final class ScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
         var onCode: ((String) -> Void)?
+        var onUnavailable: (() -> Void)?
         private let session = AVCaptureSession()
         private var preview: AVCaptureVideoPreviewLayer?
+        /// Keeps the picture upright as an iPad turns.
+        private var rotation: AVCaptureDevice.RotationCoordinator?
+        private var rotationObservation: NSKeyValueObservation?
 
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .black
             guard let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device),
                 session.canAddInput(input)
-            else { return }
+            else {
+                DispatchQueue.main.async { self.onUnavailable?() }
+                return
+            }
             session.addInput(input)
             let output = AVCaptureMetadataOutput()
-            guard session.canAddOutput(output) else { return }
+            guard session.canAddOutput(output) else {
+                DispatchQueue.main.async { self.onUnavailable?() }
+                return
+            }
             session.addOutput(output)
             output.setMetadataObjectsDelegate(self, queue: .main)
             output.metadataObjectTypes = [.qr]
@@ -267,6 +338,13 @@ private struct QRScanner: UIViewControllerRepresentable {
             layer.videoGravity = .resizeAspectFill
             view.layer.addSublayer(layer)
             preview = layer
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: layer)
+            layer.connection?.videoRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+            rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak layer] coordinator, _ in
+                let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+                DispatchQueue.main.async { layer?.connection?.videoRotationAngle = angle }
+            }
+            rotation = coordinator
         }
 
         override func viewDidLayoutSubviews() {

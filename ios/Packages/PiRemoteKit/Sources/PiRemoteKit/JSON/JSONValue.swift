@@ -69,8 +69,15 @@ public enum JSONValue: Hashable, Sendable {
 
     /// Parse JSON text (fragments allowed).
     public static func parse(_ data: Data) throws -> JSONValue {
-        let object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        return JSONValue(any: object)
+        do {
+            return JSONValue(any: try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+        } catch {
+            // JavaScript writes half of a surrogate pair (a string cut in the middle
+            // of an emoji) as a lone `\ud83d`, which Foundation rejects. Read it as
+            // U+FFFD, the way JSON.parse keeps the text.
+            guard let repaired = replacingLoneSurrogates(data) else { throw error }
+            return JSONValue(any: try JSONSerialization.jsonObject(with: repaired, options: [.fragmentsAllowed]))
+        }
     }
 
     public static func parse(_ text: String) throws -> JSONValue {
@@ -266,11 +273,15 @@ private func decodePrimitive<T: Decodable>(_ type: T.Type, _ value: JSONValue, _
         guard case .number(let number) = value else { throw mismatch(type, path, value) }
         return Float(number) as! T
     case is Int.Type:
-        guard case .number(let number) = value, number.isFinite else { throw mismatch(type, path, value) }
-        return Int(number.rounded(.towardZero)) as! T
+        guard case .number(let number) = value, let whole = Int(exactly: number.rounded(.towardZero)) else {
+            throw mismatch(type, path, value)
+        }
+        return whole as! T
     case is Int64.Type:
-        guard case .number(let number) = value, number.isFinite else { throw mismatch(type, path, value) }
-        return Int64(number.rounded(.towardZero)) as! T
+        guard case .number(let number) = value, let whole = Int64(exactly: number.rounded(.towardZero)) else {
+            throw mismatch(type, path, value)
+        }
+        return whole as! T
     default:
         return try T(from: JSONValueDecoder(value: value, codingPath: path))
     }
@@ -410,5 +421,77 @@ public struct LenientArray<Element: Decodable>: Decodable {
             if let item = try? value.decode(Element.self) { out.append(item) }
         }
         items = out
+    }
+}
+
+/// `\uXXXX` escapes of lone UTF-16 surrogates replaced with `�`; nil when
+/// there are none (the parse failed for another reason).
+func replacingLoneSurrogates(_ data: Data) -> Data? {
+    let bytes = [UInt8](data)
+    var out: [UInt8] = []
+    out.reserveCapacity(bytes.count)
+    var changed = false
+    var inString = false
+    var i = 0
+
+    /// The code unit of a `\uXXXX` escape starting at `at`, if there is one.
+    func escape(at index: Int) -> UInt16? {
+        guard index + 5 < bytes.count, bytes[index] == UInt8(ascii: "\\"), bytes[index + 1] == UInt8(ascii: "u") else { return nil }
+        var value: UInt16 = 0
+        for byte in bytes[(index + 2)...(index + 5)] {
+            guard let digit = hexDigit(byte) else { return nil }
+            value = value << 4 | UInt16(digit)
+        }
+        return value
+    }
+
+    let replacement = Array("\\ufffd".utf8)
+    while i < bytes.count {
+        let byte = bytes[i]
+        if !inString {
+            if byte == UInt8(ascii: "\"") { inString = true }
+            out.append(byte)
+            i += 1
+            continue
+        }
+        if byte == UInt8(ascii: "\"") {
+            inString = false
+            out.append(byte)
+            i += 1
+            continue
+        }
+        guard byte == UInt8(ascii: "\\"), i + 1 < bytes.count else {
+            out.append(byte)
+            i += 1
+            continue
+        }
+        guard let unit = escape(at: i) else {
+            // Any other escape (`\\`, `\"`, `\n`…) passes through whole.
+            out.append(byte)
+            out.append(bytes[i + 1])
+            i += 2
+            continue
+        }
+        if (0xD800...0xDBFF).contains(unit), let low = escape(at: i + 6), (0xDC00...0xDFFF).contains(low) {
+            out.append(contentsOf: bytes[i..<(i + 12)]) // a proper pair
+            i += 12
+        } else if (0xD800...0xDFFF).contains(unit) {
+            out.append(contentsOf: replacement)
+            changed = true
+            i += 6
+        } else {
+            out.append(contentsOf: bytes[i..<(i + 6)])
+            i += 6
+        }
+    }
+    return changed ? Data(out) : nil
+}
+
+private func hexDigit(_ byte: UInt8) -> UInt8? {
+    switch byte {
+    case UInt8(ascii: "0")...UInt8(ascii: "9"): return byte - UInt8(ascii: "0")
+    case UInt8(ascii: "a")...UInt8(ascii: "f"): return byte - UInt8(ascii: "a") + 10
+    case UInt8(ascii: "A")...UInt8(ascii: "F"): return byte - UInt8(ascii: "A") + 10
+    default: return nil
     }
 }

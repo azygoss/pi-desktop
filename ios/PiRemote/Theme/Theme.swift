@@ -133,9 +133,61 @@ extension Font {
     }
 }
 
-extension UIFont {
-    static func mono(_ size: CGFloat, _ weight: MonoWeight = .regular) -> UIFont {
-        UIFont(name: weight.fontName, size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+/// The widest a column of text runs (chats on iPad), so lines stay readable.
+let readableWidth: CGFloat = 820
+
+/// The text style a design size sits closest to; Dynamic Type scales it like that style.
+func textStyle(for size: CGFloat) -> Font.TextStyle {
+    switch size {
+    case 22...: return .title2
+    case 17..<22: return .body
+    case 16..<17: return .callout
+    case 14..<16: return .subheadline
+    case 13..<14: return .footnote
+    case 12..<13: return .caption
+    default: return .caption2
+    }
+}
+
+/// The system font at a design size that follows Dynamic Type.
+private struct ScaledSystemFont: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    private let weight: Font.Weight
+
+    init(size: CGFloat, weight: Font.Weight) {
+        _size = ScaledMetric(wrappedValue: size, relativeTo: textStyle(for: size))
+        self.weight = weight
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: weight))
+    }
+}
+
+extension View {
+    /// The app's sizes (14, 16, 17…) at the default text size, scaled with
+    /// Dynamic Type the way `.mono()` is.
+    func uiFont(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledSystemFont(size: size, weight: weight))
+    }
+}
+
+/// A design size scaled for the current Dynamic Type setting (for text built
+/// outside a view, like AttributedString runs).
+@MainActor
+func scaledSize(_ size: CGFloat) -> CGFloat {
+    UIFontMetrics(forTextStyle: uiTextStyle(for: size)).scaledValue(for: size)
+}
+
+private func uiTextStyle(for size: CGFloat) -> UIFont.TextStyle {
+    switch textStyle(for: size) {
+    case .title2: return .title2
+    case .body: return .body
+    case .callout: return .callout
+    case .subheadline: return .subheadline
+    case .footnote: return .footnote
+    case .caption: return .caption1
+    default: return .caption2
     }
 }
 

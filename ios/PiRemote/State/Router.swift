@@ -155,12 +155,18 @@ final class Router {
         if Connection.shared.isOnline {
             Task { await open() }
         } else {
-            // Launched from the notification: the link is still coming up.
+            // Launched from the notification: the link is still coming up. Only
+            // for a minute, so a tap is not acted on hours later.
             var subscription: Subscription?
             subscription = Connection.shared.onOnline {
                 subscription?.cancelNow()
                 subscription = nil
                 Task { await open() }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                subscription?.cancelNow()
+                subscription = nil
             }
         }
     }

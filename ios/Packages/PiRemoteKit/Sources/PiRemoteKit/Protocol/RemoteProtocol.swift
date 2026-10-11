@@ -41,7 +41,8 @@ public struct PairingPayload: Equatable, Sendable {
 
     private static let hostPattern = try! NSRegularExpression(pattern: "^[A-Za-z0-9.\\-:\\[\\]]{1,255}$")
 
-    static func isHost(_ text: String) -> Bool {
+    /// A host name, IPv4 or IPv6 address (bracketed or not) as the link may carry it.
+    public static func isHost(_ text: String) -> Bool {
         hostPattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 

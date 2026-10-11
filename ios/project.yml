@@ -55,9 +55,9 @@ targets:
           - CFBundleURLName: io.github.azygoss.piremote
             CFBundleURLSchemes:
               - pidesktop
+        # Background App Refresh only (BGAppRefreshTask in Background.swift).
         UIBackgroundModes:
           - fetch
-          - processing
         BGTaskSchedulerPermittedIdentifiers:
           - io.github.azygoss.piremote.refresh
         NSCameraUsageDescription: Pi Remote uses the camera to scan the pairing code shown by Pi Desktop, and to take photos you attach to a message.
@@ -65,10 +65,13 @@ targets:
         NSPhotoLibraryAddUsageDescription: Pi Remote saves images you choose to keep to your photo library.
         NSLocalNetworkUsageDescription: Pi Remote connects directly to Pi Desktop on your computer over your network.
         # The link to the computer is a plain WebSocket to a LAN or VPN
-        # address, end-to-end encrypted by the app itself (docs/remote.md).
+        # address, or to a server's public name for pi-remote, end-to-end
+        # encrypted by the app itself (docs/remote.md). Only
+        # NSAllowsArbitraryLoads: with NSAllowsLocalNetworking also present,
+        # iOS ignores it and blocks ws:// to qualified names (*.ts.net,
+        # a server's domain).
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.azygoss.piremote

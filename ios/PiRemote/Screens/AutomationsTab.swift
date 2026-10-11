@@ -45,7 +45,7 @@ struct AutomationsTab: View {
         List {
             VStack(alignment: .leading, spacing: Space.md) {
                 Text("Prompts pi runs on a schedule while Pi Desktop (or pi-remote) is running on the computer.")
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.muted)
                 Button {
                     router.push(.automationEdit(id: nil))
@@ -89,9 +89,10 @@ struct AutomationsTab: View {
         .background(theme.bg)
         .refreshable { await load() }
         .task {
-            await load()
+            // Subscribe first: a tab left while `load` runs must not leave listeners behind.
             bag.add(Connection.shared.onOnline { Task { await load() } })
             bag.add(Connection.shared.on(RemoteEvent.automationsChanged) { _ in Task { await load() } })
+            await load()
         }
         .onDisappear { bag.cancelAll() }
     }
@@ -132,7 +133,8 @@ struct AutomationsTab: View {
             Button(role: .destructive) { Task { await remove(automation) } } label: { Label("Delete…", systemImage: "trash") }
         }
         .swipeActions {
-            Button(role: .destructive) { Task { await remove(automation) } } label: { Label("Delete", systemImage: "trash") }
+            // Not role: .destructive, which slides the row away before the confirm.
+            Button { Task { await remove(automation) } } label: { Label("Delete", systemImage: "trash") }.tint(theme.danger)
             Button { Task { await runNow(automation) } } label: { Label("Run now", systemImage: "play") }.tint(theme.accent)
         }
         .accessibilityElement(children: .contain)
@@ -277,9 +279,12 @@ struct AutomationEditView: View {
             }
         }
         .task {
+            // Runs again when the folder picker pops back to the editor: load
+            // only once, or the server's copy would wipe the edits and the folder.
+            guard initial == nil else { return }
             if id != nil {
                 await load()
-            } else if initial == nil {
+            } else {
                 initial = draftKey
             }
         }
@@ -332,7 +337,7 @@ struct AutomationEditView: View {
                     HStack {
                         TextField("1", text: $amount)
                             .keyboardType(.numberPad)
-                            .frame(width: 72)
+                            .frame(minWidth: 72, maxWidth: 120)
                             .onChange(of: amount) { _, value in
                                 let digits = value.filter(\.isNumber)
                                 if digits != value { amount = String(digits.prefix(5)) }
@@ -361,7 +366,7 @@ struct AutomationEditView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Enabled")
                         Text("Runs only while Pi Desktop (or pi-remote) is running on the computer.")
-                            .font(.system(size: 13))
+                            .uiFont(13)
                             .foregroundStyle(theme.muted)
                     }
                 }

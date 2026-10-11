@@ -306,9 +306,17 @@ public func groupByDate(_ sessions: [SessionSummary], now: Date = Date()) -> [(g
 
 // MARK: - Formatting (mobile lib/format.ts)
 
+/// A number from the computer as an Int for display: truncated, clamped to
+/// what an Int holds, and 0 for NaN. `Int(Double)` traps on anything else.
+public func wholeNumber(_ value: Double) -> Int {
+    guard value.isFinite else { return value.isNaN ? 0 : (value > 0 ? Int.max : Int.min) }
+    let limit = 9.0e15
+    return Int(min(max(value, -limit), limit))
+}
+
 /// "now", "5m", "3h", "2d", "4mo"
 public func relativeTime(_ ms: Double, now: Double = nowMs()) -> String {
-    let minutes = Int(floor((now - ms) / 60000))
+    let minutes = wholeNumber(floor((now - ms) / 60000))
     if minutes < 1 { return "now" }
     if minutes < 60 { return "\(minutes)m" }
     let hours = minutes / 60
@@ -325,7 +333,7 @@ public func relativeTime(iso: String) -> String {
 
 /// 1234 → "1.2k", 1_250_000 → "1.3M"
 public func compactNumber(_ n: Double) -> String {
-    if n < 1000 { return "\(Int(n.rounded()))" }
+    if n < 1000 { return "\(wholeNumber(n.rounded()))" }
     if n < 1_000_000 { return String(format: n < 10_000 ? "%.1fk" : "%.0fk", n / 1000) }
     return String(format: "%.1fM", n / 1_000_000)
 }

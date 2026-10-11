@@ -18,7 +18,9 @@ final class ImageCache: @unchecked Sendable {
         guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters), let image = UIImage(data: data) else {
             return nil
         }
-        cache.setObject(image, forKey: key as NSString, cost: data.count)
+        // What a shown image holds is its bitmap, not the compressed bytes.
+        let pixels = image.size.width * image.scale * image.size.height * image.scale
+        cache.setObject(image, forKey: key as NSString, cost: max(data.count, Int(min(pixels * 4, Double(Int32.max)))))
         return image
     }
 }
@@ -126,7 +128,7 @@ struct LightboxView: View {
                 .accessibilityLabel("Close image")
             }
             .foregroundStyle(.white)
-            .font(.system(size: 17, weight: .semibold))
+            .uiFont(17, weight: .semibold)
             .padding(Space.sm)
             VStack {
                 Spacer()
@@ -148,6 +150,7 @@ enum ImagePrep {
     static let maxEdge: CGFloat = 1568
 
     /// Scaled to `maxEdge` and encoded as JPEG (base64), like the Android app.
+    /// Pure CPU work: called off the main thread.
     static func attachment(from image: UIImage) -> (content: ImageContent, preview: UIImage)? {
         let size = image.size
         let longest = max(size.width, size.height)

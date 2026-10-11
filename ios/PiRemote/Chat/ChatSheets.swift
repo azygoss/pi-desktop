@@ -38,7 +38,7 @@ private struct ModelRowView: View {
             HStack(spacing: Space.md) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(model.name.isEmpty ? model.id : model.name)
-                        .font(.system(size: 16, weight: selected ? .semibold : .regular))
+                        .uiFont(16, weight: selected ? .semibold : .regular)
                         .foregroundStyle(theme.text)
                         .lineLimit(1)
                     Text("\(model.id) · \(compactNumber(model.contextWindow)) ctx").font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1)
@@ -64,7 +64,7 @@ struct ModelSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Model").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Model").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
                 .padding(.horizontal, Space.lg).padding(.top, Space.xl).padding(.bottom, Space.sm)
             if chat.availableThinkingLevels.count > 1 {
                 SectionLabel("Thinking effort").padding(.horizontal, Space.lg)
@@ -143,7 +143,7 @@ struct ReviewModelSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Review with").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Review with").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
                 .padding(.horizontal, Space.lg).padding(.top, Space.xl).padding(.bottom, Space.sm)
             if let current = chat.model {
                 SectionLabel("This chat's model").padding(.horizontal, Space.lg)
@@ -211,11 +211,11 @@ struct UiRequestCard: View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(spacing: Space.sm) {
                 Pixel(tone: .attention)
-                Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+                Text(title).uiFont(16, weight: .semibold).foregroundStyle(theme.text)
             }
             if let message = request.message {
                 ScrollView {
-                    Text(message).font(.system(size: 14)).foregroundStyle(theme.text2).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(message).uiFont(14).foregroundStyle(theme.text2).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 120)
             }
@@ -223,7 +223,8 @@ struct UiRequestCard: View {
             case "select":
                 ScrollView {
                     VStack(spacing: Space.sm) {
-                        ForEach(request.options, id: \.self) { option in
+                        // An extension may list the same option twice: identify by position.
+                        ForEach(Array(request.options.enumerated()), id: \.offset) { _, option in
                             Button {
                                 store.respondUi(chatId, id: request.id, value: option)
                             } label: {
@@ -294,7 +295,7 @@ struct StatsSheet: View {
         ActionSheetView(title: "Session") {
             if let stats = chat.stats {
                 let rows: [(String, String)] = [
-                    ("Context", stats.contextPercent.map { "\(Int($0.rounded()))% of \(compactNumber(stats.contextWindow ?? 0))" } ?? "—"),
+                    ("Context", stats.contextPercent.map { "\(wholeNumber($0.rounded()))% of \(compactNumber(stats.contextWindow ?? 0))" } ?? "—"),
                     ("Messages", "\(stats.userMessages ?? 0) prompts · \(stats.assistantMessages ?? 0) replies"),
                     ("Tool calls", "\(stats.toolCalls ?? 0)"),
                     ("Input tokens", compactNumber(stats.tokens?.input ?? 0)),
@@ -311,7 +312,7 @@ struct StatsSheet: View {
             if let path = chat.sessionPath {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session file").foregroundStyle(theme.text)
-                    Text(path).font(.system(size: 13)).foregroundStyle(theme.muted).lineLimit(3).textSelection(.enabled)
+                    Text(path).uiFont(13).foregroundStyle(theme.muted).lineLimit(3).textSelection(.enabled)
                 }
                 .padding(.horizontal, Space.lg)
                 .padding(.vertical, Space.md)
@@ -342,7 +343,7 @@ struct StatsSheet: View {
                     Text(percent >= 70
                         ? "Context is filling up: a summary of earlier messages frees room for the rest of the work."
                         : "Summarizes earlier messages to free up context.")
-                        .font(.system(size: 13))
+                        .uiFont(13)
                         .foregroundStyle(theme.muted)
                 }
                 .padding(.horizontal, Space.lg)
@@ -363,8 +364,8 @@ struct CompactSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Text("Compact context").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
-            Text("What should the summary keep? (optional)").font(.system(size: 14)).foregroundStyle(theme.text2)
+            Text("Compact context").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
+            Text("What should the summary keep? (optional)").uiFont(14).foregroundStyle(theme.text2)
             TextField("", text: $instructions, axis: .vertical)
                 .lineLimit(4...8)
                 .fieldStyle()
@@ -396,10 +397,10 @@ struct ForkSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Fork from a prompt").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Fork from a prompt").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
                 .padding(.horizontal, Space.lg).padding(.top, Space.xl)
             Text("The chat continues on a new branch from before that prompt; its text returns to the message box.")
-                .font(.system(size: 14)).foregroundStyle(theme.muted)
+                .uiFont(14).foregroundStyle(theme.muted)
                 .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
             if let messages {
                 if messages.isEmpty {
@@ -452,13 +453,13 @@ struct TreeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Session tree").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Session tree").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
                 .padding(.horizontal, Space.lg).padding(.top, Space.xl)
             let branches = rows?.filter(\.branchStart).count ?? 0
             Text(branches > 0
                 ? "\(branches) branches. The one pi is on is highlighted; tap a prompt to fork from before it."
                 : "Tap a prompt to continue on a new branch from before it.")
-                .font(.system(size: 14)).foregroundStyle(theme.muted)
+                .uiFont(14).foregroundStyle(theme.muted)
                 .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
             if let rows {
                 if rows.isEmpty {
@@ -479,8 +480,8 @@ struct TreeSheet: View {
                                 } label: {
                                     HStack(spacing: Space.sm) {
                                         Text(row.role).font(.mono(11)).foregroundStyle(row.role == "user" ? theme.accent : theme.muted)
-                                            .frame(width: 64, alignment: .leading).lineLimit(1)
-                                        Text(row.snippet).font(.system(size: 14)).foregroundStyle(row.active ? theme.text : theme.text2).lineLimit(1)
+                                            .frame(minWidth: 64, alignment: .leading).lineLimit(1).fixedSize()
+                                        Text(row.snippet).uiFont(14).foregroundStyle(row.active ? theme.text : theme.text2).lineLimit(1)
                                         Spacer(minLength: 0)
                                         if row.leaf { Text("here").font(.mono(11)).foregroundStyle(theme.accent) }
                                     }
@@ -592,7 +593,7 @@ struct BranchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Text("Branches").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Branches").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
                 .padding(.horizontal, Space.lg).padding(.top, Space.xl)
             SearchField(text: $query, placeholder: "Find a branch or name a new one").padding(.horizontal, Space.lg)
             Group {
@@ -602,7 +603,7 @@ struct BranchSheet: View {
                 if data?.truncated == true { Text("Showing the newest branches: type to search them all.") }
                 if busy { Text("pi is working in this folder: switching waits until it is done.") }
             }
-            .font(.system(size: 14))
+            .uiFont(14)
             .foregroundStyle(theme.muted)
             .padding(.horizontal, Space.lg)
             if sections.isEmpty {
@@ -676,7 +677,7 @@ struct BranchSheet: View {
                 HStack(spacing: Space.md) {
                     Image(systemName: symbol).foregroundStyle(current ? theme.accent : theme.text2).frame(width: 20)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.system(size: 16, weight: current ? .semibold : .regular)).foregroundStyle(theme.text).lineLimit(1)
+                        Text(title).uiFont(16, weight: current ? .semibold : .regular).foregroundStyle(theme.text).lineLimit(1)
                         if !detail.isEmpty { Text(detail).font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1) }
                     }
                     Spacer(minLength: 0)

@@ -259,18 +259,18 @@ public let minShownDurationMs: Double = 100
 /// "0.4s", "12s", "2m 05s"
 public func formatDuration(_ ms: Double) -> String {
     if ms < 1000 { return String(format: "%.1fs", max(ms, 0) / 1000) }
-    let total = Int((ms / 1000).rounded())
+    let total = wholeNumber((ms / 1000).rounded())
     if total < 60 { return "\(total)s" }
     return "\(total / 60)m \(String(format: "%02d", total % 60))s"
 }
 
 /// "0:42", "12:05", "1:02:03"
 public func formatElapsed(_ ms: Double) -> String {
-    let total = max(0, Int(ms / 1000))
+    let total = max(0, wholeNumber(ms / 1000))
     let h = total / 3600
     let m = (total % 3600) / 60
     let s = total % 60
-    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    return h > 0 ? String(format: "%ld:%02ld:%02ld", h, m, s) : String(format: "%ld:%02ld", m, s)
 }
 
 // MARK: - Tool images (tool-images.ts)

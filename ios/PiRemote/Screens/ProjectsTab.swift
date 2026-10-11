@@ -112,7 +112,7 @@ struct ProjectsTab: View {
                     Text(detail(project)).font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1)
                 }
                 Spacer()
-                Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 13)).foregroundStyle(theme.muted)
+                Image(systemName: open ? "chevron.down" : "chevron.right").uiFont(13).foregroundStyle(theme.muted)
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, 10)

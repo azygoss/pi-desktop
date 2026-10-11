@@ -29,9 +29,9 @@ public enum TranscriptItem: Identifiable, Sendable {
 private let workGroupMin = 2
 
 private func shortTokens(_ n: Double) -> String {
-    if n < 1000 { return "\(Int(n))" }
+    if n < 1000 { return "\(wholeNumber(n))" }
     let k = n / 1000
-    if k >= 100 { return "\(Int(k.rounded()))k" }
+    if k >= 100 { return "\(wholeNumber(k.rounded()))k" }
     var text = String(format: "%.1f", k)
     if text.hasSuffix(".0") { text.removeLast(2) }
     return "\(text)k"

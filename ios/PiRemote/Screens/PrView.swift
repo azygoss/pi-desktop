@@ -36,7 +36,7 @@ struct PrView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text("Pull request").font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+                        Text("Pull request").uiFont(16, weight: .semibold).foregroundStyle(theme.text)
                         if let pr { Text("#\(pr.number)").font(.mono(12)).foregroundStyle(theme.muted) }
                     }
                 }
@@ -68,11 +68,11 @@ struct PrView: View {
                 List {
                     Group {
                         if let error {
-                            Text(error).font(.system(size: 14)).foregroundStyle(theme.danger).padding(.horizontal, Space.lg).padding(.top, Space.md)
+                            Text(error).uiFont(14).foregroundStyle(theme.danger).padding(.horizontal, Space.lg).padding(.top, Space.md)
                         }
                         head(pr)
                         if pr.checks.isEmpty {
-                            Text("This pull request has no checks.").font(.system(size: 14)).foregroundStyle(theme.muted).padding(.horizontal, Space.lg)
+                            Text("This pull request has no checks.").uiFont(14).foregroundStyle(theme.muted).padding(.horizontal, Space.lg)
                         }
                         ForEach(Array(pr.checks.enumerated()), id: \.offset) { _, check in
                             checkRow(check)
@@ -109,20 +109,20 @@ struct PrView: View {
         return VStack(alignment: .leading, spacing: Space.md) {
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text("#\(pr.number)").font(.mono(13)).foregroundStyle(theme.muted)
-                Text(pr.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+                Text(pr.title).uiFont(17, weight: .semibold).foregroundStyle(theme.text)
             }
             HStack(spacing: Space.md) {
-                Text(state).font(.system(size: 14)).foregroundStyle(theme.text2)
+                Text(state).uiFont(14).foregroundStyle(theme.text2)
                 if let review {
-                    Text(review).font(.system(size: 14)).foregroundStyle(pr.reviewDecision == "CHANGES_REQUESTED" ? theme.warning : theme.text2)
+                    Text(review).uiFont(14).foregroundStyle(pr.reviewDecision == "CHANGES_REQUESTED" ? theme.warning : theme.text2)
                 }
                 switch summary {
                 case .pending:
-                    HStack(spacing: Space.sm) { Pixel(tone: .working); Text("running").font(.system(size: 14)).foregroundStyle(theme.accent) }
+                    HStack(spacing: Space.sm) { Pixel(tone: .working); Text("running").uiFont(14).foregroundStyle(theme.accent) }
                 case .failing:
-                    HStack(spacing: Space.sm) { Pixel(tone: .error); Text("\(failing) failing").font(.system(size: 14)).foregroundStyle(theme.danger) }
+                    HStack(spacing: Space.sm) { Pixel(tone: .error); Text("\(failing) failing").uiFont(14).foregroundStyle(theme.danger) }
                 case .passing:
-                    HStack(spacing: Space.sm) { Pixel(tone: .ok); Text("passing").font(.system(size: 14)).foregroundStyle(theme.success) }
+                    HStack(spacing: Space.sm) { Pixel(tone: .ok); Text("passing").uiFont(14).foregroundStyle(theme.success) }
                 case .none:
                     EmptyView()
                 }
@@ -184,7 +184,7 @@ struct PrView: View {
                     case .done(let text)?:
                         Text(text.isEmpty ? "The log is empty." : text).font(.mono(12)).foregroundStyle(theme.text2).textSelection(.enabled)
                     case .error(let text)?:
-                        Text(text).font(.system(size: 14)).foregroundStyle(theme.danger)
+                        Text(text).uiFont(14).foregroundStyle(theme.danger)
                     default:
                         LoadingLine(text: "Loading the log…")
                     }
