@@ -35,16 +35,23 @@ enum Drafts {
     }
 }
 
-/// Project file lists for @-mentions, fetched once per folder per app run.
+/// Project file lists for @-mentions, fetched once per folder until the
+/// project's files change (a run ends, a commit) or the computer does.
 @MainActor
 enum ProjectFiles {
     private static var cache: [String: [String]] = [:]
 
+    private static func key(_ cwd: String) -> String { "\(Connection.shared.pairing?.key ?? "")|\(cwd)" }
+
     static func list(_ cwd: String) async -> [String] {
-        if let cached = cache[cwd] { return cached }
+        if let cached = cache[key(cwd)] { return cached }
         guard let files = try? await API.listFiles(cwd) else { return [] }
-        cache[cwd] = files
+        cache[key(cwd)] = files
         return files
+    }
+
+    static func invalidate() {
+        cache.removeAll()
     }
 }
 
@@ -65,11 +72,11 @@ private struct QueueStrip: View {
                 ForEach(Array((queue.steering.map { ("steer", $0) } + queue.followUp.map { ("next", $0) }).enumerated()), id: \.offset) { _, row in
                     HStack(spacing: Space.sm) {
                         Text(row.0).font(.mono(12)).foregroundStyle(theme.warning)
-                        Text(row.1).font(.system(size: 14)).foregroundStyle(theme.text2).lineLimit(1)
+                        Text(row.1).uiFont(14).foregroundStyle(theme.text2).lineLimit(1)
                     }
                 }
                 Button("Take back to edit") { Task { await ChatStore.shared.clearQueue(chat.chatId) } }
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.accent)
                     .frame(minHeight: touchTarget)
             }
@@ -204,7 +211,7 @@ struct Composer: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.mono(14)).foregroundStyle(theme.text).lineLimit(1)
-                if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(theme.muted).lineLimit(1) }
+                if let detail { Text(detail).uiFont(13).foregroundStyle(theme.muted).lineLimit(1) }
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
@@ -229,12 +236,15 @@ struct Composer: View {
                                         images.removeAll { $0.id == image.id }
                                     } label: {
                                         Image(systemName: "xmark")
-                                            .font(.system(size: 10, weight: .bold))
+                                            .uiFont(10, weight: .bold)
                                             .foregroundStyle(theme.text)
                                             .frame(width: 22, height: 22)
                                             .background(Circle().fill(theme.active))
+                                            // A finger-sized target around the small mark.
+                                            .frame(width: touchTarget, height: touchTarget)
+                                            .contentShape(Rectangle())
                                     }
-                                    .offset(x: 6, y: -6)
+                                    .offset(x: 17, y: -17)
                                     .accessibilityLabel("Remove image \(index + 1)")
                                 }
                                 .accessibilityLabel("Attached image \(index + 1)")
@@ -281,7 +291,7 @@ struct Composer: View {
                 Button {
                     attachOpen = true
                 } label: {
-                    Image(systemName: "plus").font(.system(size: 18)).foregroundStyle(theme.text2)
+                    Image(systemName: "plus").uiFont(18).foregroundStyle(theme.text2)
                         .frame(width: touchTarget, height: touchTarget)
                 }
                 .accessibilityLabel("Attach or insert")
@@ -298,20 +308,20 @@ struct Composer: View {
                 Spacer(minLength: 0)
                 if let percent = chat.stats?.contextPercent, percent >= 1 {
                     Button(action: onOpenStats) {
-                        Text("\(Int(percent.rounded()))%")
+                        Text("\(wholeNumber(percent.rounded()))%")
                             .font(.mono(12))
                             .foregroundStyle(percent >= 85 ? theme.warning : theme.muted)
                             .padding(.horizontal, Space.sm)
                             .frame(minHeight: touchTarget)
                     }
-                    .accessibilityLabel("Context \(Int(percent.rounded())) percent used. Session details")
+                    .accessibilityLabel("Context \(wholeNumber(percent.rounded())) percent used. Session details")
                 }
                 Button(action: showStop ? stop : submit) {
                     Group {
                         if showStop {
-                            Image(systemName: "stop.fill").font(.system(size: 14)).foregroundStyle(theme.danger)
+                            Image(systemName: "stop.fill").uiFont(14).foregroundStyle(theme.danger)
                         } else {
-                            Image(systemName: "arrow.up").font(.system(size: 17, weight: .bold)).foregroundStyle(canSend ? theme.onAccent : theme.muted)
+                            Image(systemName: "arrow.up").uiFont(17, weight: .bold).foregroundStyle(canSend ? theme.onAccent : theme.muted)
                         }
                     }
                     .frame(width: 44, height: 44)
@@ -438,19 +448,29 @@ struct Composer: View {
     }
 
     private func addImage(_ image: UIImage) {
-        guard let prepared = ImagePrep.attachment(from: image) else {
-            toast("Could not add the image")
-            return
+        Task {
+            // Scaling and JPEG-encoding a 12 MP photo takes a moment: not on the main thread.
+            let prepared = await Task.detached(priority: .userInitiated) { ImagePrep.attachment(from: image) }.value
+            guard let prepared else {
+                toast("Could not add the image")
+                return
+            }
+            images = Array((images + [PendingImage(content: prepared.content, preview: prepared.preview)]).prefix(maxImages))
         }
-        images = Array((images + [PendingImage(content: prepared.content, preview: prepared.preview)]).prefix(maxImages))
     }
 
     private func addPhotos(_ items: [PhotosPickerItem]) async {
         for item in items.prefix(maxImages) {
             do {
-                if let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
-                    addImage(image)
+                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                let prepared = await Task.detached(priority: .userInitiated) {
+                    UIImage(data: data).flatMap { ImagePrep.attachment(from: $0) }
+                }.value
+                guard let prepared else {
+                    toast("Could not add the image")
+                    continue
                 }
+                images = Array((images + [PendingImage(content: prepared.content, preview: prepared.preview)]).prefix(maxImages))
             } catch {
                 toast("Could not add the image: \(errorText(error))")
             }
@@ -461,20 +481,16 @@ struct Composer: View {
     private func sendFile(_ url: URL) async {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        uploading = url.lastPathComponent
+        defer { uploading = nil }
         do {
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size <= RemoteProtocol.maxUploadBytes else {
+            // Reading (an iCloud file may download first) and encoding up to
+            // 20 MB happen off the main thread, with the upload row showing.
+            guard let base64 = try await Task.detached(priority: .userInitiated, operation: { try readForUpload(url) }).value else {
                 toast("Files up to 20 MB can be sent")
                 return
             }
-            let data = try Data(contentsOf: url)
-            guard data.count <= RemoteProtocol.maxUploadBytes else {
-                toast("Files up to 20 MB can be sent")
-                return
-            }
-            uploading = url.lastPathComponent
-            defer { uploading = nil }
-            let path = try await API.upload(name: url.lastPathComponent, base64: data.base64EncodedString())
+            let path = try await API.upload(name: url.lastPathComponent, base64: base64)
             text = text + (text.isEmpty || text.hasSuffix(" ") ? "" : " ") + formatMention(path) + " "
             Haptic.success.play()
             focus.focus()
@@ -562,4 +578,19 @@ struct Composer: View {
             }
         }
     }
+}
+
+/// A picked file as base64 for an upload; nil when it is over the limit.
+private func readForUpload(_ url: URL) throws -> String? {
+    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    guard size <= RemoteProtocol.maxUploadBytes else { return nil }
+    var coordinationError: NSError?
+    var read: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
+    NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
+        read = Result { try Data(contentsOf: readable) }
+    }
+    if let coordinationError { throw coordinationError }
+    let data = try read.get()
+    guard data.count <= RemoteProtocol.maxUploadBytes else { return nil }
+    return data.base64EncodedString()
 }

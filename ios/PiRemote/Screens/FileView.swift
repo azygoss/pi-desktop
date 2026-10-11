@@ -17,6 +17,11 @@ struct FileView: View {
     @Environment(\.theme) private var theme
     @State private var file: FileReadResult?
     @State private var lines: [FileLine] = []
+    /// Width of one digit of the line numbers, wider at larger text sizes.
+    @ScaledMetric(relativeTo: .caption) private var digitWidth: CGFloat = 7.5
+    /// The highlighted tokens, kept to recolor the lines when light and dark switch.
+    @State private var tokens: [[CodeToken]] = []
+    @Environment(\.colorScheme) private var colorScheme
     @State private var error: String?
     @State private var image: UIImage?
     @State private var imageError: String?
@@ -30,11 +35,15 @@ struct FileView: View {
     var body: some View {
         content
             .background(theme.bg.ignoresSafeArea())
+            .onChange(of: colorScheme) { _, _ in
+                // The colors are baked into the text: bake them again for the new palette.
+                DispatchQueue.main.async { colorLines() }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text(baseName(file?.relativePath ?? path)).font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text).lineLimit(1)
+                        Text(baseName(file?.relativePath ?? path)).uiFont(16, weight: .semibold).foregroundStyle(theme.text).lineLimit(1)
                         Text(file?.relativePath ?? path).font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.head)
                     }
                 }
@@ -78,14 +87,14 @@ struct FileView: View {
                 VStack(spacing: 0) {
                     if file.truncated {
                         Text("The file is large; only its beginning is shown.")
-                            .font(.system(size: 13))
+                            .uiFont(13)
                             .foregroundStyle(theme.muted)
                             .padding(.horizontal, Space.lg)
                             .padding(.vertical, Space.sm)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .overlay(alignment: .bottom) { Rectangle().fill(theme.border).frame(height: 1) }
                     }
-                    let gutter = CGFloat(max(3, String(lines.count).count)) * 7.5 + Space.md
+                    let gutter = CGFloat(max(3, String(lines.count).count)) * digitWidth + Space.md
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(lines) { line in
@@ -106,6 +115,12 @@ struct FileView: View {
         }
     }
 
+    private func colorLines() {
+        lines = tokens.enumerated().map { index, tokens in
+            FileLine(number: index + 1, text: tokens.isEmpty ? AttributedString(" ") : highlighted(tokens, theme: theme, size: 12.5))
+        }
+    }
+
     private func load() async {
         error = nil
         do {
@@ -114,9 +129,8 @@ struct FileView: View {
             if !result.binary {
                 var rows = highlightLines(result.content, lang: languageOfPath(result.relativePath))
                 if rows.count > 1, rows.last?.isEmpty == true, result.content.hasSuffix("\n") { rows.removeLast() }
-                lines = rows.enumerated().map { index, tokens in
-                    FileLine(number: index + 1, text: tokens.isEmpty ? AttributedString(" ") : highlighted(tokens, theme: theme, size: 12.5))
-                }
+                tokens = rows
+                colorLines()
             } else if isImage {
                 do {
                     let remote = try await API.readImage(cwd, path)

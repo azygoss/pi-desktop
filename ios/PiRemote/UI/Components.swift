@@ -24,11 +24,22 @@ struct LiveTick<Content: View>: View {
 
 private struct LiveTickBody<Content: View>: View {
     @ViewBuilder var content: (Int) -> Content
+    /// Held once per view however often SwiftUI repeats onAppear, so the
+    /// shared timer always stops when the last live view goes.
+    @State private var held = false
 
     var body: some View {
         content(LiveClock.shared.tick)
-            .onAppear { LiveClock.shared.retain() }
-            .onDisappear { LiveClock.shared.release() }
+            .onAppear {
+                guard !held else { return }
+                held = true
+                LiveClock.shared.retain()
+            }
+            .onDisappear {
+                guard held else { return }
+                held = false
+                LiveClock.shared.release()
+            }
     }
 }
 
@@ -148,7 +159,7 @@ struct SectionLabel: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 13, weight: .medium))
+            .uiFont(13, weight: .medium)
             .foregroundStyle(theme.muted)
             .accessibilityAddTraits(.isHeader)
     }
@@ -184,16 +195,16 @@ struct EmptyState: View {
         VStack(spacing: Space.md) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 26, weight: .light))
+                    .uiFont(26, weight: .light)
                     .foregroundStyle(theme.muted)
             }
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .uiFont(16, weight: .semibold)
                 .foregroundStyle(theme.text)
                 .multilineTextAlignment(.center)
             if let detail {
                 Text(detail)
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.muted)
                     .multilineTextAlignment(.center)
             }
@@ -229,7 +240,7 @@ struct PrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
+            .uiFont(15, weight: .semibold)
             .foregroundStyle(theme.onAccent)
             .padding(.horizontal, Space.lg)
             .frame(minHeight: touchTarget)
@@ -245,7 +256,7 @@ struct SecondaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
+            .uiFont(15, weight: .semibold)
             .foregroundStyle(danger ? theme.danger : theme.text)
             .padding(.horizontal, Space.lg)
             .frame(minHeight: touchTarget)
@@ -301,7 +312,7 @@ struct SessionRow: View {
             if projectless { ScratchSigil() } else { Sigil(seed: session.cwd) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title.isEmpty ? "Untitled chat" : session.title)
-                    .font(.system(size: 16, weight: status == .unread ? .semibold : .regular))
+                    .uiFont(16, weight: status == .unread ? .semibold : .regular)
                     .foregroundStyle(theme.text)
                     .lineLimit(1)
                 Text((showProject && !projectless ? "\(baseName(session.cwd)) · " : "") + (statusWord.isEmpty ? relativeTime(iso: session.modified) : statusWord))
@@ -311,7 +322,7 @@ struct SessionRow: View {
             }
             Spacer(minLength: 0)
             if pinned {
-                Image(systemName: "pin").font(.system(size: 12)).foregroundStyle(theme.muted)
+                Image(systemName: "pin").uiFont(12).foregroundStyle(theme.muted)
             }
             if let status { Pixel(tone: status) }
         }
@@ -349,7 +360,7 @@ struct Readout: View {
 
     var body: some View {
         HStack(spacing: Space.md) {
-            Text(label).font(.system(size: 14)).foregroundStyle(theme.text2)
+            Text(label).uiFont(14).foregroundStyle(theme.text2)
             Spacer(minLength: Space.sm)
             Text(value)
                 .font(.mono(13))
@@ -379,7 +390,7 @@ struct FieldStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 16))
+            .uiFont(16)
             .foregroundStyle(theme.text)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
@@ -416,14 +427,14 @@ struct SheetAction: View {
             HStack(spacing: Space.md) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 17))
+                        .uiFont(17)
                         .foregroundStyle(danger ? theme.danger : theme.text2)
                         .frame(width: 24)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 16)).foregroundStyle(danger ? theme.danger : theme.text)
+                    Text(title).uiFont(16).foregroundStyle(danger ? theme.danger : theme.text)
                     if let detail {
-                        Text(detail).font(.system(size: 13)).foregroundStyle(theme.muted).lineLimit(2)
+                        Text(detail).uiFont(13).foregroundStyle(theme.muted).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 0)
@@ -449,7 +460,7 @@ struct ActionSheetView<Content: View>: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let title {
                     Text(title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .uiFont(17, weight: .semibold)
                         .foregroundStyle(theme.text)
                         .lineLimit(2)
                         .padding(.horizontal, Space.lg)

@@ -18,6 +18,8 @@ struct UserRow: View, Equatable {
     let userIndex: Int
     let actions: RowActions
     @Environment(\.theme) private var theme
+    /// Read so the prompt text, sized when it is built, follows a new text size.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     nonisolated static func == (lhs: UserRow, rhs: UserRow) -> Bool {
         lhs.message == rhs.message && lhs.userIndex == rhs.userIndex
@@ -71,7 +73,7 @@ struct UserRow: View, Equatable {
         splitMentions(text).reduce(Text("")) { result, segment in
             switch segment {
             case .text(let plain):
-                return result + Text(plain).font(.system(size: 16)).foregroundColor(theme.text)
+                return result + Text(plain).font(.system(size: scaledSize(16))).foregroundColor(theme.text)
             case .mention(_, let path):
                 return result + Text("@\(baseName(path))").font(.mono(14)).foregroundColor(theme.accent)
             }
@@ -146,7 +148,7 @@ struct AssistantBody: View {
             }
             if let error = message.errorMessage {
                 Text(error)
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.danger)
                     .textSelection(.enabled)
                     .padding(.leading, Space.md)
@@ -187,7 +189,7 @@ struct ShotsView: View {
                             }
                             .accessibilityLabel(shot.caption.map { "Open image: \($0)" } ?? "Open image")
                             if let caption = shot.caption {
-                                Text(caption).font(.system(size: 14)).foregroundStyle(theme.text2)
+                                Text(caption).uiFont(14).foregroundStyle(theme.text2)
                             }
                         }
                     }
@@ -409,14 +411,14 @@ struct MetaRow: View {
             Text(text).font(.mono(12)).foregroundStyle(theme.muted).frame(maxWidth: .infinity, alignment: .leading)
             if let onRetry {
                 Button(action: onRetry) {
-                    Image(systemName: "arrow.counterclockwise").font(.system(size: 13)).foregroundStyle(theme.muted)
+                    Image(systemName: "arrow.counterclockwise").uiFont(13).foregroundStyle(theme.muted)
                         .frame(width: touchTarget, height: 36)
                 }
                 .accessibilityLabel("Retry: ask pi again from this prompt")
             }
             if !reply.isEmpty {
                 Button { onCopy(reply) } label: {
-                    Image(systemName: "doc.on.doc").font(.system(size: 13)).foregroundStyle(theme.muted)
+                    Image(systemName: "doc.on.doc").uiFont(13).foregroundStyle(theme.muted)
                         .frame(width: touchTarget, height: 36)
                 }
                 .accessibilityLabel("Copy reply")

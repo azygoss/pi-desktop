@@ -22,7 +22,8 @@ struct GrowingTextView: UIViewRepresentable {
     var placeholder: String
     var minHeight: CGFloat = 40
     var maxHeight: CGFloat = 148
-    var font: UIFont = .systemFont(ofSize: 16)
+    /// 16 pt at the default text size, following Dynamic Type.
+    var font: UIFont = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 16))
     var textColor: UIColor
     var placeholderColor: UIColor
     var tintColor: UIColor
@@ -43,11 +44,13 @@ struct GrowingTextView: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 4
         view.adjustsFontForContentSizeCategory = true
         view.keyboardDismissMode = .interactive
-        view.accessibilityLabel = placeholder
+        view.accessibilityLabel = "Message"
+        view.accessibilityHint = placeholder
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let label = UILabel()
         label.text = placeholder
         label.font = font
+        label.adjustsFontForContentSizeCategory = true
         label.textColor = placeholderColor
         label.numberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -67,9 +70,11 @@ struct GrowingTextView: UIViewRepresentable {
         context.coordinator.parent = self
         if view.text != text {
             view.text = text
+            // Where the change asked for the caret (after an inserted @mention), else the end.
             let end = (text as NSString).length
-            view.selectedRange = NSRange(location: end, length: 0)
+            view.selectedRange = NSRange(location: (0...end).contains(cursor) ? cursor : end, length: 0)
         }
+        view.accessibilityHint = placeholder
         view.textColor = textColor
         view.tintColor = tintColor
         if let label = view.viewWithTag(99) as? UILabel {

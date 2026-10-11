@@ -114,7 +114,7 @@ struct FolderPickerView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
-                    Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+                    Text(title).uiFont(16, weight: .semibold).foregroundStyle(theme.text)
                     if let listing {
                         Text(tildePath(listing.path, homeDir: data.appInfo?.homeDir)).font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.head)
                     }

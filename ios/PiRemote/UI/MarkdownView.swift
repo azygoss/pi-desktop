@@ -89,7 +89,7 @@ func attributedInline(_ nodes: [MarkdownInline], theme: Theme, size: CGFloat = 1
             switch node {
             case .text(let text):
                 var piece = AttributedString(text)
-                var font = Font.system(size: size, weight: style.bold ? .semibold : weight)
+                var font = Font.system(size: scaledSize(size), weight: style.bold ? .semibold : weight)
                 if style.italic { font = font.italic() }
                 piece.font = font
                 if style.strike {
@@ -175,7 +175,7 @@ struct CodeBlockView: View, Equatable {
                 Button {
                     copyToClipboard(text)
                 } label: {
-                    Image(systemName: "doc.on.doc").font(.system(size: 13)).foregroundStyle(theme.muted)
+                    Image(systemName: "doc.on.doc").uiFont(13).foregroundStyle(theme.muted)
                         .frame(width: 40, height: 36)
                 }
                 .accessibilityLabel("Copy code")
@@ -229,6 +229,8 @@ private struct BlockView: View {
     let block: MarkdownBlock
     let selectable: Bool
     @Environment(\.theme) private var theme
+    /// Read so the text, sized when it is built, is built again at a new text size.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         switch block {
@@ -260,7 +262,7 @@ private struct BlockView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                         Text(item.checked.map { $0 ? "☑" : "☐" } ?? (ordered ? "\(start + index)." : "•"))
-                            .font(.system(size: 16))
+                            .uiFont(16)
                             .foregroundStyle(theme.muted)
                             .frame(minWidth: 18, alignment: .trailing)
                         BlocksView(blocks: item.blocks, selectable: selectable)
@@ -277,6 +279,8 @@ private struct TableBlock: View {
     let header: [[MarkdownInline]]
     let rows: [[[MarkdownInline]]]
     @Environment(\.theme) private var theme
+    /// Read so the text, sized when it is built, is built again at a new text size.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         // One width per column, sized by its longest cell within limits.

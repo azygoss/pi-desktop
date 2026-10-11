@@ -35,6 +35,8 @@ struct PiRemoteApp: App {
             RootView()
                 .themed()
                 .preferredColorScheme(prefs.theme.colorScheme)
+                // Dense rows (diffs, tool steps) stay usable up to the larger accessibility sizes.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .onOpenURL { url in Router.shared.handle(url: url) }
         }
         .onChange(of: scenePhase) { _, phase in

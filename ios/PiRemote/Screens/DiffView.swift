@@ -69,6 +69,9 @@ struct DiffView: View {
     @State private var shared = true
     @State private var menuTarget: MenuTarget?
     @State private var lineTarget: LineTarget?
+    /// Line-number and sign columns, wider at larger text sizes.
+    @ScaledMetric(relativeTo: .caption) private var numberColumn: CGFloat = 32
+    @ScaledMetric(relativeTo: .caption) private var signColumn: CGFloat = 18
     @State private var draft = ""
     @State private var message = ""
     @State private var busy: String?
@@ -104,7 +107,7 @@ struct DiffView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
-                        Text("Changes").font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+                        Text("Changes").uiFont(16, weight: .semibold).foregroundStyle(theme.text)
                         if let branch = result?.branch { Text(branch).font(.mono(12)).foregroundStyle(theme.muted) }
                     }
                 }
@@ -136,7 +139,7 @@ struct DiffView: View {
             VStack(spacing: 0) {
                 if !entries.isEmpty { summaryBar }
                 if let error {
-                    Text(error).font(.system(size: 14)).foregroundStyle(theme.danger).padding(.horizontal, Space.lg).padding(.top, Space.sm)
+                    Text(error).uiFont(14).foregroundStyle(theme.danger).padding(.horizontal, Space.lg).padding(.top, Space.sm)
                 }
                 if entries.isEmpty {
                     EmptyState(title: "No changes", detail: "The working tree matches the last commit.")
@@ -158,13 +161,13 @@ struct DiffView: View {
                 if reviewing {
                     HStack(spacing: Space.sm) {
                         Pixel(tone: .working)
-                        Text("pi is reviewing…").font(.system(size: 14)).foregroundStyle(theme.accent)
+                        Text("pi is reviewing…").uiFont(14).foregroundStyle(theme.accent)
                     }
                 } else {
                     Button {
                         startReview()
                     } label: {
-                        Label("Review", systemImage: "text.magnifyingglass").font(.system(size: 15, weight: .semibold))
+                        Label("Review", systemImage: "text.magnifyingglass").uiFont(15, weight: .semibold)
                     }
                     .frame(minHeight: touchTarget)
                 }
@@ -185,7 +188,7 @@ struct DiffView: View {
                     if !collapsed.contains(entry.file.path) {
                         if entry.file.isBinary || entry.file.tooLarge || entry.file.hunks.isEmpty {
                             Text(entry.file.tooLarge ? "File too large to show" : entry.file.isBinary ? "Binary file" : "No content changes")
-                                .font(.system(size: 14))
+                                .uiFont(14)
                                 .foregroundStyle(theme.muted)
                                 .padding(.horizontal, Space.lg)
                                 .padding(.vertical, Space.md)
@@ -224,7 +227,7 @@ struct DiffView: View {
                 if isCollapsed { collapsed.remove(entry.file.path) } else { collapsed.insert(entry.file.path) }
             } label: {
                 HStack(spacing: Space.sm) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down").font(.system(size: 13)).foregroundStyle(theme.muted)
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down").uiFont(13).foregroundStyle(theme.muted)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.file.status == "renamed" && entry.file.oldPath != nil ? "\(entry.file.oldPath ?? "") → \(entry.file.path)" : entry.file.path)
                             .font(.mono(13, .medium)).foregroundStyle(theme.text).lineLimit(2).truncationMode(.head)
@@ -259,14 +262,17 @@ struct DiffView: View {
         let add = line.type == .add
         let del = line.type == .del
         return HStack(alignment: .top, spacing: 0) {
-            Text(line.oldNo.map(String.init) ?? "").font(.mono(12)).foregroundStyle(theme.muted).frame(width: 32, alignment: .trailing)
-            Text(line.newNo.map(String.init) ?? "").font(.mono(12)).foregroundStyle(theme.muted).frame(width: 32, alignment: .trailing)
-            Text(add ? "+" : del ? "−" : " ").font(.mono(12.5)).foregroundStyle(add ? theme.success : del ? theme.danger : theme.muted).frame(width: 18)
+            Text(line.oldNo.map(String.init) ?? "").font(.mono(12)).foregroundStyle(theme.muted).frame(width: numberColumn, alignment: .trailing)
+            Text(line.newNo.map(String.init) ?? "").font(.mono(12)).foregroundStyle(theme.muted).frame(width: numberColumn, alignment: .trailing)
+            Text(add ? "+" : del ? "−" : " ").font(.mono(12.5)).foregroundStyle(add ? theme.success : del ? theme.danger : theme.muted).frame(width: signColumn)
             Text(line.text.isEmpty ? " " : line.text).font(.mono(12.5)).foregroundStyle(theme.text).frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.trailing, Space.sm)
         .background(add ? theme.successSoft : del ? theme.dangerSoft : Color.clear)
         .contentShape(Rectangle())
+        // One element per line for VoiceOver, not four.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(add ? "Added" : del ? "Removed" : "Line") \((line.newNo ?? line.oldNo).map { "\($0)" } ?? ""): \(line.text)")
         // A long press, so scrolling a diff never opens the comment sheet.
         .onLongPressGesture(minimumDuration: 0.3) {
             Haptic.tap.play()
@@ -285,7 +291,7 @@ struct DiffView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 if comment.fromPi { Text("pi").font(.mono(12, .medium)).foregroundStyle(theme.accent) }
-                Text(comment.text).font(.system(size: 14)).foregroundStyle(theme.text).frame(maxWidth: .infinity, alignment: .leading)
+                Text(comment.text).uiFont(14).foregroundStyle(theme.text).frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
@@ -310,7 +316,7 @@ struct DiffView: View {
                             sendComments()
                         } label: {
                             Text("Send \(mine.count) \(mine.count == 1 ? "comment" : "comments") to pi")
-                                .font(.system(size: 14, weight: .semibold))
+                                .uiFont(14, weight: .semibold)
                                 .foregroundStyle(theme.text)
                                 .padding(.horizontal, Space.md)
                                 .frame(maxWidth: .infinity, minHeight: touchTarget, alignment: .leading)
@@ -323,7 +329,7 @@ struct DiffView: View {
                         Button {
                             Task { await postToPr() }
                         } label: {
-                            Label(busy == "post" ? "Posting…" : "Post to PR", systemImage: "arrow.triangle.pull").font(.system(size: 14, weight: .semibold))
+                            Label(busy == "post" ? "Posting…" : "Post to PR", systemImage: "arrow.triangle.pull").uiFont(14, weight: .semibold)
                         }
                         .disabled(busy != nil)
                         .frame(minHeight: touchTarget)
@@ -368,7 +374,7 @@ struct DiffView: View {
 
     private func commentSheet(_ target: LineTarget) -> some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Text("Comment on this line").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.text)
+            Text("Comment on this line").uiFont(17, weight: .semibold).foregroundStyle(theme.text)
             Text(target.path + (target.number.map { ":\($0)" } ?? "")).font(.mono(12)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.head)
             if !target.line.text.trimmed.isEmpty {
                 Text(target.line.text)

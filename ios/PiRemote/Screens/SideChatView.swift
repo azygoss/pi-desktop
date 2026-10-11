@@ -106,7 +106,7 @@ struct SideChatView: View {
                     .accessibilityLabel("Stop")
                 } else {
                     Button { submit() } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 28)).foregroundStyle(theme.accent).frame(width: touchTarget, height: touchTarget)
+                        Image(systemName: "arrow.up.circle.fill").uiFont(28).foregroundStyle(theme.accent).frame(width: touchTarget, height: touchTarget)
                     }
                     .disabled(dead || text.trimmed.isEmpty)
                     .accessibilityLabel("Ask")
@@ -122,7 +122,7 @@ struct SideChatView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
-                    Text("Side chat").font(.system(size: 16, weight: .semibold)).foregroundStyle(theme.text)
+                    Text("Side chat").uiFont(16, weight: .semibold).foregroundStyle(theme.text)
                     Text("Nothing here is added to the chat").font(.mono(12)).foregroundStyle(theme.muted)
                 }
             }
@@ -146,7 +146,7 @@ struct SideChatView: View {
             .padding(.vertical, Space.sm)
             .background(RoundedRectangle(cornerRadius: Radius.md).fill(theme.userBlock))
         case .notice(let notice):
-            Text(notice.text).font(.system(size: 14)).foregroundStyle(notice.tone == .error ? theme.danger : theme.muted)
+            Text(notice.text).uiFont(14).foregroundStyle(notice.tone == .error ? theme.danger : theme.muted)
         case .assistant(let assistant):
             VStack(alignment: .leading, spacing: Space.sm) {
                 ForEach(Array(assistant.blocks.enumerated()), id: \.offset) { _, block in
@@ -162,7 +162,7 @@ struct SideChatView: View {
                     }
                 }
                 if let error = assistant.errorMessage {
-                    Text(error).font(.system(size: 14)).foregroundStyle(theme.danger)
+                    Text(error).uiFont(14).foregroundStyle(theme.danger)
                 }
             }
         case .bash:
@@ -176,7 +176,7 @@ struct SideChatView: View {
                 Text(hasHistory
                     ? "pi answers with this chat as context. Nothing said here is added to the chat."
                     : "This chat has no history yet, so pi answers without its context.")
-                    .font(.system(size: 14))
+                    .uiFont(14)
                     .foregroundStyle(theme.muted)
             }
             if model.phase == .starting {
@@ -184,13 +184,13 @@ struct SideChatView: View {
             } else if streaming {
                 HStack(spacing: Space.sm) {
                     Pixel(tone: .working)
-                    Text("Working").font(.system(size: 14)).foregroundStyle(theme.accent)
+                    Text("Working").uiFont(14).foregroundStyle(theme.accent)
                 }
             }
             if dead, let error = model.error {
                 HStack(spacing: Space.sm) {
                     Pixel(tone: .error)
-                    Text(error).font(.system(size: 14)).foregroundStyle(theme.danger)
+                    Text(error).uiFont(14).foregroundStyle(theme.danger)
                 }
                 Button {
                     generation += 1
