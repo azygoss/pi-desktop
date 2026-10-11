@@ -82,6 +82,10 @@ xcodebuild -project PiRemote.xcodeproj -scheme PiRemote \
 swift test --package-path Packages/PiRemoteKit
 ```
 
+To publish on the App Store, see [APP_STORE.md](APP_STORE.md): what the
+project already covers, the decisions left, `scripts/archive.sh` to archive
+and upload, and the store text.
+
 `PiRemote.xcodeproj` and `PiRemote/Info.plist` are generated from
 `project.yml` and not committed. To install on a device, set your own team
 and, if needed, your own bundle identifier in Xcode; never commit
