@@ -39,4 +39,18 @@ describe('trimTranscript', () => {
     // The input is not modified.
     expect(((messages[1] as typeof result).content[0] as { text: string }).text).toBe(long)
   })
+
+  it('never splits an emoji at either cut', () => {
+    // An emoji (two UTF-16 units) straddling both the head and the tail cut.
+    const long = `${'a'.repeat(4999)}😀${'b'.repeat(20_000)}😀${'c'.repeat(2499)}`
+    const messages = [
+      { role: 'toolResult', toolCallId: 't', toolName: 'bash', isError: false, content: [{ type: 'text', text: long }] }
+    ] as unknown as AgentMessage[]
+    const result = trimTranscript(messages)[0] as Extract<AgentMessage, { role: 'toolResult' }>
+    const text = (result.content[0] as { text: string }).text
+    // No lone surrogate anywhere (what String.prototype.isWellFormed checks).
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/)
+    expect(text.startsWith('a'.repeat(4999) + '\n')).toBe(true)
+    expect(text.endsWith('😀' + 'c'.repeat(2499))).toBe(true)
+  })
 })
